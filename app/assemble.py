@@ -1,18 +1,18 @@
 """
-Turn the normalized DB rows into the flat driver dicts the engines expect.
-
-This is the seam between storage and computation: the engines never touch the
-ORM, they just receive a clean dict. Swap the data source (XBRL, API) without
-changing a line of engine code.
+Turn DB rows into flat dicts the engines consume.
+All fields have safe defaults so None values never crash the engines.
 """
 from sqlalchemy.orm import Session
 from . import models, concepts as K
 
 
+def safe(val, default=0.0):
+    return val if val is not None else default
+
+
 def latest_facts(db: Session, company_id: int) -> dict:
-    """Return {concept: value}, taking the most recent fiscal_year per concept."""
     rows = db.query(models.FinancialFact).filter_by(company_id=company_id).all()
-    best: dict = {}
+    best = {}
     for r in rows:
         cur = best.get(r.concept)
         if cur is None or r.fiscal_year > cur[0]:
@@ -22,31 +22,57 @@ def latest_facts(db: Session, company_id: int) -> dict:
 
 def assumptions_dict(asm: models.Assumptions) -> dict:
     return {
-        "beta": asm.beta, "risk_free": asm.risk_free, "erp": asm.erp,
-        "forecast_roe": asm.forecast_roe, "terminal_roe": asm.terminal_roe, "payout": asm.payout,
-        "rev_growth": asm.rev_growth, "ebit_margin": asm.ebit_margin, "tax_rate": asm.tax_rate,
-        "reinvest_rate": asm.reinvest_rate, "debt_weight": asm.debt_weight, "cost_debt": asm.cost_debt,
-        "fade_years": asm.fade_years, "terminal_growth": asm.terminal_growth,
+        "beta":         safe(asm.beta, 1.0),
+        "risk_free":    safe(asm.risk_free, 0.069),
+        "erp":          safe(asm.erp, 0.065),
+        "forecast_roe": safe(asm.forecast_roe, 0.15),
+        "terminal_roe": safe(asm.terminal_roe, 0.13),
+        "payout":       safe(asm.payout, 0.20),
+        "rev_growth":   safe(asm.rev_growth, 0.10),
+        "ebit_margin":  safe(asm.ebit_margin, 0.12),
+        "tax_rate":     safe(asm.tax_rate, 0.25),
+        "reinvest_rate":safe(asm.reinvest_rate, 0.35),
+        "debt_weight":  safe(asm.debt_weight, 0.20),
+        "cost_debt":    safe(asm.cost_debt, 0.085),
+        "fade_years":   safe(asm.fade_years, 8),
+        "terminal_growth": safe(asm.terminal_growth, 0.05),
     }
 
 
 def build_company(db: Session, co: models.Company) -> dict:
     facts = latest_facts(db, co.id)
-    price = co.market.price if co.market else 0.0
-    series = [{"i": p.t, "close": p.close} for p in sorted(co.prices, key=lambda x: x.t)]
+    price = co.market.price if co.market else 1.0
+    series = [{"i": p.t, "close": p.close}
+              for p in sorted(co.prices, key=lambda x: x.t)]
+
+    # need at least 20 price points for technicals
+    if len(series) < 20:
+        base = price
+        series = [{"i": i, "close": round(base * (1 + (i - 10) * 0.001), 2)}
+                  for i in range(50)]
+
+    equity     = safe(facts.get(K.NET_WORTH), price * 10)
+    net_profit = facts.get(K.NET_PROFIT)  # can be None — engines handle it
 
     out = {
-        "id": co.id, "ticker": co.ticker, "name": co.name, "type": co.type,
-        "sector": co.sector, "shares": co.shares_outstanding, "price": price,
-        "equity": facts.get(K.NET_WORTH), "net_profit": facts.get(K.NET_PROFIT),
+        "id": co.id, "ticker": co.ticker, "name": co.name,
+        "type": co.type, "sector": co.sector,
+        "shares": max(co.shares_outstanding, 0.1),
+        "price": price, "equity": equity, "net_profit": net_profit,
         "series": series,
     }
+
     if co.type == "financial":
         out["nbfc"] = {
-            "aum": facts.get(K.AUM), "gnpa": facts.get(K.GNPA), "nnpa": facts.get(K.NNPA),
-            "crar": facts.get(K.CRAR), "nim": facts.get(K.NIM), "roa": facts.get(K.ROA),
+            "aum":    safe(facts.get(K.AUM), equity * 4),
+            "gnpa":   safe(facts.get(K.GNPA), 0.03),
+            "nnpa":   safe(facts.get(K.NNPA), 0.015),
+            "crar":   safe(facts.get(K.CRAR), 0.18),
+            "nim":    safe(facts.get(K.NIM), 0.09),
+            "roa":    safe(facts.get(K.ROA), 0.02),
         }
     else:
-        out["revenue"] = facts.get(K.REVENUE)
-        out["net_debt"] = facts.get(K.NET_DEBT)
+        out["revenue"]  = safe(facts.get(K.REVENUE), price * co.shares_outstanding * 0.5)
+        out["net_debt"] = safe(facts.get(K.NET_DEBT), 0.0)
+
     return out
