@@ -22,6 +22,7 @@ class Company(Base):
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)        # "financial" | "nonfinancial"
     sector = Column(String, nullable=False)
+    template_code = Column(String(20), nullable=True, index=True)   # ← step 2
     shares_outstanding = Column(Float, nullable=False)
 
     facts        = relationship("FinancialFact",      back_populates="company", cascade="all, delete-orphan")
