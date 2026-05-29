@@ -1,13 +1,9 @@
 """
-FastAPI application.
+FastAPI application — fixed to return real financial data from DB.
 
-Endpoints (all under /api):
-  GET  /api/health                       liveness
-  GET  /api/companies                    screener rows (computed verdict/score/intrinsic)
-  GET  /api/companies/{ticker}           full detail: fundamentals + technicals + valuation + verdict
-  POST /api/companies/{ticker}/valuation recompute with user-tweaked assumptions (the sliders)
-
-Run locally:  uvicorn app.main:app --reload
+Key fix: /api/companies now returns shares_outstanding, equity, net_profit,
+revenue, net_debt so the frontend can build accurate DCF models instead
+of back-calculating from ratios.
 """
 import os
 from fastapi import FastAPI, Depends, HTTPException
@@ -18,13 +14,15 @@ from .database import Base, engine, get_db
 from . import models, engines
 from .assemble import build_company, assumptions_dict
 from .schemas import AssumptionOverride
+from . import concepts as K
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Equity Research Terminal API", version="1.0")
+app = FastAPI(title="Equity Research Terminal API", version="2.0")
 
-# Allow the frontend to call us. In production set FRONTEND_ORIGIN to your
-# Vercel URL; "*" is fine while developing.
+from app.history_routes import router as history_router
+app.include_router(history_router)
+
 origins = os.getenv("FRONTEND_ORIGIN", "*")
 app.add_middleware(
     CORSMiddleware,
@@ -40,20 +38,66 @@ def health():
     return {"status": "ok"}
 
 
+def _latest_facts(db, company_id):
+    rows = db.query(models.FinancialFact).filter_by(company_id=company_id).all()
+    best = {}
+    for r in rows:
+        cur = best.get(r.concept)
+        if cur is None or r.fiscal_year > cur[0]:
+            best[r.concept] = (r.fiscal_year, r.value)
+    return {k: v[1] for k, v in best.items()}
+
+
 @app.get("/api/companies")
 def list_companies(db: Session = Depends(get_db)):
     rows = []
     for co in db.query(models.Company).all():
         data = build_company(db, co)
         a = assumptions_dict(co.assumptions)
-        rec = engines.recommend(data, a)
-        rows.append({
-            "ticker": co.ticker, "name": co.name, "sector": co.sector, "type": co.type,
-            "price": data["price"], "intrinsic": rec["valuation"]["intrinsic"],
-            "mos": rec["mos"], "roe": rec["fundamentals"]["roe"],
-            "pb": rec["fundamentals"]["pb"], "pe": rec["fundamentals"]["pe"],
-            "composite": rec["composite"], "verdict": rec["verdict"],
-        })
+        try:
+            rec = engines.recommend(data, a)
+        except Exception:
+            continue
+
+        f = rec["fundamentals"]
+        facts = _latest_facts(db, co.id)
+
+        row = {
+            # Identity
+            "ticker":    co.ticker,
+            "name":      co.name,
+            "sector":    co.sector,
+            "type":      co.type,
+
+            # Real values from DB — used by frontend buildFromApi
+            "shares":      co.shares_outstanding,           # actual shares (cr)
+            "equity":      facts.get(K.NET_WORTH),          # ₹ cr
+            "net_profit":  facts.get(K.NET_PROFIT),         # ₹ cr
+            "revenue":     facts.get(K.REVENUE),            # ₹ cr (non-fin only)
+            "net_debt":    facts.get(K.NET_DEBT),           # ₹ cr (non-fin only)
+
+            # NBFC-specific (financial type only)
+            "aum":         facts.get(K.AUM),
+            "gnpa":        facts.get(K.GNPA),
+            "nnpa":        facts.get(K.NNPA),
+            "crar":        facts.get(K.CRAR),
+            "nim":         facts.get(K.NIM),
+            "roa":         facts.get(K.ROA),
+
+            # Market
+            "price":       data["price"],
+
+            # Computed screener metrics
+            "intrinsic":   rec["valuation"]["intrinsic"],
+            "mos":         rec["mos"],
+            "roe":         f["roe"],
+            "pb":          f["pb"],
+            "pe":          f["pe"],
+            "composite":   rec["composite"],
+            "verdict":     rec["verdict"],
+        }
+        rows.append(row)
+
     rows.sort(key=lambda r: r["composite"], reverse=True)
     return rows
 
@@ -72,25 +116,25 @@ def company_detail(ticker: str, db: Session = Depends(get_db)):
     a = assumptions_dict(co.assumptions)
     rec = engines.recommend(data, a)
     sens = engines.sensitivity(data, a)
-    return {"company": _public(data), "assumptions": a, "recommendation": rec, "sensitivity": sens}
+    return {"company": _public(data), "assumptions": a,
+            "recommendation": rec, "sensitivity": sens}
 
 
 @app.post("/api/companies/{ticker}/valuation")
-def recompute(ticker: str, override: AssumptionOverride, db: Session = Depends(get_db)):
+def recompute(ticker: str, override: AssumptionOverride,
+              db: Session = Depends(get_db)):
     co = _get_or_404(db, ticker)
     data = build_company(db, co)
     a = assumptions_dict(co.assumptions)
-
     payload = override.dict(exclude_none=True)
     if "price" in payload:
         data["price"] = payload.pop("price")
     a.update(payload)
-
     rec = engines.recommend(data, a)
     sens = engines.sensitivity(data, a)
-    return {"company": _public(data), "assumptions": a, "recommendation": rec, "sensitivity": sens}
+    return {"company": _public(data), "assumptions": a,
+            "recommendation": rec, "sensitivity": sens}
 
 
-def _public(data: dict) -> dict:
-    """Strip the heavy price series from the company payload (technicals carry it)."""
+def _public(data):
     return {k: v for k, v in data.items() if k != "series"}
