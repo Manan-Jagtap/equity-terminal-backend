@@ -17,6 +17,7 @@ from .schemas import AssumptionOverride
 from . import concepts as K
 from .financials import build_financials_response
 from .templates import classify, TemplateCode
+from .metrics import compute_metrics, METRIC_BY_KEY
 
 Base.metadata.create_all(bind=engine)
 
@@ -136,6 +137,47 @@ def recompute(ticker: str, override: AssumptionOverride,
     sens = engines.sensitivity(data, a)
     return {"company": _public(data), "assumptions": a,
             "recommendation": rec, "sensitivity": sens}
+
+
+@app.get("/api/companies/{ticker}/metrics")
+def company_metrics(
+    ticker: str,
+    category: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Returns 80+ computed metrics for the given ticker, grouped by category.
+    Categories vary by template_code (e.g. NBFC gets GNPA/NIM/CRAR block).
+
+    Optional query param: ?category=Profitability
+    Available categories: Growth, Profitability, Returns, Liquidity,
+      Leverage, Efficiency, Cash Flow, Per Share, Valuation,
+      Capital Structure, NBFC / Banking, Market
+    """
+    co = _get_or_404(db, ticker)
+
+    # Build facts dict (latest values)
+    facts = _latest_facts(db, co.id)
+
+    # Build historical statements dict
+    hist_rows = (
+        db.query(models.HistoricalFinancial)
+        .filter_by(company_id=co.id)
+        .order_by(models.HistoricalFinancial.fiscal_year)
+        .all()
+    )
+    from collections import defaultdict
+    hist: dict = defaultdict(lambda: defaultdict(dict))
+    for row in hist_rows:
+        if row.value is not None:
+            hist[row.fiscal_year][row.statement_type][row.line_item] = row.value
+    hist = {yr: {stmt: dict(items) for stmt, items in stmts.items()}
+            for yr, stmts in hist.items()}
+
+    price = co.market.price if co.market else 0.0
+    template = co.template_code or classify(co.sector)
+
+    return compute_metrics(co, facts, hist, price, template, category)
 
 
 def _public(data):
