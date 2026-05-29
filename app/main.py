@@ -18,6 +18,7 @@ from . import concepts as K
 from .financials import build_financials_response
 from .templates import classify, TemplateCode
 from .metrics import compute_metrics, METRIC_BY_KEY
+from .thesis import generate_thesis
 
 Base.metadata.create_all(bind=engine)
 
@@ -178,6 +179,85 @@ def company_metrics(
     template = co.template_code or classify(co.sector)
 
     return compute_metrics(co, facts, hist, price, template, category)
+
+
+@app.post("/api/companies/{ticker}/thesis")
+def company_thesis(
+    ticker: str,
+    force_refresh: bool = False,
+    db: Session = Depends(get_db),
+):
+    """
+    Generate an AI investment thesis for the given ticker.
+
+    Requires ANTHROPIC_API_KEY set as a Railway environment variable.
+    Results are cached for 6 hours per (ticker, data_hash) pair.
+
+    Optional query param: ?force_refresh=true to bypass cache.
+    """
+    co = _get_or_404(db, ticker)
+
+    # Gather all data
+    facts = _latest_facts(db, co.id)
+
+    hist_rows = (
+        db.query(models.HistoricalFinancial)
+        .filter_by(company_id=co.id)
+        .order_by(models.HistoricalFinancial.fiscal_year)
+        .all()
+    )
+    from collections import defaultdict
+    hist: dict = defaultdict(lambda: defaultdict(dict))
+    for row in hist_rows:
+        if row.value is not None:
+            hist[row.fiscal_year][row.statement_type][row.line_item] = row.value
+    hist = {yr: {stmt: dict(items) for stmt, items in stmts.items()}
+            for yr, stmts in hist.items()}
+
+    price = co.market.price if co.market else 0.0
+    template = co.template_code or classify(co.sector)
+
+    metrics_result = compute_metrics(co, facts, hist, price, template)
+
+    # Get screener peers (same type, top by composite)
+    peer_rows = []
+    try:
+        all_cos = db.query(models.Company).filter(
+            models.Company.type == co.type,
+            models.Company.ticker != co.ticker,
+        ).limit(20).all()
+        for peer in all_cos[:6]:
+            peer_facts = _latest_facts(db, peer.id)
+            peer_price = peer.market.price if peer.market else 0.0
+            peer_eq = peer_facts.get("NET_WORTH") or 1
+            peer_pat = peer_facts.get("NET_PROFIT")
+            peer_roe = peer_pat / peer_eq if peer_pat and peer_eq else None
+            peer_bvps = peer_eq / peer.shares_outstanding if peer.shares_outstanding else 1
+            peer_eps = peer_pat / peer.shares_outstanding if peer_pat else None
+            peer_rows.append({
+                "ticker":  peer.ticker,
+                "name":    peer.name,
+                "roe":     peer_roe,
+                "pe":      peer_price / peer_eps if peer_eps and peer_eps > 0 else None,
+                "pb":      peer_price / peer_bvps if peer_bvps > 0 else None,
+                "mos":     None,
+                "verdict": "—",
+            })
+    except Exception:
+        pass
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+
+    return generate_thesis(
+        company=co,
+        facts=facts,
+        hist_statements=hist,
+        metrics_result=metrics_result,
+        price=price,
+        peer_rows=peer_rows,
+        api_key=api_key,
+        force_refresh=force_refresh,
+    )
 
 
 def _public(data):
