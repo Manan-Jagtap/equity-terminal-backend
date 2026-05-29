@@ -1,18 +1,19 @@
 """
 Valuation, fundamentals, technical and recommendation engines.
-
-Ported 1:1 from the React app so the frontend and backend produce identical
-numbers. `co` is a flat dict of drivers (assembled from the DB by assemble.py),
-`a` is the assumptions dict (overridable per request).
+Fixed: handles None values for NBFC metrics on bulk-ingested companies.
 """
 from typing import Dict, List
+
+
+def safe(val, default=0.0):
+    """Return val if not None, else default."""
+    return val if val is not None else default
 
 
 def cost_of_equity(a: Dict) -> float:
     return a["risk_free"] + a["beta"] * a["erp"]
 
 
-# ---- Residual Income (excess return) — FINANCIALS. Per share. -------------
 def residual_income(co: Dict, a: Dict) -> Dict:
     ke = cost_of_equity(a)
     bvps0 = co["equity"] / co["shares"]
@@ -35,7 +36,6 @@ def residual_income(co: Dict, a: Dict) -> Dict:
             "method": "Residual Income"}
 
 
-# ---- FCFF DCF — NON-FINANCIALS. Per share. --------------------------------
 def fcff_dcf(co: Dict, a: Dict) -> Dict:
     ke = cost_of_equity(a)
     ew = 1 - a["debt_weight"]
@@ -75,7 +75,6 @@ def sensitivity(co: Dict, a: Dict) -> Dict:
     return {"rate_deltas": rate_deltas, "g_deltas": g_deltas, "grid": grid}
 
 
-# ---- Fundamentals ----------------------------------------------------------
 def fundamentals(co: Dict) -> Dict:
     bvps = co["equity"] / co["shares"]
     eps = co["net_profit"] / co["shares"] if co.get("net_profit") else None
@@ -85,7 +84,6 @@ def fundamentals(co: Dict) -> Dict:
     return {"bvps": bvps, "eps": eps, "pb": pb, "pe": pe, "roe": roe}
 
 
-# ---- Technicals ------------------------------------------------------------
 def _sma(series: List[float], n: int):
     out = []
     for i in range(len(series)):
@@ -108,8 +106,7 @@ def _rsi(series: List[float], n: int = 14) -> float:
         al = (al * (n - 1) + max(-ch, 0)) / n
     if al == 0:
         return 100.0
-    rs = ag / al
-    return 100 - 100 / (1 + rs)
+    return 100 - 100 / (1 + ag / al)
 
 
 def technicals(co: Dict) -> Dict:
@@ -125,7 +122,6 @@ def technicals(co: Dict) -> Dict:
             "last": last, "above_sma50": above50, "above_sma20": above20}
 
 
-# ---- Recommendation --------------------------------------------------------
 def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
@@ -143,17 +139,22 @@ def recommend(co: Dict, a: Dict) -> Dict:
                     "good": mos > 0.1, "bad": mos < -0.1})
 
     if co["type"] == "financial":
-        roe_s = _clamp((f["roe"] - 0.10) / 0.15 * 100, 0, 100)
-        ap_s = _clamp((0.05 - co["nbfc"]["gnpa"]) / 0.05 * 100, 0, 100)
-        cap_s = _clamp((co["nbfc"]["crar"] - 0.15) / 0.15 * 100, 0, 100)
+        # Use safe() so None values don't crash — default to neutral values
+        gnpa = safe(co.get("nbfc", {}).get("gnpa"), 0.03)
+        crar = safe(co.get("nbfc", {}).get("crar"), 0.18)
+        roe_val = safe(f["roe"], 0.12)
+        roe_s = _clamp((roe_val - 0.10) / 0.15 * 100, 0, 100)
+        ap_s  = _clamp((0.05 - gnpa) / 0.05 * 100, 0, 100)
+        cap_s = _clamp((crar - 0.15) / 0.15 * 100, 0, 100)
         quality = 0.5 * roe_s + 0.3 * ap_s + 0.2 * cap_s
-        qnote = f"ROE {f['roe']*100:.1f}%, GNPA {co['nbfc']['gnpa']*100:.2f}%, CRAR {co['nbfc']['crar']*100:.1f}%"
+        qnote = f"ROE {roe_val*100:.1f}%, GNPA {gnpa*100:.2f}%, CRAR {crar*100:.1f}%"
     else:
-        roe_s = _clamp((f["roe"] - 0.10) / 0.15 * 100, 0, 100) if f["roe"] else 50
-        margin_s = _clamp(a["ebit_margin"] / 0.20 * 100, 0, 100)
-        lev_s = _clamp((0.3 - a["debt_weight"]) / 0.3 * 100, 0, 100)
+        roe_val = safe(f["roe"], 0.12)
+        roe_s = _clamp((roe_val - 0.10) / 0.15 * 100, 0, 100)
+        margin_s = _clamp(safe(a.get("ebit_margin"), 0.12) / 0.20 * 100, 0, 100)
+        lev_s = _clamp((0.3 - safe(a.get("debt_weight"), 0.20)) / 0.3 * 100, 0, 100)
         quality = 0.45 * roe_s + 0.35 * margin_s + 0.2 * lev_s
-        qnote = f"EBIT margin {a['ebit_margin']*100:.1f}%, low leverage"
+        qnote = f"EBIT margin {safe(a.get('ebit_margin'),0.12)*100:.1f}%"
     reasons.append({"label": "Quality", "score": quality, "note": qnote,
                     "good": quality > 60, "bad": quality < 40})
 
@@ -169,10 +170,12 @@ def recommend(co: Dict, a: Dict) -> Dict:
 
     risk, flags = 0, []
     if co["type"] == "financial":
-        if co["nbfc"]["gnpa"] > 0.04: risk += 25; flags.append("Elevated GNPA")
-        if co["nbfc"]["crar"] < 0.16: risk += 20; flags.append("Thin capital adequacy")
+        gnpa = safe(co.get("nbfc", {}).get("gnpa"), 0.03)
+        crar = safe(co.get("nbfc", {}).get("crar"), 0.18)
+        if gnpa > 0.04: risk += 25; flags.append("Elevated GNPA")
+        if crar < 0.16: risk += 20; flags.append("Thin capital adequacy")
     else:
-        if a["debt_weight"] > 0.4: risk += 25; flags.append("High leverage")
+        if safe(a.get("debt_weight"), 0.20) > 0.4: risk += 25; flags.append("High leverage")
     if mos < -0.25: risk += 15; flags.append("Trading well above intrinsic")
     risk = _clamp(risk, 0, 100)
     risk_score = 100 - risk
