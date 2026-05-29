@@ -15,6 +15,8 @@ from . import models, engines
 from .assemble import build_company, assumptions_dict
 from .schemas import AssumptionOverride
 from . import concepts as K
+from .financials import build_financials_response
+from .templates import classify, TemplateCode
 
 Base.metadata.create_all(bind=engine)
 
@@ -138,3 +140,40 @@ def recompute(ticker: str, override: AssumptionOverride,
 
 def _public(data):
     return {k: v for k, v in data.items() if k != "series"}
+
+
+@app.get("/api/companies/{ticker}/financials")
+def company_financials(ticker: str, db: Session = Depends(get_db)):
+    """Sector-aware financial statements (P&L shape depends on template_code)."""
+    co = _get_or_404(db, ticker)
+    hist_fins = (
+        db.query(models.HistoricalFinancial)
+        .filter_by(company_id=co.id)
+        .order_by(models.HistoricalFinancial.fiscal_year)
+        .all()
+    )
+    return build_financials_response(co, hist_fins)
+
+
+@app.get("/api/companies/{ticker}/template")
+def company_template(ticker: str, db: Session = Depends(get_db)):
+    """Template metadata for a ticker — useful for debugging."""
+    co = _get_or_404(db, ticker)
+    template = co.template_code or classify(co.sector)
+    from .templates import is_financial
+    return {
+        "ticker":       co.ticker,
+        "template":     template,
+        "is_financial": is_financial(template),
+        "sector":       co.sector,
+        "description":  {
+            TemplateCode.NBFC:          "NBFC — NII-based P&L, AUM, GNPA, NIM, CRAR",
+            TemplateCode.BANK:          "Bank — Interest income, CASA, NIM, CRAR",
+            TemplateCode.INSURANCE:     "Insurance — Premiums, Claims, Combined Ratio",
+            TemplateCode.IT_SERVICES:   "IT Services — Revenue, EBIT, headcount metrics",
+            TemplateCode.MANUFACTURING: "Manufacturing — Revenue, EBITDA, EBIT, CapEx",
+            TemplateCode.CONSUMER:      "Consumer — Revenue, Gross Margin, EBITDA",
+            TemplateCode.PHARMA:        "Pharma — Revenue, R&D, EBITDA",
+            TemplateCode.ENERGY:        "Energy — Revenue, EBITDA, CapEx, EV/EBITDA",
+        }.get(template, "Unknown template"),
+    }
