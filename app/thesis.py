@@ -262,7 +262,7 @@ Entry price, fair value range, and stop-loss level based on the data above.
 # ── Claude caller ─────────────────────────────────────────────────────────────
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
+CLAUDE_MODEL = "claude-sonnet-4-5"
 
 
 def call_claude(system: str, user: str, api_key: str, max_tokens: int = 1200) -> str:
