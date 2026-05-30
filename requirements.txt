@@ -7,3 +7,4 @@ python-dotenv==1.0.0
 yfinance==0.2.51
 requests==2.32.3
 schedule==1.2.2
+reportlab==4.2.5
