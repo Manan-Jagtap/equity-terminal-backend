@@ -15,10 +15,6 @@ from . import models, engines
 from .assemble import build_company, assumptions_dict
 from .schemas import AssumptionOverride
 from . import concepts as K
-from .financials import build_financials_response
-from .templates import classify, TemplateCode
-from .metrics import compute_metrics, METRIC_BY_KEY
-from .thesis import generate_thesis
 
 Base.metadata.create_all(bind=engine)
 
@@ -26,6 +22,9 @@ app = FastAPI(title="Equity Research Terminal API", version="2.0")
 
 from app.history_routes import router as history_router
 app.include_router(history_router)
+from app.news_routes import router as news_router
+app.include_router(news_router)
+from app.onepager import build_onepager
 
 origins = os.getenv("FRONTEND_ORIGIN", "*")
 app.add_middleware(
@@ -140,162 +139,89 @@ def recompute(ticker: str, override: AssumptionOverride,
             "recommendation": rec, "sensitivity": sens}
 
 
-@app.get("/api/companies/{ticker}/metrics")
-def company_metrics(
-    ticker: str,
-    category: str | None = None,
-    db: Session = Depends(get_db),
-):
+@app.post("/api/companies/{ticker}/onepager")
+def company_onepager(ticker: str, db: Session = Depends(get_db)):
     """
-    Returns 80+ computed metrics for the given ticker, grouped by category.
-    Categories vary by template_code (e.g. NBFC gets GNPA/NIM/CRAR block).
+    Generate a PDF one-pager for the company.
+    Returns PDF binary with Content-Type: application/pdf.
+    """
+    from fastapi.responses import Response
+    from collections import defaultdict
 
-    Optional query param: ?category=Profitability
-    Available categories: Growth, Profitability, Returns, Liquidity,
-      Leverage, Efficiency, Cash Flow, Per Share, Valuation,
-      Capital Structure, NBFC / Banking, Market
-    """
     co = _get_or_404(db, ticker)
 
-    # Build facts dict (latest values)
-    facts = _latest_facts(db, co.id)
+    # Market data
+    price   = co.market.price if co.market else 0
+    market  = {
+        "price":   price,
+        "chgPct":  0,
+        "mcapCr":  price * co.shares_outstanding,
+        "pe":      None,
+        "pb":      None,
+    }
 
-    # Build historical statements dict
+    # Financials
     hist_rows = (
         db.query(models.HistoricalFinancial)
         .filter_by(company_id=co.id)
         .order_by(models.HistoricalFinancial.fiscal_year)
         .all()
     )
-    from collections import defaultdict
     hist: dict = defaultdict(lambda: defaultdict(dict))
     for row in hist_rows:
         if row.value is not None:
             hist[row.fiscal_year][row.statement_type][row.line_item] = row.value
-    hist = {yr: {stmt: dict(items) for stmt, items in stmts.items()}
-            for yr, stmts in hist.items()}
+    hist_clean = {yr: {stmt: dict(items) for stmt, items in stmts.items()} for yr, stmts in hist.items()}
+    from app.financials import build_financials_response
+    financials = build_financials_response(co, hist_rows)
 
-    price = co.market.price if co.market else 0.0
-    template = co.template_code or classify(co.sector)
-
-    return compute_metrics(co, facts, hist, price, template, category)
-
-
-@app.post("/api/companies/{ticker}/thesis")
-def company_thesis(
-    ticker: str,
-    force_refresh: bool = False,
-    db: Session = Depends(get_db),
-):
-    """
-    Generate an AI investment thesis for the given ticker.
-
-    Requires ANTHROPIC_API_KEY set as a Railway environment variable.
-    Results are cached for 6 hours per (ticker, data_hash) pair.
-
-    Optional query param: ?force_refresh=true to bypass cache.
-    """
-    co = _get_or_404(db, ticker)
-
-    # Gather all data
-    facts = _latest_facts(db, co.id)
-
-    hist_rows = (
-        db.query(models.HistoricalFinancial)
-        .filter_by(company_id=co.id)
-        .order_by(models.HistoricalFinancial.fiscal_year)
-        .all()
-    )
-    from collections import defaultdict
-    hist: dict = defaultdict(lambda: defaultdict(dict))
-    for row in hist_rows:
-        if row.value is not None:
-            hist[row.fiscal_year][row.statement_type][row.line_item] = row.value
-    hist = {yr: {stmt: dict(items) for stmt, items in stmts.items()}
-            for yr, stmts in hist.items()}
-
-    price = co.market.price if co.market else 0.0
-    template = co.template_code or classify(co.sector)
-
-    metrics_result = compute_metrics(co, facts, hist, price, template)
-
-    # Get screener peers (same type, top by composite)
-    peer_rows = []
+    # Metrics
+    facts   = _latest_facts(db, co.id)
+    template = co.template_code or "MANUFACTURING"
+    metrics = {}
     try:
-        all_cos = db.query(models.Company).filter(
-            models.Company.type == co.type,
-            models.Company.ticker != co.ticker,
-        ).limit(20).all()
-        for peer in all_cos[:6]:
-            peer_facts = _latest_facts(db, peer.id)
-            peer_price = peer.market.price if peer.market else 0.0
-            peer_eq = peer_facts.get("NET_WORTH") or 1
-            peer_pat = peer_facts.get("NET_PROFIT")
-            peer_roe = peer_pat / peer_eq if peer_pat and peer_eq else None
-            peer_bvps = peer_eq / peer.shares_outstanding if peer.shares_outstanding else 1
-            peer_eps = peer_pat / peer.shares_outstanding if peer_pat else None
-            peer_rows.append({
-                "ticker":  peer.ticker,
-                "name":    peer.name,
-                "roe":     peer_roe,
-                "pe":      peer_price / peer_eps if peer_eps and peer_eps > 0 else None,
-                "pb":      peer_price / peer_bvps if peer_bvps > 0 else None,
-                "mos":     None,
-                "verdict": "—",
-            })
+        from app.metrics import compute_metrics
+        metrics = compute_metrics(co, facts, hist_clean, price, template)
     except Exception:
         pass
 
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    # Thesis (cached)
+    thesis = None
+    try:
+        from app.thesis import generate_thesis
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if api_key:
+            t = generate_thesis(co, facts, hist_clean, metrics, price, [], api_key)
+            thesis = t.get("thesis")
+    except Exception:
+        pass
 
-    return generate_thesis(
-        company=co,
-        facts=facts,
-        hist_statements=hist,
-        metrics_result=metrics_result,
-        price=price,
-        peer_rows=peer_rows,
-        api_key=api_key,
-        force_refresh=force_refresh,
+    # Intrinsic (simple justified P/B proxy if no DCF)
+    intrinsic = None
+    try:
+        eq = facts.get("NET_WORTH") or co.shares_outstanding * 200
+        pat = facts.get("NET_PROFIT") or 0
+        roe = pat / eq if eq else 0
+        ke = 0.071 + 0.86 * 0.085
+        g  = 0.05
+        if ke > g:
+            pb = roe / (ke - g)
+            intrinsic = (eq / co.shares_outstanding) * pb
+    except Exception:
+        pass
+
+    pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic, thesis)
+
+    safe_name = co.ticker.replace(" ", "_")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}_onepager.pdf"',
+            "Content-Length": str(len(pdf_bytes)),
+        },
     )
 
 
 def _public(data):
     return {k: v for k, v in data.items() if k != "series"}
-
-
-@app.get("/api/companies/{ticker}/financials")
-def company_financials(ticker: str, db: Session = Depends(get_db)):
-    """Sector-aware financial statements (P&L shape depends on template_code)."""
-    co = _get_or_404(db, ticker)
-    hist_fins = (
-        db.query(models.HistoricalFinancial)
-        .filter_by(company_id=co.id)
-        .order_by(models.HistoricalFinancial.fiscal_year)
-        .all()
-    )
-    return build_financials_response(co, hist_fins)
-
-
-@app.get("/api/companies/{ticker}/template")
-def company_template(ticker: str, db: Session = Depends(get_db)):
-    """Template metadata for a ticker — useful for debugging."""
-    co = _get_or_404(db, ticker)
-    template = co.template_code or classify(co.sector)
-    from .templates import is_financial
-    return {
-        "ticker":       co.ticker,
-        "template":     template,
-        "is_financial": is_financial(template),
-        "sector":       co.sector,
-        "description":  {
-            TemplateCode.NBFC:          "NBFC — NII-based P&L, AUM, GNPA, NIM, CRAR",
-            TemplateCode.BANK:          "Bank — Interest income, CASA, NIM, CRAR",
-            TemplateCode.INSURANCE:     "Insurance — Premiums, Claims, Combined Ratio",
-            TemplateCode.IT_SERVICES:   "IT Services — Revenue, EBIT, headcount metrics",
-            TemplateCode.MANUFACTURING: "Manufacturing — Revenue, EBITDA, EBIT, CapEx",
-            TemplateCode.CONSUMER:      "Consumer — Revenue, Gross Margin, EBITDA",
-            TemplateCode.PHARMA:        "Pharma — Revenue, R&D, EBITDA",
-            TemplateCode.ENERGY:        "Energy — Revenue, EBITDA, CapEx, EV/EBITDA",
-        }.get(template, "Unknown template"),
-    }
