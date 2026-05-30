@@ -22,6 +22,9 @@ app = FastAPI(title="Equity Research Terminal API", version="2.0")
 
 from app.history_routes import router as history_router
 app.include_router(history_router)
+from app.news_routes import router as news_router
+app.include_router(news_router)
+from app.onepager import build_onepager
 
 origins = os.getenv("FRONTEND_ORIGIN", "*")
 app.add_middleware(
@@ -134,6 +137,90 @@ def recompute(ticker: str, override: AssumptionOverride,
     sens = engines.sensitivity(data, a)
     return {"company": _public(data), "assumptions": a,
             "recommendation": rec, "sensitivity": sens}
+
+
+@app.post("/api/companies/{ticker}/onepager")
+def company_onepager(ticker: str, db: Session = Depends(get_db)):
+    """
+    Generate a PDF one-pager for the company.
+    Returns PDF binary with Content-Type: application/pdf.
+    """
+    from fastapi.responses import Response
+    from collections import defaultdict
+
+    co = _get_or_404(db, ticker)
+
+    # Market data
+    price   = co.market.price if co.market else 0
+    market  = {
+        "price":   price,
+        "chgPct":  0,
+        "mcapCr":  price * co.shares_outstanding,
+        "pe":      None,
+        "pb":      None,
+    }
+
+    # Financials
+    hist_rows = (
+        db.query(models.HistoricalFinancial)
+        .filter_by(company_id=co.id)
+        .order_by(models.HistoricalFinancial.fiscal_year)
+        .all()
+    )
+    hist: dict = defaultdict(lambda: defaultdict(dict))
+    for row in hist_rows:
+        if row.value is not None:
+            hist[row.fiscal_year][row.statement_type][row.line_item] = row.value
+    hist_clean = {yr: {stmt: dict(items) for stmt, items in stmts.items()} for yr, stmts in hist.items()}
+    from app.financials import build_financials_response
+    financials = build_financials_response(co, hist_rows)
+
+    # Metrics
+    facts   = _latest_facts(db, co.id)
+    template = co.template_code or "MANUFACTURING"
+    metrics = {}
+    try:
+        from app.metrics import compute_metrics
+        metrics = compute_metrics(co, facts, hist_clean, price, template)
+    except Exception:
+        pass
+
+    # Thesis (cached)
+    thesis = None
+    try:
+        from app.thesis import generate_thesis
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if api_key:
+            t = generate_thesis(co, facts, hist_clean, metrics, price, [], api_key)
+            thesis = t.get("thesis")
+    except Exception:
+        pass
+
+    # Intrinsic (simple justified P/B proxy if no DCF)
+    intrinsic = None
+    try:
+        eq = facts.get("NET_WORTH") or co.shares_outstanding * 200
+        pat = facts.get("NET_PROFIT") or 0
+        roe = pat / eq if eq else 0
+        ke = 0.071 + 0.86 * 0.085
+        g  = 0.05
+        if ke > g:
+            pb = roe / (ke - g)
+            intrinsic = (eq / co.shares_outstanding) * pb
+    except Exception:
+        pass
+
+    pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic, thesis)
+
+    safe_name = co.ticker.replace(" ", "_")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}_onepager.pdf"',
+            "Content-Length": str(len(pdf_bytes)),
+        },
+    )
 
 
 def _public(data):
