@@ -141,14 +141,12 @@ def recompute(ticker: str, override: AssumptionOverride,
 
 @app.post("/api/companies/{ticker}/onepager")
 def company_onepager(ticker: str, db: Session = Depends(get_db)):
-    """
-    Generate a PDF one-pager for the company.
-    Returns PDF binary with Content-Type: application/pdf.
-    """
-    from fastapi.responses import Response
+    from fastapi.responses import Response, JSONResponse
     from collections import defaultdict
-
-    co = _get_or_404(db, ticker)
+    try:
+        co = _get_or_404(db, ticker)
+    except Exception as e:
+        return JSONResponse({"error":"get_404","detail":str(e)})
 
     # Market data
     price   = co.market.price if co.market else 0
