@@ -210,7 +210,11 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
     except Exception:
         pass
 
-    pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic, thesis)
+    try:
+        pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic, thesis)
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "trace": traceback.format_exc()[-500:]}
 
     safe_name = co.ticker.replace(" ", "_")
     return Response(
