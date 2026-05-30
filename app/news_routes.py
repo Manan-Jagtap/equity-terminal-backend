@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/companies")
 
 _NEWS_CACHE: dict[str, tuple[float, dict]] = {}
 _CACHE_TTL  = 1800
-_HAIKU      = "claude-haiku-4-5"
+_HAIKU      = "claude-haiku-4-5-20251001"
 
 
 # ── Source 1: Marketaux ──────────────────────────────────────────────────────
