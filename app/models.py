@@ -23,6 +23,7 @@ class Company(Base):
     type = Column(String, nullable=False)        # "financial" | "nonfinancial"
     sector = Column(String, nullable=False)
     template_code = Column(String(20), nullable=True, index=True)
+    bse_scrip_code = Column(String(20), nullable=True, index=True)
     shares_outstanding = Column(Float, nullable=False)
 
     facts        = relationship("FinancialFact",      back_populates="company", cascade="all, delete-orphan")
@@ -128,3 +129,30 @@ class MarketSnapshot(Base):
     price      = Column(Float, nullable=False)
     as_of      = Column(DateTime, server_default=func.now())
     company    = relationship("Company", back_populates="market")
+
+
+class QuarterlyDocument(Base):
+    __tablename__ = "quarterly_documents"
+    __table_args__ = (
+        UniqueConstraint("company_id", "quarter", "doc_type",
+                         name="uq_qd_company_quarter_type"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    quarter = Column(String(10), nullable=False)
+    doc_type = Column(String(20), nullable=False)
+
+    bse_announcement_id = Column(String(100), nullable=True)
+    bse_filing_date = Column(DateTime, nullable=True)
+    source_url = Column(String, nullable=True)
+
+    r2_key = Column(String, nullable=False)
+    file_size_bytes = Column(Integer, nullable=True)
+
+    extracted_text = Column(String, nullable=True)
+    char_count = Column(Integer, nullable=True)
+
+    fetched_at = Column(DateTime, default=func.now(), nullable=False)
+
+    company = relationship("Company", backref="quarterly_documents")
