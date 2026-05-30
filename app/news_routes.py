@@ -65,6 +65,8 @@ def _marketaux_news(ticker: str, api_key: str) -> tuple[list[dict], str | None]:
 
 # ── Source 2: Anthropic web_search (multi-turn) ──────────────────────────────
 def _anthropic_news(ticker: str, company_name: str, api_key: str) -> tuple[list[dict], str | None]:
+    if os.getenv("NEWS_LLM_ENABLED", "false").lower() != "true":
+        return [], "news_llm_paused"
     if not api_key:
         return [], "no_key"
     ctx = ssl.create_default_context()
