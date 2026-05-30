@@ -143,86 +143,39 @@ def recompute(ticker: str, override: AssumptionOverride,
 def company_onepager(ticker: str, db: Session = Depends(get_db)):
     from fastapi.responses import Response, JSONResponse
     from collections import defaultdict
+    import traceback
     try:
         co = _get_or_404(db, ticker)
+        price = 0
+        try: price = co.market.price or 0
+        except: pass
+        market = {"price": price, "chgPct": 0, "mcapCr": price * co.shares_outstanding}
+        hist_rows = (db.query(models.HistoricalFinancial)
+                     .filter_by(company_id=co.id)
+                     .order_by(models.HistoricalFinancial.fiscal_year).all())
+        from app.financials import build_financials_response
+        financials = build_financials_response(co, hist_rows)
+        facts = _latest_facts(db, co.id)
+        template = co.template_code or "MANUFACTURING"
+        metrics = {}
+        try:
+            from app.metrics import compute_metrics
+            metrics = compute_metrics(co, facts, {}, price, template)
+        except: pass
+        intrinsic = None
+        try:
+            eq = facts.get("NET_WORTH") or co.shares_outstanding * 200
+            pat = facts.get("NET_PROFIT") or 0
+            ke, g = 0.071 + 0.86 * 0.085, 0.05
+            if eq and pat and ke > g:
+                intrinsic = (eq / co.shares_outstanding) * ((pat/eq) / (ke - g))
+        except: pass
+        pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic, None)
+        return Response(content=pdf_bytes, media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="{co.ticker}_onepager.pdf"',
+                                 "Content-Length": str(len(pdf_bytes))})
     except Exception as e:
-        return JSONResponse({"error":"get_404","detail":str(e)})
-
-    # Market data
-    price   = co.market.price if co.market else 0
-    market  = {
-        "price":   price,
-        "chgPct":  0,
-        "mcapCr":  price * co.shares_outstanding,
-        "pe":      None,
-        "pb":      None,
-    }
-
-    # Financials
-    hist_rows = (
-        db.query(models.HistoricalFinancial)
-        .filter_by(company_id=co.id)
-        .order_by(models.HistoricalFinancial.fiscal_year)
-        .all()
-    )
-    hist: dict = defaultdict(lambda: defaultdict(dict))
-    for row in hist_rows:
-        if row.value is not None:
-            hist[row.fiscal_year][row.statement_type][row.line_item] = row.value
-    hist_clean = {yr: {stmt: dict(items) for stmt, items in stmts.items()} for yr, stmts in hist.items()}
-    from app.financials import build_financials_response
-    financials = build_financials_response(co, hist_rows)
-
-    # Metrics
-    facts   = _latest_facts(db, co.id)
-    template = co.template_code or "MANUFACTURING"
-    metrics = {}
-    try:
-        from app.metrics import compute_metrics
-        metrics = compute_metrics(co, facts, hist_clean, price, template)
-    except Exception:
-        pass
-
-    # Thesis (cached)
-    thesis = None
-    try:
-        from app.thesis import generate_thesis
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
-        if api_key:
-            t = generate_thesis(co, facts, hist_clean, metrics, price, [], api_key)
-            thesis = t.get("thesis")
-    except Exception:
-        pass
-
-    # Intrinsic (simple justified P/B proxy if no DCF)
-    intrinsic = None
-    try:
-        eq = facts.get("NET_WORTH") or co.shares_outstanding * 200
-        pat = facts.get("NET_PROFIT") or 0
-        roe = pat / eq if eq else 0
-        ke = 0.071 + 0.86 * 0.085
-        g  = 0.05
-        if ke > g:
-            pb = roe / (ke - g)
-            intrinsic = (eq / co.shares_outstanding) * pb
-    except Exception:
-        pass
-
-    try:
-        pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic, thesis)
-    except Exception as e:
-        import traceback
-        return {"error": str(e), "trace": traceback.format_exc()[-500:]}
-
-    safe_name = co.ticker.replace(" ", "_")
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'attachment; filename="{safe_name}_onepager.pdf"',
-            "Content-Length": str(len(pdf_bytes)),
-        },
-    )
+        return JSONResponse({"error": str(e), "trace": traceback.format_exc()[-800:]}, status_code=500)
 
 
 def _public(data):
