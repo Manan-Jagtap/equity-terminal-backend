@@ -44,18 +44,19 @@ _SUBCAT_RULES: list[tuple[str, DocType]] = [
 ]
 
 _HEADLINE_RULES: list[tuple[str, DocType]] = [
+    # "transcript" first: many transcripts are titled e.g.
+    # "Transcript of conference call ... financial results ..." and must not
+    # fall through to the FINANCIAL rule below.
+    ("transcript", DocType.TRANSCRIPT),
     ("investor presentation", DocType.IP),
     ("investor update", DocType.IP),
     ("results presentation", DocType.IP),
     ("earnings presentation", DocType.IP),
+    ("earnings call presentation", DocType.IP),
     ("q4 presentation", DocType.IP),
     ("q3 presentation", DocType.IP),
     ("q2 presentation", DocType.IP),
     ("q1 presentation", DocType.IP),
-    ("earnings call transcript", DocType.TRANSCRIPT),
-    ("concall transcript", DocType.TRANSCRIPT),
-    ("conference call transcript", DocType.TRANSCRIPT),
-    ("earnings transcript", DocType.TRANSCRIPT),
     ("press release", DocType.PRESS_RELEASE),
     ("media release", DocType.PRESS_RELEASE),
     ("financial results", DocType.FINANCIAL),
