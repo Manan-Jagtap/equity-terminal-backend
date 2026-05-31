@@ -40,8 +40,26 @@ CR = 1e7
 def is_financial(industry):
     return any(s in industry.lower() for s in FINANCIAL_SECTORS)
 
-def default_assumptions(company_type, sector):
+def derive_financial_assumptions(info):
+    roe = info.get("returnOnEquity")
+    payout_ratio = info.get("payoutRatio")
+    if roe and 0.02 < roe < 0.60:
+        forecast_roe = max(0.08, min(roe, 0.30))
+    else:
+        forecast_roe = 0.150
+    terminal_roe = max(0.10, min(round(0.40 * forecast_roe + 0.60 * 0.135, 4), 0.18))
+    payout = payout_ratio if (payout_ratio and 0 <= payout_ratio < 0.95) else 0.20
+    return dict(beta=1.1, risk_free=0.069, erp=0.065,
+                forecast_roe=round(forecast_roe, 4), terminal_roe=terminal_roe,
+                payout=round(payout, 4), fade_years=8, terminal_growth=0.05,
+                rev_growth=None, ebit_margin=None, tax_rate=None,
+                reinvest_rate=None, debt_weight=None, cost_debt=None)
+
+
+def default_assumptions(company_type, sector, info=None):
     if company_type == "financial":
+        if info is not None:
+            return derive_financial_assumptions(info)
         return dict(beta=1.1, risk_free=0.069, erp=0.065,
                     forecast_roe=0.155, terminal_roe=0.130,
                     payout=0.20, fade_years=8, terminal_growth=0.05,
@@ -135,7 +153,7 @@ def ingest_company(name, symbol, industry, batch_num, total):
                 period="FY", concept=K.NET_DEBT,
                 value=round((debt - cash) / CR, 1), unit="INR_CR", source="yfinance"))
 
-        asm = default_assumptions(company_type, industry)
+        asm = default_assumptions(company_type, industry, info)
         db.add(models.Assumptions(company_id=co.id, **asm))
         db.add(models.MarketSnapshot(company_id=co.id, price=price))
 
