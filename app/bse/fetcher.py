@@ -29,6 +29,17 @@ from .scrip_codes import get_scrip_code
 
 log = logging.getLogger(__name__)
 
+# Minimum plausible size for a real filing PDF. BSE error pages are ~8KB HTML.
+_MIN_PDF_BYTES = 20_000  # 20KB floor; real IPs are MBs, transcripts 100KB+
+
+
+def _looks_like_pdf(data: bytes) -> bool:
+    """True only if bytes are a real PDF: %PDF magic header + plausible size."""
+    if not data or len(data) < _MIN_PDF_BYTES:
+        return False
+    head = data[:1024].lstrip()
+    return head.startswith(b"%PDF")
+
 
 # Quarter end dates (Indian financial year: Apr 1 – Mar 31)
 # Q1 = Apr–Jun, Q2 = Jul–Sep, Q3 = Oct–Dec, Q4 = Jan–Mar
@@ -165,6 +176,14 @@ def fetch_quarterly_documents(
             pdf_bytes = download_attachment(attachment)
         except Exception as e:
             result.errors.append(f"{doc_type.value}: download failed: {e}")
+            continue
+
+        # Validate: reject BSE error pages / non-PDF bytes before storing.
+        if not _looks_like_pdf(pdf_bytes):
+            result.errors.append(
+                f"{doc_type.value}: not a valid PDF "
+                f"({len(pdf_bytes)} bytes, header={pdf_bytes[:8]!r}) - skipped"
+            )
             continue
 
         # Upload to R2
