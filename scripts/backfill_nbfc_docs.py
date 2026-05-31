@@ -37,6 +37,25 @@ from app.bse.scrip_codes import get_scrip_code
 DEFAULT_QUARTERS = ["Q1FY26", "Q2FY26", "Q3FY26", "Q4FY26"]
 
 
+def latest_reported_quarter(today=None):
+    """Most recently reported Indian-FY quarter, allowing for filing lag."""
+    from datetime import date
+    if today is None:
+        today = date.today()
+    y, m = today.year, today.month
+    if m in (5, 6, 7):
+        q, fy = 4, y
+    elif m in (8, 9, 10):
+        q, fy = 1, y + 1
+    elif m in (11, 12):
+        q, fy = 2, y + 1
+    elif m in (1, 2):
+        q, fy = 2, y
+    else:  # 3, 4
+        q, fy = 3, y
+    return f"Q{q}FY{str(fy)[-2:]}"
+
+
 def resolve_companies(tickers, limit, start_from):
     """Return [(ticker, name)] using a throwaway session."""
     db = SessionLocal()
@@ -92,11 +111,17 @@ def main():
     ap.add_argument("--tickers", type=str, default=None)
     ap.add_argument("--sleep", type=float, default=2.0)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--latest", action="store_true",
+                    help="Fetch only the latest reported quarter (default for one-pager)")
     ap.add_argument("--max-consecutive-errors", type=int, default=15)
     args = ap.parse_args()
 
-    quarters = ([q.strip().upper() for q in args.quarters.split(",")]
-                if args.quarters else DEFAULT_QUARTERS)
+    if args.latest:
+        quarters = [latest_reported_quarter()]
+    elif args.quarters:
+        quarters = [q.strip().upper() for q in args.quarters.split(",")]
+    else:
+        quarters = DEFAULT_QUARTERS
     tickers = args.tickers.split(",") if args.tickers else None
 
     companies = resolve_companies(tickers, args.limit, args.start_from)
