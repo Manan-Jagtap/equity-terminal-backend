@@ -62,8 +62,31 @@ def fcff_dcf(co: Dict, a: Dict) -> Dict:
             "rows": rows, "method": "FCFF DCF"}
 
 
+def _has(*vals) -> bool:
+    """True only if every value is present and non-zero where a denominator."""
+    return all(v is not None for v in vals)
+
+
 def valuate(co: Dict, a: Dict) -> Dict:
-    return residual_income(co, a) if co["type"] == "financial" else fcff_dcf(co, a)
+    """Route to the right model — but only when the required inputs exist.
+    Returns intrinsic=None (rather than fabricating) when data is missing, so
+    the API never reports a confident value built on invented numbers."""
+    try:
+        if co["type"] == "financial":
+            if not (_has(co.get("equity"), co.get("shares")) and co["equity"] > 0 and co["shares"] > 0):
+                return {"intrinsic": None, "method": "Residual Income", "rows": [],
+                        "ke": None, "wacc": None, "bvps0": None, "ev": None,
+                        "pv_explicit": None, "tv_pv": None}
+            return residual_income(co, a)
+        if not (_has(co.get("revenue"), co.get("net_debt"), co.get("shares")) and co["shares"] > 0):
+            return {"intrinsic": None, "method": "FCFF DCF", "rows": [],
+                    "ke": None, "wacc": None, "bvps0": None, "ev": None,
+                    "pv_explicit": None, "tv_pv": None}
+        return fcff_dcf(co, a)
+    except Exception:
+        return {"intrinsic": None, "method": "n/a", "rows": [],
+                "ke": None, "wacc": None, "bvps0": None, "ev": None,
+                "pv_explicit": None, "tv_pv": None}
 
 
 def sensitivity(co: Dict, a: Dict) -> Dict:
@@ -76,11 +99,18 @@ def sensitivity(co: Dict, a: Dict) -> Dict:
 
 
 def fundamentals(co: Dict) -> Dict:
-    bvps = co["equity"] / co["shares"]
-    eps = co["net_profit"] / co["shares"] if co.get("net_profit") else None
-    pb = co["price"] / bvps
-    pe = co["price"] / eps if eps else None
-    roe = co["net_profit"] / co["equity"] if co.get("net_profit") else None
+    """N/M-safe. A multiple is returned only when its denominator is positive;
+    otherwise None → the UI shows 'N/M' instead of a misleading negative or
+    near-zero ratio (e.g. loss-making P/E, negative-equity P/B)."""
+    equity = co.get("equity")
+    shares = co.get("shares")
+    pat    = co.get("net_profit")
+    price  = co.get("price")
+    bvps = equity / shares if (equity is not None and shares) else None
+    eps  = pat / shares if (pat is not None and shares) else None
+    pe = price / eps if (eps is not None and eps > 0) else None
+    pb = price / bvps if (bvps is not None and bvps > 0) else None
+    roe = pat / equity if (pat is not None and equity and equity > 0) else None
     return {"bvps": bvps, "eps": eps, "pb": pb, "pe": pe, "roe": roe}
 
 
@@ -127,16 +157,25 @@ def _clamp(x, lo, hi):
 
 
 def recommend(co: Dict, a: Dict) -> Dict:
+    from .data_quality import data_quality
     v = valuate(co, a)
     f = fundamentals(co)
     t = technicals(co)
-    mos = (v["intrinsic"] - co["price"]) / co["price"]
+    conf = data_quality(co)
+
+    iv = v.get("intrinsic")
+    iv = iv if (iv is not None and iv > 0) else None
+    mos = (iv - co["price"]) / co["price"] if (iv is not None and co["price"]) else None
+    reliable = iv is not None and conf["score"] >= 0.5
     reasons = []
 
-    valuation = _clamp(50 + mos * 100, 0, 100)
+    # Gentler MoS\u2192score curve (does not saturate at +50% MoS like the old one).
+    valuation = _clamp(50 + mos * 45, 0, 100) if mos is not None else 50
     reasons.append({"label": "Valuation", "score": valuation,
-                    "note": f"{mos*100:.1f}% margin of safety vs intrinsic \u20b9{v['intrinsic']:.0f}",
-                    "good": mos > 0.1, "bad": mos < -0.1})
+                    "note": (f"{mos*100:.1f}% margin of safety vs intrinsic \u20b9{iv:.0f}"
+                             if mos is not None else "Intrinsic value not computable from available data"),
+                    "good": mos is not None and mos > 0.15,
+                    "bad":  mos is not None and mos < -0.10})
 
     if co["type"] == "financial":
         # Use safe() so None values don't crash — default to neutral values
@@ -176,14 +215,26 @@ def recommend(co: Dict, a: Dict) -> Dict:
         if crar < 0.16: risk += 20; flags.append("Thin capital adequacy")
     else:
         if safe(a.get("debt_weight"), 0.20) > 0.4: risk += 25; flags.append("High leverage")
-    if mos < -0.25: risk += 15; flags.append("Trading well above intrinsic")
+    if mos is not None and mos < -0.30: risk += 15; flags.append("Significantly overvalued")
+    if co.get("net_profit") is not None and co["net_profit"] < 0: risk += 25; flags.append("Loss-making")
     risk = _clamp(risk, 0, 100)
     risk_score = 100 - risk
     reasons.append({"label": "Risk", "score": risk_score,
                     "note": ", ".join(flags) if flags else "No major flags",
                     "good": len(flags) == 0, "bad": len(flags) >= 2})
 
-    composite = 0.45 * valuation + 0.28 * quality + 0.14 * momentum + 0.13 * risk_score
-    verdict = "BUY" if composite >= 65 else "HOLD" if composite >= 45 else "AVOID"
+    raw = 0.42 * valuation + 0.28 * quality + 0.16 * momentum + 0.14 * risk_score
+    # Scale by data confidence — weak data can never produce a strong score.
+    composite = raw * (0.6 + 0.4 * conf["score"]) if reliable else raw * 0.5
+
+    if iv is None:                              verdict = "NO DATA"
+    elif conf["score"] < 0.5:                   verdict = "LOW CONF"
+    elif composite >= 68 and mos > 0.15:        verdict = "BUY"
+    elif composite >= 58 and mos > 0.05:        verdict = "ACCUMULATE"
+    elif mos >= -0.10:                          verdict = "HOLD"
+    elif mos >= -0.25:                          verdict = "TRIM"
+    else:                                       verdict = "AVOID"
+
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
+            "intrinsic": iv, "confidence": conf, "reliable": reliable,
             "reasons": reasons, "composite": composite, "verdict": verdict}

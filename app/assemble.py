@@ -45,34 +45,41 @@ def build_company(db: Session, co: models.Company) -> dict:
     series = [{"i": p.t, "close": p.close}
               for p in sorted(co.prices, key=lambda x: x.t)]
 
-    # need at least 20 price points for technicals
-    if len(series) < 20:
+    # need at least 20 price points for technicals; if we don't have real OHLC
+    # we synthesize a flat-ish series ONLY to keep charts from crashing, and we
+    # flag it so the trust layer knows momentum/52W are not real.
+    synthetic_series = len(series) < 20
+    if synthetic_series:
         base = price
         series = [{"i": i, "close": round(base * (1 + (i - 10) * 0.001), 2)}
                   for i in range(50)]
 
-    equity     = safe(facts.get(K.NET_WORTH), price * 10)
-    net_profit = facts.get(K.NET_PROFIT)  # can be None — engines handle it
+    # Do NOT fabricate fundamentals. Missing values stay None and flow through to
+    # the trust layer, which lowers confidence and shows the gaps. Previously these
+    # were invented (equity = price×10, revenue = price×shares×0.5, net_debt = 0),
+    # which silently produced confident, wrong valuations.
+    equity     = facts.get(K.NET_WORTH)
+    net_profit = facts.get(K.NET_PROFIT)
 
     out = {
         "id": co.id, "ticker": co.ticker, "name": co.name,
         "type": co.type, "sector": co.sector,
-        "shares": max(co.shares_outstanding, 0.1),
+        "shares": co.shares_outstanding if (co.shares_outstanding and co.shares_outstanding > 0) else None,
         "price": price, "equity": equity, "net_profit": net_profit,
-        "series": series,
+        "series": series, "synthetic_series": synthetic_series,
     }
 
     if co.type == "financial":
         out["nbfc"] = {
-            "aum":    safe(facts.get(K.AUM), equity * 4),
-            "gnpa":   safe(facts.get(K.GNPA), 0.03),
-            "nnpa":   safe(facts.get(K.NNPA), 0.015),
-            "crar":   safe(facts.get(K.CRAR), 0.18),
-            "nim":    safe(facts.get(K.NIM), 0.09),
-            "roa":    safe(facts.get(K.ROA), 0.02),
+            "aum":  facts.get(K.AUM),
+            "gnpa": facts.get(K.GNPA),
+            "nnpa": facts.get(K.NNPA),
+            "crar": facts.get(K.CRAR),
+            "nim":  facts.get(K.NIM),
+            "roa":  facts.get(K.ROA),
         }
     else:
-        out["revenue"]  = safe(facts.get(K.REVENUE), price * co.shares_outstanding * 0.5)
-        out["net_debt"] = safe(facts.get(K.NET_DEBT), 0.0)
+        out["revenue"]  = facts.get(K.REVENUE)
+        out["net_debt"] = facts.get(K.NET_DEBT)
 
     return out

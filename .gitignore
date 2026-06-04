@@ -1,1 +1,9 @@
 venv/
+backend/
+*.db
+onepager_out/
+*.pdf
+*.bak.*
+app/**/*.bak.*
+__pycache__/
+*.pyc

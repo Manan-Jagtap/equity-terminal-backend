@@ -92,18 +92,24 @@ def list_companies(db: Session = Depends(get_db)):
             # Market
             "price":       data["price"],
 
-            # Computed screener metrics
-            "intrinsic":   rec["valuation"]["intrinsic"],
+            # Computed screener metrics (intrinsic/mos may be null when not
+            # cleanly computable; pe/pb null → "N/M" in the UI)
+            "intrinsic":   rec.get("intrinsic"),
             "mos":         rec["mos"],
             "roe":         f["roe"],
             "pb":          f["pb"],
             "pe":          f["pe"],
             "composite":   rec["composite"],
             "verdict":     rec["verdict"],
+            "confidence":  rec["confidence"]["level"],
+            "confidence_score": rec["confidence"]["score"],
+            "reliable":    rec["reliable"],
         }
         rows.append(row)
 
-    rows.sort(key=lambda r: r["composite"], reverse=True)
+    # Sort by composite, but always rank confidently-valued names above
+    # NO-DATA / LOW-CONF rows so the top of the screener is trustworthy.
+    rows.sort(key=lambda r: (r["reliable"], r["composite"]), reverse=True)
     return rows
 
 
