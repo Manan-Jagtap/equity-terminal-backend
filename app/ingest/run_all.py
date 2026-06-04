@@ -18,9 +18,10 @@ from app.database import SessionLocal
 from app.ingest.price_ingester import ingest_prices
 from app.ingest.fundamentals_ingester import ingest_fundamentals
 from app.ingest.bse_results_ingester import ingest_bse_results, update_nbfc_metrics_manually
+from app.ingest.statements_ingester import ingest_statements
 
 
-def run_all(prices=True, fundamentals=True, bse=True):
+def run_all(prices=True, fundamentals=True, statements=True, bse=True):
     db = SessionLocal()
     try:
         if prices:
@@ -32,14 +33,21 @@ def run_all(prices=True, fundamentals=True, bse=True):
         if fundamentals:
             print()
             print("=" * 50)
-            print("STEP 2: Fundamentals from Yahoo Finance")
+            print("STEP 2: Fundamentals (current-year facts) from Yahoo")
             print("=" * 50)
             ingest_fundamentals(db)
+
+        if statements:
+            print()
+            print("=" * 50)
+            print("STEP 3: Multi-year statements (P&L / BS / CF) → Financials tab")
+            print("=" * 50)
+            ingest_statements(db)
 
         if bse:
             print()
             print("=" * 50)
-            print("STEP 3: BSE results + NBFC metrics")
+            print("STEP 4: BSE results + NBFC metrics")
             print("=" * 50)
             ingest_bse_results(db)
             update_nbfc_metrics_manually(db)
@@ -52,8 +60,10 @@ def run_all(prices=True, fundamentals=True, bse=True):
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+    any_flag = any(a in args for a in ("--prices", "--fundamentals", "--statements", "--bse"))
     run_all(
-        prices="--prices" in args or not args,
-        fundamentals="--fundamentals" in args or not args,
-        bse="--bse" in args or not args,
+        prices="--prices" in args or not any_flag,
+        fundamentals="--fundamentals" in args or not any_flag,
+        statements="--statements" in args or not any_flag,
+        bse="--bse" in args or not any_flag,
     )

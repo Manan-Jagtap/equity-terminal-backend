@@ -14,6 +14,17 @@ from app import models
 router = APIRouter(prefix="/api/companies")
 
 
+def _latest_facts(db: Session, company_id: int) -> dict:
+    """Most recent value per concept from financial_facts."""
+    rows = db.query(models.FinancialFact).filter_by(company_id=company_id).all()
+    best = {}
+    for r in rows:
+        cur = best.get(r.concept)
+        if cur is None or r.fiscal_year > cur[0]:
+            best[r.concept] = (r.fiscal_year, r.value)
+    return {k: v[1] for k, v in best.items()}
+
+
 @router.get("/{ticker}/history")
 def price_history(ticker: str, db: Session = Depends(get_db)):
     """5 years of daily OHLCV prices."""
@@ -49,7 +60,11 @@ def price_history(ticker: str, db: Session = Depends(get_db)):
 
 @router.get("/{ticker}/financials")
 def financial_history(ticker: str, db: Session = Depends(get_db)):
-    """5 years of P&L, Balance Sheet and Cash Flow statements."""
+    """5 years of P&L, Balance Sheet and Cash Flow statements.
+
+    Uses build_financials_response so the payload includes `has_data`, derived
+    margins and CAGRs — the shape the frontend FinancialsTab renders from.
+    """
     co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
     if not co:
         raise HTTPException(404, f"Unknown ticker {ticker}")
@@ -59,17 +74,41 @@ def financial_history(ticker: str, db: Session = Depends(get_db)):
               .order_by(models.HistoricalFinancial.fiscal_year)
               .all())
 
-    # Pivot into {year: {PL:{}, BS:{}, CF:{}}}
-    years = {}
-    for r in rows:
-        if r.fiscal_year not in years:
-            years[r.fiscal_year] = {"PL": {}, "BS": {}, "CF": {}}
-        years[r.fiscal_year][r.statement_type][r.line_item] = r.value
+    from app.financials import build_financials_response
+    resp = build_financials_response(co, rows)
+    resp["ticker"] = co.ticker
+    resp["name"] = co.name
+    resp["type"] = co.type
+    return resp
 
-    return {
-        "ticker": co.ticker,
-        "name": co.name,
-        "type": co.type,
-        "years_available": sorted(years.keys()),
-        "statements": years,
-    }
+
+@router.get("/{ticker}/metrics")
+def company_metrics(ticker: str, category: str | None = None,
+                    db: Session = Depends(get_db)):
+    """80+ computed ratios & KPIs (Growth, Profitability, Returns, Leverage,
+    Valuation, NBFC/Banking, …) for the Ratios & KPIs tab. Computed from the
+    latest facts + multi-year statements via the metric registry."""
+    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
+    if not co:
+        raise HTTPException(404, f"Unknown ticker {ticker}")
+
+    facts = _latest_facts(db, co.id)
+
+    rows = (db.query(models.HistoricalFinancial)
+              .filter_by(company_id=co.id)
+              .order_by(models.HistoricalFinancial.fiscal_year)
+              .all())
+    from app.financials import build_financials_response
+    fin = build_financials_response(co, rows)
+
+    price = 0.0
+    try:
+        price = co.market.price if co.market else 0.0
+    except Exception:
+        price = 0.0
+
+    template = getattr(co, "template_code", None) or "MANUFACTURING"
+
+    from app.metrics import compute_metrics
+    return compute_metrics(co, facts, fin.get("statements", {}), price,
+                           template, category_filter=category)
