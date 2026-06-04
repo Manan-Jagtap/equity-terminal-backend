@@ -47,6 +47,16 @@ def run_fundamentals():
         db.close()
 
 
+def run_valuations():
+    log.info("Recomputing valuation cache...")
+    try:
+        from app.ingest.compute_valuations import run as compute_run
+        compute_run()
+        log.info("Valuation cache refresh complete.")
+    except Exception as e:
+        log.error(f"Valuation refresh failed: {e}")
+
+
 # ── Intraday: every 15 mins, Mon-Fri, 9:15am–3:30pm IST (03:45–10:00 UTC) ──
 # We schedule every 15 mins and check if we're inside market hours
 def run_prices_if_market_open():
@@ -74,10 +84,15 @@ schedule.every(15).minutes.do(run_prices_if_market_open)
 
 # End-of-day full refresh — 3:45pm IST = 10:15 UTC, Mon-Fri
 schedule.every().monday.at("10:15").do(run_prices)
+schedule.every().monday.at("10:30").do(run_valuations)
 schedule.every().tuesday.at("10:15").do(run_prices)
+schedule.every().tuesday.at("10:30").do(run_valuations)
 schedule.every().wednesday.at("10:15").do(run_prices)
+schedule.every().wednesday.at("10:30").do(run_valuations)
 schedule.every().thursday.at("10:15").do(run_prices)
+schedule.every().thursday.at("10:30").do(run_valuations)
 schedule.every().friday.at("10:15").do(run_prices)
+schedule.every().friday.at("10:30").do(run_valuations)
 
 # Weekly fundamentals — 6:00am IST Sunday = 00:30 UTC
 schedule.every().sunday.at("00:30").do(run_fundamentals)
