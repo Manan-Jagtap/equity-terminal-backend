@@ -111,6 +111,8 @@ def company_insights(ticker: str, db: Session = Depends(get_db)):
         except (ZeroDivisionError, TypeError):
             fwd_pe = None
 
+    rev_est = _rev_estimates(data.get("forecasts"))
+
     return {
         "ticker": co.ticker,
         "has_data": True,
@@ -120,9 +122,41 @@ def company_insights(ticker: str, db: Session = Depends(get_db)):
         "forward_eps_year": fwd_eps_year,
         "forward_pe": fwd_pe,
         "eps_estimates": eps_est,
+        "rev_estimates": rev_est,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         **data,
     }
+
+
+def _rev_estimates(forecasts):
+    """Forward REVENUE estimates (FY+1, FY+2 …). Same Refinitiv shape as EPS but
+    measure 'SAL'; values arrive in ₹ million → converted to ₹ crore (÷10)."""
+    rev = (forecasts or {}).get("revenue")
+    if not isinstance(rev, dict):
+        return None
+    out = []
+    for p in (rev.get("periods") or []):
+        num = (p.get("RelativePeriod") or {}).get("Number")
+        if num is None or num < 1:
+            continue
+        inner = _estimate_inner(p)
+        if not inner:
+            continue
+        try:
+            mean = float(inner.get("Mean") or inner.get("UnverifiedMean"))
+        except (TypeError, ValueError):
+            continue
+        if mean <= 0:
+            continue
+        year = (p.get("FiscalPeriod") or {}).get("Year")
+        out.append({
+            "year": year, "n_rel": num,
+            "mean_cr": round(mean / 10.0),           # ₹ million → ₹ crore
+            "high_cr": round(_safe_f(inner.get("High")) / 10.0) if _safe_f(inner.get("High")) else None,
+            "low_cr": round(_safe_f(inner.get("Low")) / 10.0) if _safe_f(inner.get("Low")) else None,
+        })
+    out.sort(key=lambda e: e["n_rel"])
+    return out or None
 
 
 def _estimate_inner(period):
