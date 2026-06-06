@@ -177,9 +177,12 @@ def _periodic_pl(ticker: str, stats: str, n: int = 5):
         if isinstance(series, dict):
             labels.update(series.keys())
     periods = sorted(labels, key=_q_key)[-n:]
-    metrics = {name: [series.get(p) for p in periods]
-               for name, series in data.items() if isinstance(series, dict)}
-    return {"periods": periods, "metrics": metrics}
+    # Preserve IndianAPI's own line-item names AND order (sector-specific:
+    # NBFCs get Revenue/Financing Profit/Financing Margin %, manufacturers get
+    # Sales/Operating Profit/OPM %, etc.). No forced template.
+    order = [name for name, series in data.items() if isinstance(series, dict)]
+    metrics = {name: [data[name].get(p) for p in periods] for name in order}
+    return {"periods": periods, "metrics": metrics, "order": order}
 
 
 @router.get("/{ticker}/quarterly")
@@ -191,7 +194,8 @@ def company_quarterly(ticker: str, db: Session = Depends(get_db)):
     r = _periodic_pl(ticker.upper(), "quarter_results")
     # keep legacy "quarters" key for the frontend
     return {"ticker": co.ticker, "has_data": bool(r and r["periods"]),
-            "quarters": (r or {}).get("periods", []), "metrics": (r or {}).get("metrics", {})}
+            "quarters": (r or {}).get("periods", []), "metrics": (r or {}).get("metrics", {}),
+            "order": (r or {}).get("order", [])}
 
 
 @router.get("/{ticker}/annual_pl")
@@ -202,7 +206,8 @@ def company_annual_pl(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(404, f"Unknown ticker {ticker}")
     r = _periodic_pl(ticker.upper(), "yoy_results")
     return {"ticker": co.ticker, "has_data": bool(r and r["periods"]),
-            "periods": (r or {}).get("periods", []), "metrics": (r or {}).get("metrics", {})}
+            "periods": (r or {}).get("periods", []), "metrics": (r or {}).get("metrics", {}),
+            "order": (r or {}).get("order", [])}
 
 
 @router.get("/{ticker}/profile")
