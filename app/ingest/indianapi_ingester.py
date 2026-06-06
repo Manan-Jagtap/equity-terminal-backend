@@ -1,0 +1,527 @@
+"""
+indianapi_ingester.py — accurate Indian fundamentals from indianapi.in.
+
+Pulls EVERYTHING from the single reliable /stock endpoint (the /historical_stats
+endpoint is flaky/504s, so we don't use it). Per company, one call gives:
+  - 7 annual years of Income Statement / Balance Sheet / Cash Flow  → HistoricalFinancial
+  - latest-year facts (revenue, PAT, net worth, net debt)           → FinancialFact
+  - corrected shares outstanding (PAT / EPS)                        → Company.shares_outstanding
+  - current NSE price                                                → MarketSnapshot
+
+Auth: set env var INDIANAPI_KEY to your x-api-key (never hard-code it).
+
+Run:
+  export INDIANAPI_KEY=...
+  python -m app.ingest.indianapi_ingester                  # all companies
+  python -m app.ingest.indianapi_ingester --ticker TCS     # one company
+  python -m app.ingest.indianapi_ingester --limit 50       # first 50
+  python -m app.ingest.indianapi_ingester --price-only     # just prices
+"""
+import os, sys, time, re
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
+import requests
+from app.database import SessionLocal, engine, Base
+from app import models, concepts as K
+
+Base.metadata.create_all(bind=engine)
+
+# Developer plan (v2) base. The old "stock." base mis-resolves some tickers
+# (e.g. BAJAJ-AUTO → Bajaj Finance, LT/M&M → nothing); "dev." resolves them
+# correctly. Override with INDIANAPI_BASE if needed.
+BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
+KEY = os.getenv("INDIANAPI_KEY", "").strip()
+RATE_SLEEP = 1.1
+
+
+def _get(path, params, retries=4):
+    if not KEY or KEY.lower().startswith(("paste", "your")):
+        raise RuntimeError("INDIANAPI_KEY is not set to your real key.")
+    last = "unknown error"
+    for attempt in range(retries):
+        try:
+            r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
+                             params=params, timeout=90)
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code in (429, 500, 502, 503, 504):
+                last = f"HTTP {r.status_code} — {r.text[:120]}"
+                time.sleep(3 * (attempt + 1))
+                continue
+            raise RuntimeError(f"HTTP {r.status_code} — {r.text[:200]}")
+        except requests.exceptions.RequestException as e:
+            last = f"{type(e).__name__}: {e}"
+            time.sleep(3 * (attempt + 1))
+    raise RuntimeError(f"{last} (after {retries} retries)")
+
+
+def _norm(name):
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+# Reuters-style displayName (normalised) → our canonical line item.
+INC_MAP = {
+    "totalrevenue": "revenue", "revenue": "revenue",
+    "costofrevenuetotal": "raw_material",
+    "grossprofit": "gross_profit",
+    "operatingincome": "ebit",
+    "depreciationamortization": "depreciation",
+    "netincomebeforetaxes": "pbt",
+    "provisionforincometaxes": "tax",
+    "netincome": "pat", "netincomeaftertaxes": "pat",
+    "interestincexpnetnonoptotal": "interest_expense",
+    "dilutednormalizedeps": "_eps", "dilutedepsexcludingextraorditems": "_eps",
+    "dilutedweightedaverageshares": "_shares",
+}
+BAL_MAP = {
+    "totalequity": "net_worth",
+    "commonstocktotal": "equity",
+    "retainedearningsaccumulateddeficit": "reserves",
+    "totalassets": "total_assets",
+    "totaldebt": "borrowings",
+    "totallongtermdebt": "lt_debt", "longtermdebt": "lt_debt",
+    "cash": "cash", "cashandshortterminvestments": "cash",
+    "totalliabilities": "total_liabilities",
+    "propertyplantequipmenttotalnet": "fixed_assets",
+    "longterminvestments": "investments",
+    "totalcommonsharesoutstanding": "_shares_bal",
+}
+CAS_MAP = {
+    "cashfromoperatingactivities": "operating_cf",
+    "cashfrominvestingactivities": "investing_cf",
+    "cashfromfinancingactivities": "financing_cf",
+    "capitalexpenditures": "capex",
+    "totalcashdividendspaid": "dividends",
+    "netchangeincash": "net_change_cash",
+}
+SECTIONS = {"INC": ("PL", INC_MAP), "BAL": ("BS", BAL_MAP), "CAS": ("CF", CAS_MAP)}
+
+PL_ITEMS = {"revenue", "gross_profit", "ebitda", "ebit", "depreciation", "interest_expense", "pbt", "tax", "pat"}
+BS_ITEMS = {"net_worth", "equity", "reserves", "total_assets", "borrowings", "lt_debt", "cash", "total_liabilities", "fixed_assets", "investments"}
+CF_ITEMS = {"operating_cf", "investing_cf", "financing_cf", "capex", "dividends", "net_change_cash"}
+
+
+def _upsert_hist(s, cid, year, stmt, item, value):
+    row = (s.query(models.HistoricalFinancial)
+             .filter_by(company_id=cid, fiscal_year=year, statement_type=stmt, line_item=item).first())
+    if row:
+        row.value = value
+    else:
+        s.add(models.HistoricalFinancial(company_id=cid, fiscal_year=year, statement_type=stmt,
+                                         line_item=item, value=value, source="indianapi"))
+
+
+def _upsert_fact(s, cid, year, concept, value):
+    row = (s.query(models.FinancialFact)
+             .filter_by(company_id=cid, fiscal_year=year, period="FY", concept=concept).first())
+    if row:
+        row.value = value
+    else:
+        s.add(models.FinancialFact(company_id=cid, fiscal_year=year, period="FY",
+                                   concept=concept, value=value, unit="INR_CR", source="indianapi"))
+
+
+def _parse_financials(s, cid, co, stock):
+    """Read the embedded /stock financials (7 annual years of INC/BAL/CAS) into
+    HistoricalFinancial + latest-year FinancialFact + corrected share count."""
+    fin = stock.get("financials") or stock.get("stockFinancialData") or []
+    by_year = {}
+    for entry in fin:
+        if entry.get("Type") != "Annual":
+            continue
+        try:
+            year = int(entry.get("FiscalYear"))
+        except (TypeError, ValueError):
+            continue
+        smap = entry.get("stockFinancialMap") or {}
+        yd = by_year.setdefault(year, {})
+        for sec, (stmt, keymap) in SECTIONS.items():
+            for it in (smap.get(sec) or []):
+                canon = keymap.get(_norm(it.get("displayName")))
+                if not canon:
+                    continue
+                try:
+                    yd[canon] = float(it.get("value"))
+                except (TypeError, ValueError):
+                    continue
+
+    for year, yd in by_year.items():
+        # EBITDA (Operating Profit) = EBIT + Depreciation
+        if "ebit" in yd and "depreciation" in yd:
+            yd["ebitda"] = yd["ebit"] + abs(yd["depreciation"])
+        # Free cash flow = Operating CF + Capex (capex is negative)
+        if "operating_cf" in yd and "capex" in yd:
+            yd["fcf"] = yd["operating_cf"] + yd["capex"]
+        for item, v in yd.items():
+            if item.startswith("_"):
+                continue
+            stmt = "PL" if item in PL_ITEMS else "BS" if item in BS_ITEMS else "CF" if item in (CF_ITEMS | {"fcf"}) else None
+            if stmt:
+                _upsert_hist(s, cid, year, stmt, item, v)
+
+    years = sorted(by_year)
+    if years:
+        ly = years[-1]
+        yd = by_year[ly]
+        if "revenue" in yd:
+            _upsert_fact(s, cid, ly, K.REVENUE, yd["revenue"])
+        if "pat" in yd:
+            _upsert_fact(s, cid, ly, K.NET_PROFIT, yd["pat"])
+        nw = yd.get("net_worth") or yd.get("equity")
+        if nw:
+            _upsert_fact(s, cid, ly, K.NET_WORTH, nw)
+        if yd.get("borrowings") is not None:
+            _upsert_fact(s, cid, ly, K.NET_DEBT, yd["borrowings"] - (yd.get("cash") or 0))
+        # Corrected shares: PAT / EPS (gives crore shares), else balance-sheet count.
+        sh = None
+        if yd.get("_eps") and yd.get("pat"):
+            sh = yd["pat"] / yd["_eps"]
+        elif yd.get("_shares_bal"):
+            sh = yd["_shares_bal"]
+            if sh > 1e7:        # absolute share count → crore
+                sh = sh / 1e7
+        if sh and 0.1 < sh < 100000:
+            co.shares_outstanding = round(sh, 2)
+    return len(years)
+
+
+def _price_from_stock(s, co, stock):
+    cp = (stock or {}).get("currentPrice") or {}
+    price = cp.get("NSE") or cp.get("BSE")
+    if price:
+        price = round(float(price), 2)
+        if co.market:
+            co.market.price = price
+        else:
+            s.add(models.MarketSnapshot(company_id=co.id, price=price))
+        return price
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Insight layer: analyst consensus, peers, target, forecasts, ratios, growth,
+# latest quarter — plus an insurer fallback for companies /stock can't cover.
+# Everything here is best-effort: a failure never breaks the core statements.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_safe(path, params):
+    """Fast, single-shot GET for OPTIONAL insight sections — no retries/backoff
+    so a flaky endpoint fails instantly instead of stalling the whole run.
+    Returns None on any failure, and treats IndianAPI's [{'error': ...}, <code>]
+    payload (HTTP 200 wrapping an internal error) as a failure too."""
+    if not KEY:
+        return None
+    try:
+        r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
+                         params=params, timeout=30)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+    except Exception:
+        return None
+    if isinstance(data, list) and data and (
+        (isinstance(data[-1], int) and data[-1] >= 400) or
+        (isinstance(data[0], dict) and "error" in data[0])
+    ):
+        return None
+    return data
+
+
+def _num(x):
+    """Clean an IndianAPI value (HTML whitespace, commas, %, ₹) → float|None."""
+    if x is None:
+        return None
+    if isinstance(x, (int, float)):
+        return float(x)
+    s2 = re.sub(r"[,\s₹%]", "", str(x))
+    if s2 in ("", "-", "—", "NA", "N/A"):
+        return None
+    try:
+        return float(s2)
+    except ValueError:
+        return None
+
+
+def _ticker_id(stock):
+    """Company's own IndianAPI id (S00xxxxx) — reliably under corporate actions."""
+    ca = (stock or {}).get("stockCorporateActionData") or {}
+    for sub in ("boardMeetings", "dividend", "annualGeneralMeeting", "splits", "bonus", "rights"):
+        for row in (ca.get(sub) or []):
+            tid = (row or {}).get("tickerId")
+            if tid:
+                return str(tid)
+    return None
+
+
+def _analyst(stock):
+    """Consensus rating + distribution from analystView / recosBar."""
+    bar = (stock or {}).get("recosBar") or {}
+    details = (stock or {}).get("stockDetailsReusableData") or {}
+    view = (stock or {}).get("analystView") or []
+    dist = [
+        {"rating": v.get("ratingName"), "count": _num(v.get("numberOfAnalystsLatest"))}
+        for v in view if v.get("ratingName") and v.get("ratingName") != "Total"
+    ]
+    if not dist and not bar:
+        return None
+    return {
+        "rating": details.get("averageRating") or None,
+        "mean_value": _num(bar.get("meanValue")),
+        "num_analysts": _num(bar.get("noOfRecommendations")),
+        "bullish_pct": _num(bar.get("tickerPercentage")),
+        "distribution": dist,
+    }
+
+
+def _peers(stock):
+    """Peer comp table from companyProfile.peerCompanyList."""
+    prof = (stock or {}).get("companyProfile") or {}
+    out = []
+    for p in (prof.get("peerCompanyList") or []):
+        out.append({
+            "name": p.get("companyName"),
+            "ticker_id": p.get("tickerId"),
+            "price": _num(p.get("price")),
+            "pe": _num(p.get("priceToEarningsValueRatio")),
+            "pb": _num(p.get("priceToBookValueRatio")),
+            "roe_ttm": _num(p.get("returnOnAverageEquityTrailing12Month")),
+            "npm_ttm": _num(p.get("netProfitMarginPercentTrailing12Month")),
+            "div_yield": _num(p.get("dividendYieldIndicatedAnnualDividend")),
+            "mcap": _num(p.get("marketCap")),
+            "rating": p.get("overallRating"),
+        })
+    return out or None
+
+
+def _ratios(ticker):
+    """Screener-style ROCE%, Debtor Days, etc. (12-yr series)."""
+    r = _get_safe("/historical_stats", {"stock_name": ticker, "stats": "ratios"})
+    return r if isinstance(r, dict) and r else None
+
+
+def _growth(ticker):
+    """Compounded sales/profit growth + ROE over 10/5/3yr/TTM."""
+    r = _get_safe("/historical_stats", {"stock_name": ticker, "stats": "profit_loss_stats"})
+    return r if isinstance(r, dict) and r else None
+
+
+def _latest_quarter(ticker):
+    """Latest quarter + TTM snapshot (sales, net profit, EPS, OPM…)."""
+    out = {}
+    for stat, label in (("quarter_results", "quarter"), ("ttm_results", "ttm")):
+        r = _get_safe("/statement", {"stock_name": ticker, "stats": stat})
+        if isinstance(r, dict):
+            out[label] = {k: _num(v) for k, v in r.items() if _num(v) is not None}
+    return out or None
+
+
+def _target(tid):
+    """Analyst consensus target price (best-effort parse — store raw too)."""
+    if not tid:
+        return None
+    r = _get_safe("/stock_target_price", {"stock_id": tid})
+    if r is None:
+        return None
+    found = {}
+    def scan(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                kl = k.lower()
+                n = _num(v)
+                if n is not None and any(t in kl for t in ("target", "mean", "high", "low", "median")):
+                    found.setdefault(kl, n)
+                scan(v)
+        elif isinstance(o, list):
+            for v in o:
+                scan(v)
+    scan(r)
+    return {"raw": r, "parsed": found or None}
+
+
+def _forecasts(tid):
+    """Forward EPS + revenue estimates (store raw — shape parsed once confirmed)."""
+    if not tid:
+        return None
+    out = {}
+    for code, label in (("EPS", "eps"), ("SAL", "revenue")):
+        r = _get_safe("/stock_forecasts", {
+            "stock_id": tid, "measure_code": code, "period_type": "Annual",
+            "data_type": "Estimates", "age": "Current"})
+        if r is not None:
+            out[label] = r
+    return out or None
+
+
+def _build_insight(s, co, stock):
+    """Assemble + upsert a CompanyInsight row. Returns a short status string."""
+    ticker = (co.ticker or "").upper()
+    tid = _ticker_id(stock)
+    data = {}
+    try: data["analyst"]  = _analyst(stock)
+    except Exception: pass
+    try: data["peers"]    = _peers(stock)
+    except Exception: pass
+    try: data["ratios"]   = _ratios(ticker)
+    except Exception: pass
+    try: data["growth"]   = _growth(ticker)
+    except Exception: pass
+    try: data["latest_q"] = _latest_quarter(ticker)
+    except Exception: pass
+    try: data["target"]   = _target(tid)
+    except Exception: pass
+    try: data["forecasts"]= _forecasts(tid)
+    except Exception: pass
+    data = {k: v for k, v in data.items() if v}
+
+    row = s.query(models.CompanyInsight).filter_by(company_id=co.id).first()
+    if row:
+        row.ticker_id, row.data = tid, data
+    else:
+        s.add(models.CompanyInsight(company_id=co.id, ticker_id=tid, data=data))
+
+    tags = []
+    if data.get("analyst"):   tags.append(f"analyst({int(data['analyst'].get('num_analysts') or 0)})")
+    if data.get("peers"):     tags.append(f"peers({len(data['peers'])})")
+    if data.get("ratios"):    tags.append("ratios")
+    if data.get("growth"):    tags.append("growth")
+    if data.get("latest_q"):  tags.append("Q")
+    if data.get("target", {}).get("parsed"): tags.append("target")
+    if data.get("forecasts"): tags.append("fwd")
+    return "id=" + (tid or "?") + " · " + (", ".join(tags) if tags else "no extras")
+
+
+# Insurers / some banks have no INC/BAL/CAS block in /stock → 0 years.
+# Pull a single latest period from /statement so the tabs aren't empty.
+_STMT_FACT_MAP = {
+    "sales": ("PL", "revenue"), "net_profit": ("PL", "pat"),
+    "operating_profit": ("PL", "ebitda"), "profit_before_tax": ("PL", "pbt"),
+    "depreciation": ("PL", "depreciation"), "interest": ("PL", "interest_expense"),
+    "total_assets": ("BS", "total_assets"), "reserves": ("BS", "reserves"),
+    "borrowings": ("BS", "borrowings"), "investments": ("BS", "investments"),
+    "fixed_assets": ("BS", "fixed_assets"), "share_capital": ("BS", "equity"),
+}
+
+
+def _insurer_statements(s, co):
+    """Fallback statements via /statement for companies /stock can't cover."""
+    ticker = (co.ticker or "").upper()
+    import datetime
+    year = datetime.date.today().year
+    wrote = 0
+    for stat in ("quarter_results", "balancesheet"):
+        r = _get_safe("/statement", {"stock_name": ticker, "stats": stat})
+        if not isinstance(r, dict):
+            continue
+        for raw_key, (stmt, canon) in _STMT_FACT_MAP.items():
+            v = _num(r.get(raw_key))
+            if v is not None:
+                _upsert_hist(s, co.id, year, stmt, canon, v)
+                wrote += 1
+        rev, pat = _num(r.get("sales")), _num(r.get("net_profit"))
+        if rev is not None: _upsert_fact(s, co.id, year, K.REVENUE, rev)
+        if pat is not None: _upsert_fact(s, co.id, year, K.NET_PROFIT, pat)
+    return wrote
+
+
+def ingest_company(s, co, dump=False, insights=True):
+    import json
+    ticker = (co.ticker or "").upper()
+    print(f"  {ticker}:")
+    try:
+        stock = _get("/stock", {"name": ticker})
+    except Exception as e:
+        print(f"    /stock FAILED — {e}")
+        return False
+
+    price = _price_from_stock(s, co, stock)
+
+    if dump:
+        fin = stock.get("financials") or stock.get("stockFinancialData") or []
+        print(f"    ── financials: {len(fin)} entries; first sections="
+              f"{list((fin[0].get('stockFinancialMap') or {}).keys()) if fin else []}")
+
+    n = _parse_financials(s, co.id, co, stock)
+
+    # Insurer / 0-year fallback (SBILIFE, HDFCLIFE, …)
+    if n == 0:
+        try:
+            w = _insurer_statements(s, co)
+            if w:
+                print(f"    insurer fallback → {w} line items via /statement")
+        except Exception as e:
+            print(f"    insurer fallback failed — {e}")
+
+    status = ""
+    if insights:
+        try:
+            status = "  ·  " + _build_insight(s, co, stock)
+        except Exception as e:
+            status = f"  ·  insight skipped ({type(e).__name__})"
+
+    s.commit()
+    print(f"    price ✓ ₹{price} · {n} fiscal years · shares {co.shares_outstanding}{status}")
+    return True
+
+
+def refresh_price(s, co):
+    try:
+        stock = _get("/stock", {"name": (co.ticker or '').upper()})
+        p = _price_from_stock(s, co, stock)
+        s.commit()
+        if p:
+            print(f"  {co.ticker}: ₹{p}")
+            return True
+    except Exception as e:
+        s.rollback()
+        print(f"  {co.ticker}: price ERROR — {e}")
+    return False
+
+
+NIFTY_50 = {
+    "RELIANCE","HDFCBANK","BHARTIARTL","TCS","ICICIBANK","SBIN","INFY","BAJFINANCE","ITC","LT",
+    "HINDUNILVR","KOTAKBANK","AXISBANK","M&M","SUNPHARMA","MARUTI","NTPC","HCLTECH","ULTRACEMCO","TITAN",
+    "BAJAJFINSV","ONGC","ADANIENT","ADANIPORTS","POWERGRID","WIPRO","JSWSTEEL","NESTLEIND","COALINDIA","TATASTEEL",
+    "ASIANPAINT","BAJAJ-AUTO","TRENT","JIOFIN","BEL","GRASIM","HINDALCO","SBILIFE","TECHM","HDFCLIFE",
+    "SHRIRAMFIN","CIPLA","DRREDDY","EICHERMOT","BRITANNIA","APOLLOHOSP","TATACONSUM","HEROMOTOCO","ETERNAL","TATAMOTORS",
+}
+
+
+def run(limit=None, ticker=None, price_only=False, nifty50=False, insights=True):
+    s = SessionLocal()
+    q = s.query(models.Company)
+    if ticker:
+        q = q.filter(models.Company.ticker == ticker.upper())
+    companies = q.all()
+    if nifty50:
+        companies = [c for c in companies if (c.ticker or "").upper() in NIFTY_50]
+    if limit:
+        companies = companies[:limit]
+    mode = ("prices only" if price_only
+            else "statements + facts + price + insights" if insights
+            else "statements + facts + price")
+    print(f"IndianAPI ingest — {len(companies)} companies ({mode})")
+    ok = 0
+    for co in companies:
+        try:
+            if price_only:
+                refresh_price(s, co)
+            else:
+                ingest_company(s, co, dump=(ticker is not None), insights=insights)
+            ok += 1
+        except Exception as e:
+            s.rollback()
+            print(f"  {co.ticker}: FAILED ({type(e).__name__}: {e})")
+        time.sleep(RATE_SLEEP)
+    s.close()
+    print(f"Done. {ok}/{len(companies)} processed.")
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    run(
+        limit=int(args[args.index("--limit") + 1]) if "--limit" in args else None,
+        ticker=args[args.index("--ticker") + 1] if "--ticker" in args else None,
+        price_only="--price-only" in args,
+        nifty50="--nifty50" in args,
+        insights="--no-insights" not in args,
+    )

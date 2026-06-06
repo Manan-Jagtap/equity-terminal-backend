@@ -9,7 +9,7 @@ Existing tables unchanged so migration is additive.
 """
 from sqlalchemy import (
     Column, Integer, String, Float, ForeignKey,
-    UniqueConstraint, DateTime, Date, func,
+    UniqueConstraint, DateTime, Date, func, JSON,
 )
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -129,6 +129,28 @@ class MarketSnapshot(Base):
     price      = Column(Float, nullable=False)
     as_of      = Column(DateTime, server_default=func.now())
     company    = relationship("Company", back_populates="market")
+
+
+# ── NEW: analyst / forward / Screener-style insight blob (IndianAPI v2) ──────
+class CompanyInsight(Base):
+    """
+    One JSON blob per company holding everything the valuation engine doesn't:
+      analyst   — consensus rating, distribution, # analysts, mean target price
+      forecasts — forward EPS / revenue (Estimates) → forward P/E
+      peers     — peer comp table (P/E, P/B, ROE, margins, div yield)
+      ratios    — Screener-style ROCE%, Debtor Days, Working Capital Days series
+      growth    — compounded sales/profit growth + ROE over 10/5/3yr/TTM
+      latest_q  — latest quarter + TTM (sales, net profit, EPS, OPM)
+      ticker_id — IndianAPI internal id (S00xxxxx) for target/forecast calls
+    Stored as JSON so new fields need no migration.
+    """
+    __tablename__ = "company_insights"
+    id         = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), unique=True, nullable=False, index=True)
+    ticker_id  = Column(String(20), nullable=True)
+    data       = Column(JSON, nullable=False, default=dict)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    company    = relationship("Company", backref="insight", uselist=False)
 
 
 class QuarterlyDocument(Base):
