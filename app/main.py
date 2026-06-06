@@ -57,15 +57,23 @@ def _latest_facts(db, company_id):
     return {k: v[1] for k, v in best.items()}
 
 
+_COMPANIES_CACHE = {"ts": 0.0, "data": None}
+
+
 @app.get("/api/companies")
 def list_companies(db: Session = Depends(get_db)):
+    import time as _t
+    if _COMPANIES_CACHE["data"] is not None and (_t.time() - _COMPANIES_CACHE["ts"]) < 300:
+        return _COMPANIES_CACHE["data"]
+
     rows = []
     for co in db.query(models.Company).all():
-        data = build_company(db, co)
-        a = assumptions_dict(co.assumptions)
         try:
+            data = build_company(db, co)
+            a = assumptions_dict(co.assumptions)
             rec = engines.recommend(data, a)
         except Exception:
+            # One bad company must never take down the whole screener.
             continue
 
         f = rec["fundamentals"]
@@ -114,6 +122,8 @@ def list_companies(db: Session = Depends(get_db)):
     # Sort by composite, but always rank confidently-valued names above
     # NO-DATA / LOW-CONF rows so the top of the screener is trustworthy.
     rows.sort(key=lambda r: (r["reliable"], r["composite"]), reverse=True)
+    import time as _t
+    _COMPANIES_CACHE["ts"], _COMPANIES_CACHE["data"] = _t.time(), rows
     return rows
 
 
