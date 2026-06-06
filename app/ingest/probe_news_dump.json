@@ -1,0 +1,827 @@
+{
+  "company_news": {
+    "path": "/company_news",
+    "params": {
+      "stock_name": "TCS"
+    },
+    "status": 200,
+    "body": [
+      {
+        "title": "IT stocks to buy amid AI push: Infosys, TCS among nine names \u2013 check target prices - MSN",
+        "article_link": "https://news.indianapi.in/CBMi8AFBVV95cUxPZXJ5RzNvUDl1VHNFMFR3R2RFLUpuRl82Yms0azZkU0l6c1g5TE9tekExaFhIS3JqSnJNZWNhNm9wTVByRVJKQVRCYUE3Vkt3ekctcVllcTZKRWQ0QXRJcEpTOE9BN0xwQVVjdGlfcjN3T2dUV2EyWTNKTWlIM0I0cFFmRkYyUFJhOG1uSE00akhSVnVYLS0yYThLWGlrU19sWi10U1NOQllaWFZwZ2Q1dmpDRVpRZTA2NnR6MTVvNnNNTUJHaTYtazNObUJaM2s5UXZiNGhBdm9jM1JKWGhWSzAybWZjZTJXalJ4MGR0blM?oc=5",
+        "published": "Fri, 05 Jun 2026 22:16:58 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "TCS, Infosys shares on hold? Time to buy midcap IT stocks, says Antique | Target prices - MSN",
+        "article_link": "https://news.indianapi.in/CBMi9gFBVV95cUxQYUQzMjFjeHJBRnlnN0hOWm1rNDlJXzJMZXEzNExMOHo1X2VXTnN1QmlHUHl1andGTS0zLUozR1pmN0JUSU42MGgwdy01TkRKY2dvVlZoTWdNeHk2YmZtZnVqdkdTVDhSSkk2X1BRTlJENHpiUWhtbDEtMlU3TmRXNkZuR3NRU25UOFFfWGU1dVlUNFZTdFMydE8wYnFWYVBVWENkN2dmTG5Ba09GZ3R4OURqeUJDQnZ6REpzakxfVEdHa1RHeEVEbFRwd2R5M3RZZTBIT1J6b1o5Y1g1dnlJZ3ZQSTU1WUxNclpRZS1OeW1LbWYtYnc?oc=5",
+        "published": "Fri, 05 Jun 2026 15:33:47 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "TCS, Infosys, HCL Tech Pare Early Gains To Trade Lower As Global Tech Snaps AI Rally - NDTV Profit",
+        "article_link": "https://news.indianapi.in/CBMizwFBVV95cUxNZzFVUXlqemFUc3F6SFozRUdKcDRkb2Z0MHlENmJsNFFWcmNCOVNLQjlOZVdnVUllU1g2aWhIdGJxVlc4Ml81MDNoanpvUXllZkJwUkQ0R1c2VC1fOGJLVnhlSV84a2NGV3c3NHF2Q3luX2ZhcnlOb0hLbzV4aGJhR1pSTDZQQnpJc01EVWlHYmtIYkxaU0dEUHBQNG9FX2dQb2JnU3FzVkVleXVqZDl6OHBOSVkxMS1nTWNxX2ZXangtcVZHTDVVY0UtcjMteEnSAdcBQVVfeXFMTWxac1lwdlpGdGw5SUJPMGtHRGhROENGcGlJQjAxY3dQZ0FfXzJFY2RnUmxubGRqZnJ2RVVpekdmOUpBWFFQTmxMdlZmTS03YzlEMG5qMXNzakJFbi1nREtEdnNuVDBsUURrUFM0ODlPQTFCSUQ3WF8tT1pmdWNGZ3J0Z0lNZ09lTDIxaExjbXU2Tl81TEdRQWxody1TbmpCQlNNdjRIVGJNRmltdi1SZnZoa1pnWnB3SnZ4UllQTmtocHd2cEVRZm1ZMXFGSFhpVVoybzM5dWM?oc=5",
+        "published": "Fri, 05 Jun 2026 12:36:55 IST",
+        "source": "NDTV Profit",
+        "source_link": "https://www.ndtvprofit.com"
+      },
+      {
+        "title": "How the Tata Ecosystem Insulates TCS from the AI Storm - Equitymaster",
+        "article_link": "https://news.indianapi.in/CBMi1AFBVV95cUxORU1NbXphX3hLNGxjNk1oQ2ROSDNKRG5DVUNlR1ZoTC1lV0pBUW0yVWJ2ZHE4R1FIaUlXNFFIYk1DQldlVWFTQlNHLXhQZGxTVHVKTkN4LTRQSktTckJLMGQ5cW5FdWYzZDY5QS1VU0hfUGc0dmZHVV9GdUk5YTZVUU9HMnBIWFkzRS1CZ0VyUXA2OVUyc0U0LXpTOTlXUHVGOWkwcV9wV1A5dlc0VEJGWHZVeF8yZlA1ZURrSWpBeG5qZmlDX0lDTWltSTYwQ1NGdUUxWA?oc=5",
+        "published": "Fri, 05 Jun 2026 10:00:00 IST",
+        "source": "Equitymaster",
+        "source_link": "https://www.equitymaster.com"
+      },
+      {
+        "title": "IT shares extend losses to 2nd day amid profit booking; TCS, HCLTech, Infy down up to 2% - Moneycontrol.com",
+        "article_link": "https://news.indianapi.in/CBMi4wFBVV95cUxNemQyRnotRkNCTjU4RU9wYndNcXRRNU43R2duUlJqZFFsV21qb0tGTTJ6OFZCNTFnckNfOFpkQ2FKMlFhdUlNQzdKcEdZaGl4eWcwdmNQWjJpeXVBZ19EYi1ZM3l2ZXNuSWotbEVvbWJibXNCX3ZQTmJqdFFGOFpYaUJJY3FxcDh6dTdkWlpIRGRaaFRXUTMxZExsaWpPYThJRHlfSjBJOWE1cFN2NDQ0amhuXzZKZ0dhUi1WNF9iY1BicUNYNzl3SVgzTnZqQTBETVBTQmUxbTIwVzR2LXhOSUE1Y9IB6AFBVV95cUxNb0gxUVY2eWRubXVWUGNlUlVmZzBSb1dKMWdCVFN0YktvNnRXckU0VENldzREOHNSNVZKSkU2WFlkaU5WZXJ0Vm5SRXBnVzJQeVV2dzQ4cEgxdDVRQkgxYkFKN1FGeWtUbHhiTy1YbHppQm85UVZqOXVLeDFkdmRLT0J0UGtKS2sxYVVTS2hSVW0tQWV5bWZveUw0dUZ5a1BPd0JhaEN0ZTA5QnNwV2hlQ3htbXFueXRWOURFc1p6N2FxY2Jfbkc1bUQwVW1Ya0F3Rk5iRUxPSFAtVno3LUtVSGVzUGt5RVFI?oc=5",
+        "published": "Thu, 04 Jun 2026 14:24:38 IST",
+        "source": "Moneycontrol.com",
+        "source_link": "https://www.moneycontrol.com"
+      },
+      {
+        "title": "Buy, Sell Or Hold: Suzlon Energy, TCS, Blue Star, Zen Tech, Kwality Walls \u2014 Ask Profit - NDTV Profit",
+        "article_link": "https://news.indianapi.in/CBMi5wFBVV95cUxQZE5ZaTE0SFZoNW9pU2p5eEttTEpLX3BjUldsTEszMUNKdTBtcnZqNFhTQkk3NTF0Y0ZqNlZBOWN1N0pUYlB1Sk5Cc1lTbm84YTRVNllNdktKdVhsbG45b2NSOWN3WlRnR3I5UTE0SnRLeW81NE00VUtsQWYwU3dQMi1mbDVuSXc2NlRDUllXS2oxeFlVakExTVN3SnFubS00RG5QUHFYR0NkOHhRLURfUzIxWk9ibVN4VzBjWmNrWkF2am4zcGtKazQtZV9oUUhKbUtQbFlwdm12dndXbVlYUGdwZGhBWFHSAe8BQVVfeXFMT2FYS2tkRGY5LWZxSVRfX0pVWGY3SWhKNk1jVzJmS1ZjaFZGbUdmNGtIQ200TVZ3eTUwN1Y4LVNTSmkwamdyOENfUTdDb0N0YkRGbG9EOU9CVzhQNGJJUUJtZ2ZsV0p5ZTBXWnFsVnZmaW5VaGdpZXFrWGIzTUNaSW5kemlONENaZUFzMERlSDBhWVpXT3l4WlRFaFd0WktNZ3FiTU9XV25qOFU5MEdjTHp0SzZ4VGxrbkJHTTJtSGpTSE1xWUdoUmdUOHpDRlVjTW1uWjRKS3M3aHdLSm52VldOanRSSkQyTEkwZTd5N1E?oc=5",
+        "published": "Thu, 04 Jun 2026 12:34:32 IST",
+        "source": "NDTV Profit",
+        "source_link": "https://www.ndtvprofit.com"
+      },
+      {
+        "title": "TCS, Wipro to Infosys: IT stocks continue to fall amid AI jitters - Mint",
+        "article_link": "https://news.indianapi.in/CBMizgFBVV95cUxQbjVJTkI2eXFtcEVoVU5zd1QyZWRXZ3ZBclRXa3hyMS1fbVpnc1B4czBlUjBTYlpSM0NqZGhUUkg3T1hIM2lBQnk2MVh0enJmTUdnTUdwbFBQWkE0RnpRZTUwMTdHNXJjajhReWhEX19FQmxPQm0wekg3VmtEYTZvaXN3eEZ2dUF5V21nWDdZY1BWalZRX1c1MU9OZW5QelB1TzdwS3VkRG4ydFlVRnhJWkN6dy1VWHczZ2l0Wk56V1pEd3htektyYkV0c056UdIB0wFBVV95cUxNR2VBZGY3Wks3TThteC11cnlEQ0pDZVdFaUpRQk5reWdIRUxoX2xKRG5wVmNNTE95czJvaHJ2a0hzZW1VSUtwZWhWUVh4Ui13X0ZpUGxQbGNWWHIyT3dTa3g4QkZCMnpDQlVJLTJNblNNbFhzU1NSQ3Z2WUx0d3Q0VUJRc3ZKaU53bTZScEJYQy15eFVUMWllLVd2dDEwMDBXazJGNThwTzYtMUt3U01PWFpsWWtTM1pSWExQajhjVkdaWFMtTHR1Z193eHZMcVFsbjhr?oc=5",
+        "published": "Thu, 04 Jun 2026 10:45:20 IST",
+        "source": "Mint",
+        "source_link": "https://www.livemint.com"
+      },
+      {
+        "title": "TCS Share Price Extends Fall After Hitting Over Six-year Low As IT Stocks Decline; Tech Mahindra Defies Rout - NDTV Profit",
+        "article_link": "https://news.indianapi.in/CBMi5gFBVV95cUxOVUJxMWN2Tk5WU3FhcnA4RUZKNzNfMENGVE9TVFdqUktLaThhMFp5SEFqdVA3M2V2cHZsaVF6QXREWkE5U052YXVwcl9oUzd6ZHVOMlVJSmtEOXJBRHhvUlZpV3REZ2ZYM05OdXpyUE1BeXpkb21PQUJCQnRBVlJDMHhPbGhfWjJyOWdpODROUW1QT1BTaExGOF9WY1BDWUswaGtQSm5oYVptenVxYWlOUTFhVHh4WmkyT1JiLXdyazFKYTBSS0VnLXlkYUZTTzh0MDgwcUUwZ3BGMWJvQnZCVWF5ZDBSUdIB7gFBVV95cUxNMDlRMGtWRm5hSGlWNHdYeEUwTmMyOVNOdjI1MHdhYk13UWFySERWZmVyaFhOeXhTd2l2VEFJeUQtNlR2Yzh1ZmczZlJ2T1JnVHZoMkVqbXptcVFjNUlQdWJOUTBwSUtFbGFqcHVUNTRvWTlsMWQzdHhFd3lVQnctbFJIcXpBYnJUUUtTUnUwVHF2NnhXbGVVbWV6aUVIVkNxYjVfQk96cTdjMlpwQzlRSDI1dHlBb2lxbVE2Ti1INzYyakliSDZsa19TNDBlaHJOZFhpV2dfeDktcTZCSWF6VHRHWlZibkFfRzNXUWh3?oc=5",
+        "published": "Thu, 04 Jun 2026 09:42:50 IST",
+        "source": "NDTV Profit",
+        "source_link": "https://www.ndtvprofit.com"
+      },
+      {
+        "title": "Indian IT stocks show some resilience despite overnight selling in Infosys, Wipro - CNBC TV18",
+        "article_link": "https://news.indianapi.in/CBMi6gFBVV95cUxQbEdXRTVwYXdjd1hhdDdFVXMxNGw3ampfRFR5ZHl1YjM2WkxLR1lfQWZTZmdHYkgzVWttRFRvNGotRU9Sd1hTY3R3aUtaYzBtQ3pxQ1VCNHRXOWxqN0dfN0FpckNUWk9LSFdrZExRVG1QblBvdU02bjI5VmtndHlodkg3cVBvWXRSNmpZVW0tYXA4MWlUWFA0enZyX3NwelFTMlFIMmgwYTdoYlBvWHh6NmRiaTJvUW1HZzNDX1poVV9mTkItaFpDZHFRdHNNUU53ODFkUExNMlljbmxvQVRxVHdWVi05TVV1bnfSAe8BQVVfeXFMUDVMbmFpMkVzR2hPR0FUQTdZNWwtdnV0N3BFOGJITnNhVHVibG5yTFlvd0hjeGRqTk9lNlhxZktwNGxzc2ZtdjlKUzBoNmJaV0VwQU9YRGhpd2RWdXZNOVV1M29GTmpqZVRFMWtqWmlselY0RENtNEdvTXlwbENGZUNUU0JRLWItUDNlWVlFZy02eW44YWN6RTkxdWFkWFJxQlNzWmZwNUd5eVhkT19XOTQ5V1Ayc3psaExFelBJWU5HUUxrMllaODdmaXFHaWM5Z3pIVWZ0cEd2QjVvT01mUEs4dFhCYjczUlpkQW83bjA?oc=5",
+        "published": "Thu, 04 Jun 2026 08:25:02 IST",
+        "source": "CNBC TV18",
+        "source_link": "https://www.cnbctv18.com"
+      },
+      {
+        "title": "Tata Consultancy Services Ltd. Faces Bearish Momentum Amid Technical Downturn - Markets Mojo",
+        "article_link": "https://news.indianapi.in/CBMizwFBVV95cUxObi0ySWJwLXRTRWFvb3daSTFwZ2E5M004Unl0bmd5MVpTNmFQS3BwSEE0SlpQclJObkNxcEVLZUdvcS1vQlZaTUVfZFk2clJHa2VQRm5tdHM5QnAybG43OWRqTWVCN19rZU1zTVd6R2dQYk1LTkhmcGlEeVVMTEktOVRqNEJ4SFdIOENOX1FockNQcnZrNnBCX2FZOC1EdDNPU1VkRXBnVERucnduUFZnYjdaMWJqVFZHRlk0bHpQQ2ViTzBoQVVWZ2V0MlowWWc?oc=5",
+        "published": "Thu, 04 Jun 2026 08:21:27 IST",
+        "source": "Markets Mojo",
+        "source_link": "https://www.marketsmojo.com"
+      },
+      {
+        "title": "Stock Market Today: All You Need To Know Going Into Trade On June 4 - NDTV Profit",
+        "article_link": "https://news.indianapi.in/CBMirwFBVV95cUxOR3RMVW1zVU9JaE5SdFB6ZnFxdkVQcnJBc1daWWtOQXp4MFlSRWxyMDZISEpld2NnUU1hZ1M0NWhqRkZIc01KcFFnTS0xYmVMLVJJZlFxVWR3Qkk0UmVqYXhoR3hkb1ZsRFZzMkdtSUwyVWp4cWFuc3h2RERQOWNpWl80a0JuYVRQWUFLNzh5ejkyZkRpMk5rUlUwRDA4Z29tY0YzM0otb0NfWXRxU2VN0gG3AUFVX3lxTFBEOWg5em1qWktsS3JjZ2tjUXk5M0p2WTZ3M2w0LWhjTnh1VG5Venc5NFNJaGp3XzJKWGdNd1c0dmtmcTUtX3lKS3gydFhjSkVfendDTlN4QmN0eDJpdnRVdXhzZXhnbGh4M2thajFEYmF0dG01eFJlX1VzaVZHNlJ3NHcycXMwTkJsWFJsSkJCRWxSdkFXa1JGZkxPUzhFbHd5T1Jpa005U1FGTG82X3BFbFJQVXZqYw?oc=5",
+        "published": "Thu, 04 Jun 2026 06:00:01 IST",
+        "source": "NDTV Profit",
+        "source_link": "https://www.ndtvprofit.com"
+      },
+      {
+        "title": "TCS share price: Target price for IT major as Q1 sees salary hikes - MSN",
+        "article_link": "https://news.indianapi.in/CBMihANBVV95cUxNOEhVQXBxaE81dnNMV1M1VmVJUExiYTBZRnc0amJGclRLX0xUcVdrMWxuRVZaNTRSZF9kTG0tZ2ZxZkVhdlFzdkpzRmQ4bmZpN2o0amI2Z05oSm05X0pXZ3V0ank3amJLc0l2ajZhYmNRTE9uUnpfWEg1alJRQmxIOWtNR1FZdUtQaXhtaHgyMTJFWkN3YnFiMThZazdTX3czWFNibFZiUDVXSklseFZndzNHMzFfRUYzZmQzdlF5UUVDU3NjalhVVUQwRUlKeGw4cmtNcFhTUF8xSkNxRnFsd0paakhRWnl3UzBlOVVGemhkZUE0ZVhxYmJKT3Fid3dVVzdyR2R3YlBJaXYtZ3VneEtDQ19XdElmR0pBS2l0OEF1U3pXZkxqZV8xTk11U1lhdWZhQ0s0amdCbFkwMGpBdjV1TDdBcWR6eWM3VWhnWEVtZG13SGYyT1BHNTRra29BQmEwNXhMaHV0OGR1Wk96RXVTa0tDY2JWOHZ6UWctWWhRWXN3?oc=5",
+        "published": "Thu, 04 Jun 2026 02:30:04 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "STOCKS IN ACTION: Canara Bank, NHPC, Mankind Pharma, TCS and others - MarketSmith India",
+        "article_link": "https://news.indianapi.in/CBMingFBVV95cUxNMzVPM0dhRURad094cWlVOFFIaEd2YVVtcmFUWlQ0VWFIWTg5X0ZPT1dIeUMzQ2xBMVFYWVNpWFJ5RXBGM3NjR2dZR0NXeExOSjhzbmMzVlJxTlFJdUVXcDZkclRoZmV3a3A5N1Y4TkdHS1l0d213WkVEdW1sRkxuTDNMRWFSaHhLZGpHVkpYSHpXdGVpT1FCR08yOWNaZw?oc=5",
+        "published": "Thu, 04 Jun 2026 00:36:42 IST",
+        "source": "MarketSmith India",
+        "source_link": "https://marketsmithindia.com"
+      },
+      {
+        "title": "IT shares crash after three-day rally, TCS nosedives 8 per cent - The New Indian Express",
+        "article_link": "https://news.indianapi.in/CBMitwFBVV95cUxOZldUTmlCaFhwNGFCTGl4Sy1sa1ZmUWxzQU9uOXNkNEtZMnMwUWRTUGxxT0x4SWZxeWV5QjF0aFNnZDJUOFRuNlo0TzU4SnVsN3pFaHlyRmJGd0JvNFZ4dlpXMjVna3VHMDNqUlc2b2VfM3p3NUFoMjFQajJBXzRHQW5yNTVlczFBRUtxS0tza25ieXF3X3BSckVDaGNWN3RGS1d2MHR4ZUVIZlY1TGZpblotbm5YeUHSAcQBQVVfeXFMTjZTNFVJSm9LWUJreDdycHp1bm5veExTRFpoTVVBZGJiQnliQVdNUlp3SklQVU5RcjNmT1RIbW5PbVI3Q2hVOXpUMEF1X1RyaGFNdmw4dlM0bnU0RTRvbGg3YlJHcUtEbUdvN3ZhWkFGTkZuV3gwcWhaOGVrVTl0QWpTVFZOb1VvUWZPX1FQdjhJUGFiQXJ0d3lyVFl0OGVvRUd0WmgwYm9KekhJbloyVTVWSWRrdG8wWTFYYWN1aVpmNFM2cQ?oc=5",
+        "published": "Wed, 03 Jun 2026 18:30:13 IST",
+        "source": "The New Indian Express",
+        "source_link": "https://www.newindianexpress.com"
+      },
+      {
+        "title": "Why did TCS shares crash over 8% today? Stock logs worst single-day fall since Covid-era rout - The Times of India",
+        "article_link": "https://news.indianapi.in/CBMiiAJBVV95cUxNNm5SMUNoZG9sNnI1YVEzb0x3YWtGeTV5VU95T2F1RFFpdHB6cHIwMVMtRmxhZXJZeHNpa29SZ2hwWk1INy1XZGxCZXVRMV9sQ3VhR05aRC1CSWl5N0p3MXotdW9GMTFjbk9sS1VpeWMyNGJTdW1PNElFVWtYYlRkMXZhc1ljVlJCSnFVMUh6S2tFNDRybl9wMjA0ODQ5am9lMTdaaEhLYVlCTVFVM2FYNENQY3M2NkU4dnpPYTdDZGRJYlhUcDhtSVZnSU9LWm5nMmdRdk4zSW5ZNXJyRlpfVmRXNjBzcWMxT1hwSlBpbWJFa0tockxjM05pQUdXbHp3Q0FGRTNGcEfSAY4CQVVfeXFMUDJldThqMkktaFhwcGtiaHJSUDQ4WjdpZUdJRWlSWHJJejdrVEMzTzBJbUs4WFViVVMyOENEcy0tZFRST24wbS01R3FlRjNIdVF2bnF2TlZZcGJKY2lXRXpaemJwSmF1ZUJnVDFuQ0FzczNJWEZtMVczbGJhMjZWZ21TLXozN3lNMUlqZV9GNUR6bHRXTHRQbm0wSFRnYV9ONjRVM3ZkelJuSTlRZ20tNjNsdXIwRkx1TXpzcW1SaDNxdVpvWDYtMjdlMXZkTy1nOXBJc3VxaHdacFlhZ2pRcV9NTE0zNlNYcUI0XzRsRXFqVVhNNVRTeTEwdFhuZl9kNEMtRHVVNW9QS2M0UUlR?oc=5",
+        "published": "Wed, 03 Jun 2026 17:41:00 IST",
+        "source": "The Times of India",
+        "source_link": "https://timesofindia.indiatimes.com"
+      },
+      {
+        "title": "IT Stocks Tumble: TCS Dives 8% Amid Profit Taking - Rediff MoneyWiz",
+        "article_link": "https://news.indianapi.in/CBMioAFBVV95cUxPS2g0Nmt5aGZjRUY2a1I1Q1NMaTJSUTdvTHhibWlwSGFMNTd1Rm9nVmxDZVFnbzFPYkZkTzZGSU9tVENKT0JfbDJobWY4VFlsWVNiMmRKOUFCRGtqaElaWlVTOUc3eFg1YUZscHpzS3Y3T2JkdDZjZG9zTEtaNFYyZ2RlYWV1dnk4TjB5MF9NMkNsS25fczV3ZXQ1T3NxNDhh0gGmAUFVX3lxTE1icWpJakU3MUxaVmFSNTREYVJ4b1B0eFNqVVVkUkx3VGRlbnhzbVdEcUlMbnB2cjhYa20xSlg2bHM1azBKVUUybDVSV0lBYnNma09lb25JSXlWX3NMTHhfaDJBMEwyaW8wdlJrMjc1U3VvUlVsV0tHampwWEV0cTJYYmlGNGtXaWRUNHhLT2lMNXhOaHJzTTgxamxkWW9iUnJrLVU4Tmc?oc=5",
+        "published": "Wed, 03 Jun 2026 17:36:42 IST",
+        "source": "Rediff MoneyWiz",
+        "source_link": "https://money.rediff.com"
+      },
+      {
+        "title": "TCS plunges 9% to 6-year low as IT stocks tumble - MSN",
+        "article_link": "https://news.indianapi.in/CBMi4wFBVV95cUxOSVNSVWc3Z2syUHFEbUNxczBpVmJJcGlhWjZ4ZXdUQWp1alNJYktwRUU0eHNhZ3hRQk5CVng4dmVCekRGV0hCSU5EUHc3WTZPRzM2a3oxcGRNalozYzVvbGZBN1Z2MG5laVVUT2VmcDhQbTYxcklKVjRoalp2X1FMVnpYY0RtYU9pYXFZS3ItNEZBcE5XQm9sZ195YzY1TGlMaEVzSXNvdkMxQVlFcm1hdDluTUlQYnVpdmJLdlB4RGZKY0ttR2pvd0xfQkgyQ2k1WGpnVWxIODNxZUZ1WUE1NDZQbw?oc=5",
+        "published": "Wed, 03 Jun 2026 17:13:54 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "TCS shares slide to 6-year low after 9% crash; what lies ahead?- Moneycontrol.com - LinkedIn",
+        "article_link": "https://news.indianapi.in/CBMivwFBVV95cUxOeE5sclpqWlhQdHpFazRyc25kT3R2R3J1SzlPZUVLOUNWMC1ZbUtRbjRNRzgzUW41SFhqd21FTi1jSDJLdXRscnlXblFfc0wtU2RJR08zbU52c2tTU1VuVDFvRFhxUkM3bDdUTFZvZloyeWw3Y2JFcFpZSHM3WVJHRDJmZG9GeDN6U2swTEJ6OXpPMVhmTlI3YVVfV1lSNTFZTlpXeUdRc2ktbmhTWjZITi0yM3I5S0pKYXZzOG5Saw?oc=5",
+        "published": "Wed, 03 Jun 2026 17:05:32 IST",
+        "source": "LinkedIn",
+        "source_link": "https://www.linkedin.com"
+      },
+      {
+        "title": "TCS shares slide to 6-year low after 9% crash; what lies ahead? - Moneycontrol.com",
+        "article_link": "https://news.indianapi.in/CBMiwwFBVV95cUxQN2FyYWNLeXRoMzlYOVFBRFJwX09FOWp6Wkg3empjUVF0LU9XMUV4ZmVjTTFTRE02cldUMzBqVFlaMlE2dGI2bktqWlU4ajlydFJoRnUtLUlOVXQteDJsYy1rNFptTUVGQmZfY1hfWUk2UlpIdXkxdjBFU3RrdUdGd0NZaXBxS2VMcWsySmF2N3RZZEU5SERLV0JWeXdydEVXSEJmeU92RS1lVi1UTzdVU0piRTg4SUFKdUhXTWlRZkV2N0nSAcgBQVVfeXFMT2luUXA5V1NKemRrTjc1RnEyZ1JKTkYtTDVING93RXlFcTVMSU5GbWZNU252SVRrTk9VdUp4aEhNdlM3VW1wbUVoUXI2MlJ4TjkwWC1ZN3NPQ0NucDdDUXhDUG55MjEwWjNhQ2RsZ1F2ZWh0VjEwa3FsV3FPWTgtUDJPYUN5dlBTNFluQnQ0NTdPR2tCRHNHdjhXc3pxY0JBZS01TnJ5X2FhUFU3c2U0bUpLTDl3UEdiRDFvTGRXMEp3TUY5dGs5Tmg?oc=5",
+        "published": "Wed, 03 Jun 2026 17:03:00 IST",
+        "source": "Moneycontrol.com",
+        "source_link": "https://www.moneycontrol.com"
+      },
+      {
+        "title": "TCS plunges 8% after sharp AI-driven rally - MSN",
+        "article_link": "https://news.indianapi.in/CBMi2wFBVV95cUxPVklLbThrMjBPNzdjT255Ym9VRzNqRDFBTVZEdHMxTVNtOGtyWDdZaTRCSkNMZ01SYVVTN1dLTWZFcXB0NnQ5TDdMckI1dFFVWHJCSmFueWcxQlc2Y2VuYjVIVmNQVHNTVkcyMzhHdFpKNEhHZHc2ZElRNHpVUld3bGkybTRuNlhSNlE0alBzTDF4RkI4ZEF0MkFyLWtHbGpDRFpTTXZtSU5pTGZ4QzM1MFlSOGJSampMbk90ZU9PSDVhX1lPdWFSVlhhM2JWQVlmVjJXVEZ6elp4TVk?oc=5",
+        "published": "Wed, 03 Jun 2026 16:22:45 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "TCS shares plunge 8%, erasing recent rally gains - MSN",
+        "article_link": "https://news.indianapi.in/CBMi4gFBVV95cUxQb0Z5Z3dnNHN0REhOMWNaMXVtVy1RWEJSN2h2cEFaWkJDWlhHVFJyZW51V1VhZzhlODFIc1FXMmpWdmxldU10RjYwQVlscmFFZnJ3T3N5dTJ5VXVaX0dTYmRLWnV6a0liVDR2NkhHTzlhdGlVbEF0c2x6dWtFWjlka3d1TzNodVljcGtBdnd5c1BsUzhCeGhQdHhJQXNBUllISWFPZHRYWURwdVBGWjNiRkxnd0lrRE4wUlFRYngyUlVBZXM5bWtJODQ4ajlEY3RlZDdaUW9UbVZSZU5qYnVGc0pR?oc=5",
+        "published": "Wed, 03 Jun 2026 16:19:43 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "Top Gainers & Losers on June 3: TCS, Coforge, PB Fintech, JM Financial, Tata Elxsi, Thermax among top losers today - Mint",
+        "article_link": "https://news.indianapi.in/CBMihwJBVV95cUxOSFJEbUlfbXl4d1h1RTMzOWZBanBSNE1heHI1cEtERG50QzFRTGtiWGtOYmQwa25aUkJYVmNyZkFLc2pLYWtxT3ZsNkJRTzNqUFdPd09td0dFZXlxaTVoTEItSnJfSmhibE5iQWFSZXBWY1k2UEF0M2tkS1BSQXl5VkMzTFRKVjNBWVpOYUtNVVVwMHJicWJ4YVk4czFsdE1USTZ1aXNWa2VIcERSZ2lSQmhMVmt4eG1YU0gyamhSVHlzdFBweTV5MTE0ckhhM1dBbHpzcDNCSm4xcnp5dVRteC1tRkx0cHpNV29kTWFNZ0ZqWWhvX3RWYl9tM3c5UXk0bmQzUHpKRdIBjAJBVV95cUxNYWx6SW9kMWc0Y0VoQlhOSHZYZWZYY1c1aVZ0ZWRnYWEzOGRmY29iUHlNdngwbnUybzZ5UURLU2hrd1ZEa3JyaHhzM0V0ZlljOFBVZDhZLWtyd3dpUDZnbTMzeUVoQTRwWXhnbm1INlJPcGw0T0ZIWnBuWi1XU092aUFiTFNsb2VKejlyS1dkYm9PZzdYZHJCMUcxMzVaMTJ5bWI3bWFtT0tWbHdwbmRYWFQ1UTNkZGpnV3dMSzRrc2trQ2VGdEFMbUh3RnFmQk5GZTZCV0FMY1UzdEVQb1REaHlJUWNVZDBncXUxQ3RFN2hoVzdRM3dGYm51TUJqVGpDeUMyUU9yQ0ZoRzFz?oc=5",
+        "published": "Wed, 03 Jun 2026 15:52:08 IST",
+        "source": "Mint",
+        "source_link": "https://www.livemint.com"
+      },
+      {
+        "title": "NIFTY50, SENSEX end lower after IT heavyweights like TCS, Tech Mahindra, others extend intraday losses - Upstox",
+        "article_link": "https://news.indianapi.in/CBMi8AFBVV95cUxPRU43Z1FMenFQZkszU09hSnhCTW1wVTB4RE5pTGVib2RraEFzbDlZTXlMeW9RalhtRkF3OVVsTkk2dVRTOHJFV3FWY0gwSUF6cmxkdlNWSGx3OUgwa2N0X3F6UkZYYmU5Y2Y4UjI0a3BoUm85ZS1POHk4QUlDV3hrZHdYOG5LcGRMakpJYVZOMnhlRFUyanVTemJ6bnVJajA2TkdwaFY2WDNCMzh5WUttYXJlV1VhZHZXT3ZwZUNfM1pqRk9jMjJuak00eDVaQnFPR19rVjlZSHZEV05YemVZb1ZqdlFFcndETGZHZmotdkc?oc=5",
+        "published": "Wed, 03 Jun 2026 15:44:05 IST",
+        "source": "Upstox",
+        "source_link": "https://upstox.com"
+      },
+      {
+        "title": "TCS Share Price Slides 9% as India\u2019s IT Rally Runs Into AI Reality - EBC Financial Group",
+        "article_link": "https://news.indianapi.in/CBMib0FVX3lxTFBndGVqR3Jaa3plR0hELVhCVXVMejhRY2p4Vm5OYUhGdXNSX0hVNnJzYUFZSGF1M0xEWldILVJ6ZjVLNWQzN0N4ZFRPWkppVXZTanpKZEoyQWdWcjV0eFlZTFRkZ3ZzT1VJcUMzNE5PQQ?oc=5",
+        "published": "Wed, 03 Jun 2026 15:31:22 IST",
+        "source": "EBC Financial Group",
+        "source_link": "https://www.ebc.com"
+      },
+      {
+        "title": "Tata Consultancy Services Ltd leads losers in 'A' group - Business Standard",
+        "article_link": "https://news.indianapi.in/CBMi0AFBVV95cUxObmJ4TG1ER2lYTVdYM1ZLZmtaSkUyMEoyVG5sVFVvNUF4MEZMVmhIel9HMUYyN3VSUU5uRXYzcDM1NEdOWjVkNWhnVUFEd0tyNnNsZG1jYmduZE9lZWNJcXdFQ1lkX2w4Z3ZRblo5OG5ERTVQc0FQaEhDN3VSUkVET0VLVkM0UWNuR29ZNFlUY3RlZUs5Z0JNVnZ4NG1XSDVVWjFyUnJESVBtLWpGUjk2c3Fsb253dWN6V0F5VC11VEtHcFFtcEJPNmRsS2FEVk5K0gHWAUFVX3lxTE4xQmI3VWVuc1ZrejFVaDRHbXBaNm14QXRNVXhNSDhtTzlrRFlEX0NJRmUxcHlxZ3YzOHBfaEpCY1N6V1VHZV9UNzQ3cVJ1azVZVE4ybDV3Zm5fM3JfLTROTEN4bVpKMDYtM0VMc3ljcW5IUU4xcDRFZ0tXa3JCUGU3emVKc0tYYzctcHRpTS1iTVF5cEV1Ti1sRXRmMF90STFRaFphSzhKZ1RaVVE4cGgxNWRlU3dHOUdmSXZGamxIYUVvNTdUMHkwWG1wTzBZSDdzeTFlWGc?oc=5",
+        "published": "Wed, 03 Jun 2026 15:31:18 IST",
+        "source": "Business Standard",
+        "source_link": "https://www.business-standard.com"
+      },
+      {
+        "title": "TCS shares crash 8%, log worst single-day fall since historic COVID plunge. More pain ahead? - The Economic Times",
+        "article_link": "https://news.indianapi.in/CBMiggJBVV95cUxNWS0xVkxFUXktMjhQbDgzNFZtRkh3Mkl3X3pMTDlZVUZIN2xVNVBUUDA0S2s2NDNZSnNTd1FNbU1jUVVDMm5KZXRMX21GeDE0bzhBZlR3T2pOTkxGanBZY2hOb0YtUkdwcWswc2JrQnhfcUxvdW9fYWhxYVFydFRJZ3VCZWhnZDVsZFBYTFNfaElRWGRja3V6aUlGX3dYRVN6UmQ4YU5qVGZGTkVkc1N2emdiNmNVZEdUVXRPWGFRZ2tXbjVSWV8xSkdmS2RScWRDM2JZRmVLVGlmMWJWa3h5UjZRMUpwWThlcnlJRUN3THJnQzVtaWhpMEpNaVU2MzhCcGfSAYcCQVVfeXFMTkFOdGY3X3AtSnJUbERVbjlONWFqV2txQll3aEdGRE9IVU1KOTV1QWZHSU40QmFWR1M5Ylo0S3E3UVA4aXlsdjFSeEpLeko0d09aYVJYdTVacHVaRXZ5YzVGYzAtc0ZtTHlTak5ydzdiUVgwMEdZdnJfNlBQaXJNb2E5ck94aUZ5SWs3amtXS0NYekQ4WnRLa2ljVWRRaUZzblkzWHdkRGtZb3dwQUlrU1ZpNVkxN0VOejNkNGhUaG1ndml3R0xwSGZmdXU0V205dnYxLXFESzZQNENkT0JVSUc5MGpRR1dpcnFaODg5aEtMdUxLa2RnUlRtMmVmSUZDNjRPa0E3RVk?oc=5",
+        "published": "Wed, 03 Jun 2026 13:59:24 IST",
+        "source": "The Economic Times",
+        "source_link": "https://m.economictimes.com"
+      },
+      {
+        "title": "OpenAI, Anthropic are minting billions. Why isn't AI boosting Indian IT stocks like Infosys, TCS? Samir Arora answers - Mint",
+        "article_link": "https://news.indianapi.in/CBMijwJBVV95cUxQNGJJaDUxU2lzak9kNEZqb0xGbnkyemNRcHBNWG4tN0g1Y21kLXV1Z1lYQW1ENW8xOTF5a1BCRmg1MHE0SUJzS2kyckRsYzRjdnA0MVN2cHd5bks3Zy1FWHNDT1JkbVhCTTlFZ3haTzZIUWo4VUZJWVY3T1JySGZYbUFUWGtjbjBBYkxScVJ3M1dxMXBDalJQaVdGejF5T0VVbXF2QXVjWUpsWVJTQkF3cDZTNlNxVHlFdTBBV0lYcmk1Q1hkODJWQVRleWJWYlV3eWlhQm5OOXozU2xoZngzYUhYQ2V0WVA2clViMFE5cy1NVUR6VWlzV016TUc1bFZZVjc1Q01VZHBDcW9LNDBZ0gGUAkFVX3lxTE9OR2Fkck84U1JNRDFfS0JZTGl2Z1d0dXdKR1R4MGlPeXJ6cFFtV1dPTFM5VzZWcm04ZnRUR2ViQTFNTkpBeEo5eUoxV1NxWFBpcTBBTjNJR0tCZC1YZmNXNXJ1QU1KY1NmQ1FCYktZbERfbHhpX2FaZXBfSW0tLTF5czVuTHNHTkNWOW9PT1V2LVdNLU44Wk9LbXpGU1BVaUFBUjNONjd3cXpHb01OYzJfV2xOcGhUeDg5dC11aDNhLWJJbHM0UGVtZXlIMmQwdTlncktNQ04weHExc1ZadHhubzhSeHhVQkY0TWFuaFVfOE1LMjBfQ3lZX1Z1RDdpaUREZ1U0UDBuYklyZVMwWnVfcmNtUw?oc=5",
+        "published": "Wed, 03 Jun 2026 13:49:35 IST",
+        "source": "Mint",
+        "source_link": "https://www.livemint.com"
+      },
+      {
+        "title": "India's IT stocks head for worst day in 4 months on AI disruption worries; TCS plunges 9% - marketscreener.com",
+        "article_link": "https://news.indianapi.in/CBMi1wFBVV95cUxOSlZJa0xIUkFSUzl5dzU2VXJwZjV3bnJ4R3J0N0VoU0J0dlF1bzZrZFZMcnV1NjdmQUF2VTM0RTVNZXVwb2M3RlpGb3FVcjdjaVExWVR4THFKMExSUzV1TC1PY3hxSC1kN3NLME1FXzZFMUhxQndDNGF3OVRNNElxLWc1aHFNV2wxMjBkUWZXZ3hPVVBMd1ItcmtiM1Rzd3lVN3VhZkh0eXBqb0R0QVZKTU5xQ0FDaXRhYThsR3NfSUJDTEFoRDBKbkh0TXo2TFFhY0I0UUpUMA?oc=5",
+        "published": "Wed, 03 Jun 2026 13:31:45 IST",
+        "source": "marketscreener.com",
+        "source_link": "https://www.marketscreener.com"
+      },
+      {
+        "title": "Stock Crash: TCS set for biggest fall in six years; this level holds the key - CNBC TV18",
+        "article_link": "https://news.indianapi.in/CBMizwFBVV95cUxQd1Y1U2pLemVQZ0x2RktFalNJNFhlQWxyaDQ3VjJkdXZIeHQxYVlfVXQ4UEtNbnpmMW91MEVVbTZ6ZjNmel8tMzRXSmlXbHhQN3l5QmVvdWIzaXZKVDl4ZndNQ2VtNnl6dTg1SUt4a3ZCT1hURmhlSmtvSE9VNnUtbmFzM1ZNcWhTQWdVVnBjY2tmdkNrR2lfUHV5d21id2pVdkc2UjJQVzlra0dkNUhiYnhRTVJyWndmam42WTBYYjkwMzJnWkNIdEstUWtPejTSAdQBQVVfeXFMTXo5aXc0aUZrbThFTVI0bTVaLXVUVXFkcWFseGRZSTVJN2RVSWFPbUhWbzZDVFFYNGZsUUVvTWU5dzZPakFUelF0QUlMQlBoOHl2UmN6bG1Xa1BsTjViN2dzeU1Ma1ZFRnVCd25ITGctdjRUWnhwb255c1RnU001Sm9pRE1heHVZZGFmaEJZb0RMRi1VdTZEckk2eEQ3Vm5rSGxSal9qSnJKeXhlRjltQ3o3WkM4dWdPQ21IODd4N0hfRmhsTXBJbnZIMGt1OUVzb2ZETW8?oc=5",
+        "published": "Wed, 03 Jun 2026 13:23:34 IST",
+        "source": "CNBC TV18",
+        "source_link": "https://www.cnbctv18.com"
+      },
+      {
+        "title": "IT Stocks Crash: TCS, Infosys and peers wipe out over \u20b91.5 lakh crore of investor wealth - CNBC TV18",
+        "article_link": "https://news.indianapi.in/CBMi4wFBVV95cUxQblVreXJtOGpLemI3MklUQXJCQk5BOGtIcDVqbFNnUjlBQThScUxtVjQ1cnI0dnZsY3NFcjR3R0p0ZXZFMExmZFZpZy0yTW05S05QNUdmeS1EVlRRLTh6Rmk0ZDZaQVF6YVd5ZEdXVEFvekIyM01VMG0yU2owRGdCQWVYRGNvN3ZfaHJ5M1NBVlRLWWdyRTlyTzYtZE94SmFBMW9LbzZ2RTlBUkFRTDBfUkVvX0FpdjZEamIxci0wYTNmQzNzYUxNTzMzUG1rSnV6ZFBNYU9JYWg4WE1hNTE2LXI5d9IB6AFBVV95cUxPYlJ4b1Q0YVJZc2hJdkltU3pJbzBUM1VGbGlCSE9PMmJDWFBYbTd5c3IwNHpxb2VRcWIzQmtlbkF6alZPUFI0LWtDRjh2QzktcmZ3ZW43NTJaREcwUnVQNmtTZnVXamhrU2JMa3dVbExOUGRqV0xsazAxMHVMMkFRaTh3ZmQtQXpENWZhbnZUZTBEalRFQlplMkR5SVhDd3hwbkRMT3dmX1FNSkIxOFllT1o2enBFUWRCTVZhZ0pkWk5lYXp6Ul9ZbWJjaVk2N290RlN0dGtQMzZUV1E0cXd2X2JmWnRtU3lu?oc=5",
+        "published": "Wed, 03 Jun 2026 13:10:04 IST",
+        "source": "CNBC TV18",
+        "source_link": "https://www.cnbctv18.com"
+      },
+      {
+        "title": "TCS shares slump 9% intraday, extend 2026 losses to over 30% - Upstox",
+        "article_link": "https://news.indianapi.in/CBMivwFBVV95cUxObWc1RVdqYV9TVzhqWmJzdFNqYjMyRVBISTRDSU11aDFyMUN6TTJwZ091VUw5dXkyRmJrUkRjbURqbnBOeE4tdUVnVW1UMkl6V1RMMUZhOHAxeFRTNThpOWl5MzRxTF9NZ2FVdjhPTVRxby1aTHhjeTRhcGdLRGhLZFctNXVQZDdnMkhIeHQ1TVlPZkxGVlRDVTNKekthdlJXTGpiaWRJQV9TTV9vVHM2QWlFNm44WDNBajh5cVV4TQ?oc=5",
+        "published": "Wed, 03 Jun 2026 13:09:41 IST",
+        "source": "Upstox",
+        "source_link": "https://upstox.com"
+      },
+      {
+        "title": "TCS shares plunge 8% in steepest fall since 2020 crash - MSN",
+        "article_link": "https://news.indianapi.in/CBMi6wFBVV95cUxNdzItQ2xvbUNvMHBzU0RndHVkUmlkSDRfSjlGNmNtMlpVY295MzFaSmpsMzBfeTdOeEJjSVpEajJSNkxTaGx1UFZBZDUxeW1YeE5uWC1BNEt3MlgtcTd5SkdZNl8tcElNUEROYlRUWnhxdnpLYWFNUC1scm9ZelZ2SFE1bDBxVlFSOXRUNjVYOGhvaEJsajVjQlp0Qlk0S3M1aWpKM2Z5b2JKSnU3enpLVkZqblNiX2pEVUVqc0otVERMRUxlRy16QjJPOVhLTHBFQVpaSHc3R3h6QVZ2WDRDWk5KMGp0RUFTbzQ4?oc=5",
+        "published": "Wed, 03 Jun 2026 13:05:35 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "Tata Consultancy Services to Upgrade Sweden's Central Securities Depository; Shares Down 9% - marketscreener.com",
+        "article_link": "https://news.indianapi.in/CBMi2gFBVV95cUxQbmphV3NISkZQMXpkcUVmQTVHS183V3g4SllRRUZfOFFZWDZOVHNIcldyR3NLT2U0MXM2SktQd1FESkM3UkF6aEZNUEpjVERyaDM2NUYxaHFXY3E5bl9ESXUyNEl0aFN5MVg1RkpEMUNnYnZfbUtpZGJFTE9wNXV6UU5DR1pDaDdUREtZeHlZclk1NU12OElUYU9vREcyQm43TkxXd19PcEFsQWdLNWVjSkdGNjdFWkdUQmI5b2hoeWdnclFRWlY2Nkx0cy00cmFZRU1KVEtpQ2xjQQ?oc=5",
+        "published": "Wed, 03 Jun 2026 12:58:26 IST",
+        "source": "marketscreener.com",
+        "source_link": "https://www.marketscreener.com"
+      },
+      {
+        "title": "IndiGo, NHPC, Concord Biotech among buzzing stocks as SENSEX falls over 600 pts, NIFTY below 23,300 - Upstox",
+        "article_link": "https://news.indianapi.in/CBMi7AFBVV95cUxONi1lWVBORjhNSHpsck9xNlEzMDN4SEhKOEpwSUt2X0o2dHJ4VVh0eEQ5YU5OTUxpMkRZRV82RTZkbEg0TExCZFc4eW9OSVdqajBXNGI2eWNNMC1aUklMeDc3QzBKLTVNLXk5T0ZoRGxHMXJqSVBpd2V0RGlNUUlMeHlJOTZUaV9qT0dBUGx2bjR4dW1iOUUxSWtreUJHX1dpT19MRHJoR1hEQU5pTWxtcHJjRG1aV1VKYkdFZXladmxpdXRrRW5DMHVBWTU3dk81eWZwb0xvSndNLXhXNksxcXlkbXZkQlIwUHc4NA?oc=5",
+        "published": "Wed, 03 Jun 2026 12:57:06 IST",
+        "source": "Upstox",
+        "source_link": "https://upstox.com"
+      },
+      {
+        "title": "India's tech stocks slide hardest in four months; TCS sinks 9% - Latest news from Azerbaijan",
+        "article_link": "https://news.indianapi.in/CBMiiAFBVV95cUxNTXJORkJqNDlRUjhRUG9QbzdXSXJaSzRraFBUWWpJbll3dlRkajAyRUVrTFIwSy1XY2NVYjBCVVB2V3JFTXhjNm5BOXprSE1jUllCUTdMaTluMWtMZVF3UEVSRFFjcnVGcFpWZzAyVU80NzdVSzFwc2hsMFlEWDJLUzNsMTBhRkth?oc=5",
+        "published": "Wed, 03 Jun 2026 12:56:36 IST",
+        "source": "Latest news from Azerbaijan",
+        "source_link": "https://news.az"
+      },
+      {
+        "title": "TCS, Infosys, HCL Tech, TechM, Wipro, Coforge, LTTS: IT stocks to buy\u2014 Check price target - Business Today",
+        "article_link": "https://news.indianapi.in/CBMi5AFBVV95cUxQaTJ4QXh6VFpEWHVIakxJSXBJalVGeHNfM1ZXT1E4Y0RaekJiXzlaN0wzV1ZFeXlVMjhDTUNoZUNYYjB4eGlNOFNjYTZHTUJXUXNzZkdBLXpzMF8tLWF6TTRFSGJZd21Yelg2ZnZsQnFPeHFEeFV0cDBZd0VGSGEwOUZIM0plSmJVN0o0WWNXQ2hDd0daZk1hZHlreEFuRmcybk40ckVib0tYaC1Xa1FXenNwMTNUQnpGRVEyTENSeFdYT1VVWVRISFVQcnc4MExMcFc1U1VZSlpxaXJKRHpQSGIwWjI?oc=5",
+        "published": "Wed, 03 Jun 2026 12:48:19 IST",
+        "source": "Business Today",
+        "source_link": "https://www.businesstoday.in"
+      },
+      {
+        "title": "TCS leads IT stock plunge as Nifty IT sinks over 5% - MSN",
+        "article_link": "https://news.indianapi.in/CBMi5wFBVV95cUxQYzJIVEdKSUhYV0E5ZzVoYlRiQ0h0bHM5WWRWd0lJa1RROU5aVklZS0ZhYk5tSHY0cTljLWZYbnhOaXd0dTJuSkI4cjVDNWJ6bU5UZGQ4YzMwcS1BRjg4S2thdG1HeWI5R1pQMVdSeHdCMENJQ1NKSzdsdWRSMjQ3SHRoV3dNanRlSXpkY1c1N3dNVDB3SGZiTU9NWXcyWWZsLXpmZ1VhamliQ0x0WGpqR3lBSTE0emVDQmZkdXFVd05wTy0wV19vZVdPWHh6R0YySGE0d0Y0bUs2Z005RVpNQ3h0T2VEakk?oc=5",
+        "published": "Wed, 03 Jun 2026 12:47:11 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "TCS crashes 7% after massive rally\u2014what spooked investors? - Indiablooms",
+        "article_link": "https://news.indianapi.in/CBMiogFBVV95cUxQdnlnWTBJeTdUQjUtUEc0VGhVYUF6WUlYRUYzRGV5MXI0MjIxMjloSXg4TmZDWktTWkdlLVU2RGI5M1R0UHI0cUNaalc5UVZtc0NBQjY3SW9Gbkd6eHpYTUZndlVYTHluSXFZdUtTZkVDczdjUFNPTWZKdllfTWxjRVZNM2FDOWFIaTRvWkFjTm5zQ2VpVzJnZmFKQnNpMnoxclE?oc=5",
+        "published": "Wed, 03 Jun 2026 12:37:53 IST",
+        "source": "Indiablooms",
+        "source_link": "https://www.indiablooms.com"
+      },
+      {
+        "title": "Nifty IT snaps 3-day rally, tumbles 6%; TCS, LTM tank up to 9%; here's why - Business Standard",
+        "article_link": "https://news.indianapi.in/CBMi0AFBVV95cUxPdktDc3BocG9OX09DVGk5S0JJTV94RndKN2JmS2Z2QWFUcFhhUWVrN1BXWlFWdEhRb3FfQ2ZPRG9ZaW8xNzRmbzhNRll1OXRFWXRFd251ZjdnNVNuYjFmb2lTYmwzUTZlUnduU2FGQXA0V0lFajV6SkFyampFN1lYS1Jsc0xYRnZuOUtpTWNRQUNzNkkyM3MtM0duU0w4Z2hxcHdROTRYRElHaXc3Um9MblhqdFZ2VXl6SEhjQXZEX0g2M2RRZmdQaUY0SGhGSkpH0gHWAUFVX3lxTFBXZC03emE4TzFFWFdRSGh4T0UtZTFKUVdvLURXcUlYTHc4Q25oYVhDVTRyWDFTZDZEalgtS3cyVzVNeVFteFZrSV90U3JLVVQ4V05aWnkyNzg4QnRTYlk5bVVKOU1pd05SQ3F6alhqVFFDUWtoSkdrX3RpWEstTFhXS0hHa0Z0WGZJV3Rzd1l0OTBMWjZYc0lUajhsZEFGWVloYU1SRUR3NHNBcGxOTmdPcGVVdkVfWUQwVW9nUlp5MnMySmNrV3plX2d1OWtVbE1rSHEtelE?oc=5",
+        "published": "Wed, 03 Jun 2026 12:27:07 IST",
+        "source": "Business Standard",
+        "source_link": "https://www.business-standard.com"
+      },
+      {
+        "title": "India's IT stocks head for worst day in 4 months on AI disruption worries; TCS plunges 9% - Reuters",
+        "article_link": "https://news.indianapi.in/CBMiqAFBVV95cUxPcWxqVGVuS1lOM0RNZng4aDFOV0FiUjVSSzJ1ZWpqbEhEaDlVT0xkYnZxc2hCR2JFQ1h0Y0I1N1gyOUFOdFhVLWlVSDl1OHZZWFZSWXFXenpJanlpeE1INW9CLUU1R3BHdVZVV014XzBUMHl0RDRpdWE2eXhYRkVLdFlDdnNxV0Z2bl9IWFM1NzVEdXlTSEx3YnFrcUZTMGJkNktKbGc4clI?oc=5",
+        "published": "Wed, 03 Jun 2026 12:21:45 IST",
+        "source": "Reuters",
+        "source_link": "https://www.reuters.com"
+      },
+      {
+        "title": "India's IT stocks head for worst day in four months; TCS plunges 9% - marketscreener.com",
+        "article_link": "https://news.indianapi.in/CBMiugFBVV95cUxNekZveVZFeFgyV2lOMlM0THFKN2l6OXBLVkN5ZjlEXzBXMkktcGxMMGJ1Zzc5a282OWNXZDdZUVNWQnA3NV9WTVhfNGhFcGlSM2NKdlJxdHNRdlltTjhQandycGtiNnVndWJhNUdqQXJIQ1dUUDN5aENEN1VuSmRyNi1xbEpxTlIzRm12MW5SeHJrcTR2cFBlWUo3eFFSckxhVGRVSFY0Y1BDMEp4UDFldmNnYzZ5MTliNnc?oc=5",
+        "published": "Wed, 03 Jun 2026 12:14:35 IST",
+        "source": "marketscreener.com",
+        "source_link": "https://www.marketscreener.com"
+      },
+      {
+        "title": "India's IT stocks head for worst day in four months; TCS plunges 9% - TradingView",
+        "article_link": "https://news.indianapi.in/CBMi0AFBVV95cUxPWTd5RFpvQ3JEOHRiTjN3Qm9qazRTSTNGTmNvZDhsUkJhc3kwOVlNRVdIa0hxMGpEVXlCOUJTZlM0TF9LaGZUeHdPU2lLaVd0Zkd3d2tPN3dkVUNOWjBHT1JCRU5Sbjl4cGgwcHk0c0xja1ZNUmJUcjlrUW5KeHZnV0U0WVNmbkNSOVRZQ1VjVkxQUGsybzg0NGdFSjdqT0E1cjJ5UnRWcUhDTmRpWlVJSW0wZFhqRFRqZElXZzhESWhZZjhWZjRCNno2ZjJiSEdE?oc=5",
+        "published": "Wed, 03 Jun 2026 12:13:00 IST",
+        "source": "TradingView",
+        "source_link": "https://www.tradingview.com"
+      },
+      {
+        "title": "Why IT Stocks Crashed Today: Nifty IT Index Falls 4.66%, TCS, Infosys, Tech M decline more than 4% - India Infoline",
+        "article_link": "https://news.indianapi.in/CBMi0wFBVV95cUxQdktVelN4ZTNnS1dtS09wYllWLVc5U0tJYmYtaFM0LUNtb0V0eURQQmJxZWpPYndDbFFETDRRYjYtNER3aDJJLWxINWI5RVNMYTVQVVpKeXdrcTJwaU9qdWZ1NlNPQ3ZmX3MyU00tNFlVSzRhT1lMM1UySjlWYkltMV9xVXRHNFhBTlluakhZS2lRWGcwWmE1WHdyeE5mUHloT1otWnJiZzFEQW9yNHp3bVZzS3daSEdvbEpqNGxhVGZ1a1h0S1JzdDdLakNHVDkzVUFB?oc=5",
+        "published": "Wed, 03 Jun 2026 12:02:10 IST",
+        "source": "India Infoline",
+        "source_link": "https://www.indiainfoline.com"
+      },
+      {
+        "title": "IT Stocks Crash as TCS, Infosys Fall Up to 8% on Profit - HDFC Sky",
+        "article_link": "https://news.indianapi.in/CBMiwAFBVV95cUxPblZ2UWM5V09hZ0ZPWWtGOVF2TGZtdk51MkVUV0NudUFybXhWQlpMaHJYUFRhWkJsLWkxV21XZzVBOF9idVVyTUFqVWpIYW01VTdRaEtId3JPWlpoLUtzeVI0TUwzUkVOdk15bFBhZDIzNEl1WnRJRTkwRkJNSTlKekdORjBNNndScWQxbEtxeEFyY0UzMkhaaUs2TFBLVENWeFZMY0lGd19PRHNvYWtKTFE1SWlSV0l0MUlOODNFUG8?oc=5",
+        "published": "Wed, 03 Jun 2026 11:56:58 IST",
+        "source": "HDFC Sky",
+        "source_link": "https://hdfcsky.com"
+      },
+      {
+        "title": "TCS expands Euroclear partnership to modernize Sweden's central securities depository - scanx.trade",
+        "article_link": "https://news.indianapi.in/CBMihAJBVV95cUxNRDdJZ1l4OGE0dUhETDdURUNiekVuWDhRVVRtMnVocFRKV3FRUUE4YWxfTkxhRm8zb0toNHlGNWRuQXRPQ2x5TElDc1d0Zi00Y1lRM3lFYlloa291WEVIU0NPdHkwTlNtZlUxMzQ4ZWQwb3l5SXpTN3NIcG1PcEliaGtjNGlXSlYzU0Y4WER2WXMwbWlKZERuNldSbk9QMVlOcEJLZWlreEFkMVVJTlBIclJOcTBKUmtqQm9ta1ByUFBxMHZpdlVZTjBmdFdkbjVXdmo4b2RvaDlpaDh5aVoteTVJWmg0R0UxSzg5VVNuRXJLTHpSc0VON3dUdzF5SXJKOG5BVw?oc=5",
+        "published": "Wed, 03 Jun 2026 11:48:08 IST",
+        "source": "scanx.trade",
+        "source_link": "https://scanx.trade"
+      },
+      {
+        "title": "TCS, Infosys to Coforge: IT stocks crash up to 9% after three-day rally; what's behind the selloff? - Mint",
+        "article_link": "https://news.indianapi.in/CBMi9gFBVV95cUxQN29vVFBKNEh1REs0S25kTUt6OGxHTDVkRzlOTnl0VzFjb1FveURfdE5iMU8ycy02d1JlR1BtdkV5eVI1ZC1fY3hwNmRSbG5WUGd5MjFybWNybEp3ZjVpcXJ1Tkp3V0dqSWtEYWlMZEZEODQwY25sRXBoSUh6aGdGdWNuV1Y5SE02eWVESk1uLW5jbC1iT0g2RnFfQmRxcGswUW1LNnJuLXJad3piZzZNdWZiRlYtWFowalI1SnVPY0VheEpDV3BUMkMzTWlDTEt2VDYyLWNrVlZRSXBvZHFObllRRHdXNy1TWVNMSDdNWFZ4cUJpcGfSAfsBQVVfeXFMUGY1WW1ONkRqZUZqcUxXYmh0M0dtNW9ySGtLXzVzNnB6dkNITml2a1UxenlrQUdyZ2ZIRnhyNlJ5bV9PckRadDlmazdadm1JaDlCWTQ5MkhvMzc4QllaNVA3S2EtYmdxVWRlZ0wxdTIzcmJRMHNCdWVDemlVdlZ5dzlvQVNkV3Z0ZmRjazl6cVZqUlU3Sm1uZklaUUpTQlVpZVNvNE1lSC1ldGdCTTYtYmR5ekhpWGlSSFprRjhGVnAzdjNTZnpidGpxNXZZNVA2eGMwOEJOS20tVTMzR0FnQ0ZWUUtNUktCY0I1U2t2b3dZOS1DS3J0blR3Mzg?oc=5",
+        "published": "Wed, 03 Jun 2026 11:46:25 IST",
+        "source": "Mint",
+        "source_link": "https://www.livemint.com"
+      },
+      {
+        "title": "IT Stocks Sinks: TCS shares fall 9%, Nifty IT slides 6% - BusinessLine",
+        "article_link": "https://news.indianapi.in/CBMizAFBVV95cUxOQ29vZmlNRzYxUTZ0NTgwY0J3cEwzTWVQVVBQTkNmdVBZTFNOUXE3Ui1xdHNheHJqUmpvZzFtNUk4ejJSbUFyTjZpYk9QZUNmNF9la2lVWlA3cHJ1S0I2ZDlWbWg2aXJ0cFI1UmoxOFRkOFIxXzhVTmpNaUphbE5OeEhtcjFsczIxV2szWTVhWFFyVm5Fb1RGdHNxVDhudF9MNDh1SUZ6SDMxUVFuQmxIV2ZLQlBfSkxGa3VUX3ZzUGxObDlIeldLVVRwdWHSAdMBQVVfeXFMTmVlOF82bGhvSjA2TzNUSm1kcDgtc0JOSjlxRlF6WE1zRUg0THFoTjM5a3N4OVhBVFlmWGtTUHdjN1BvY2lQZElpaGd6TlRIeVU2UV91SVVSZ2xPX0ZhaWR0OW9VekVkWGJMcDE1aWo2NDd6Sm9fekpuZzBPcEZHU3RZYzdJOGxDWUlBR3FQX1hyRG1sZ1V6SWVkMUdzbnQ1ZExJXzJmalBuNFBUQnNxdnk0dVZlWkZKS3U5bUUwa2F5V28xcEYwck9qMkVnT0hQbHlhVQ?oc=5",
+        "published": "Wed, 03 Jun 2026 10:51:53 IST",
+        "source": "BusinessLine",
+        "source_link": "https://www.thehindubusinessline.com"
+      },
+      {
+        "title": "TCS, Tech Mahindra, HCLTech crash up to 8%: Why are IT stocks falling after recent rally - India Today",
+        "article_link": "https://news.indianapi.in/CBMi0AFBVV95cUxOYW80U2IycVJ4UVZoLWF4d1NPamd5ZlFkdWZmU3ptSUV3ckN2U0EtNmt3NVB1ZThOZUd4ZGpFWWZGakVINmc4a3VrYk5xQ1JNbzV0ZEJtOVNSVDl6ejNKbmIzMnFyRFNzYk1kZ0VDWDJGRDg0dnZnRV9wMVhkOS0tR3I1eTF2M3pwWTRZd3pqRDgzR0JLNGNXel9Jc0k0bWNRSGs3RmZwMlpxTHJlZENkdGN5aFc2Y0hZZXFORnBLM3BJRTgwNmZsakFhdFpFc21G0gHWAUFVX3lxTE16cFVjZkZDZklfcUpPTjhjV09qT2UzUy1qUmlsa2hUVnZwYnp1MFoxcW5nZ0EyMS1DU0tJNWR6Nmp2aVBaTzRlNnVuQ1lNeWh1WVEwb1R2YTViMGtaWmFXR1BsaUdrN3Rfb1JkSUhDX1dvb3F1eVpaNGh5TjBqM0RrRG9xSzE4X0lxSF9FV3kyeURZdlZCemV0dVRsYldMcUJYZi1ndU5YSlZfS3N2WWVMVmJnbUxIRDNwdG9qRnl1SjRhVE9qd0dQOFNBNlcwZEdTMTJYc2c?oc=5",
+        "published": "Wed, 03 Jun 2026 10:45:33 IST",
+        "source": "India Today",
+        "source_link": "https://www.indiatoday.in"
+      },
+      {
+        "title": "TCS, Infosys, other IT stocks crash up to 7% after 3-day rally. What top brokerages are saying? - The Economic Times",
+        "article_link": "https://news.indianapi.in/CBMi9AFBVV95cUxQa2kzWGdSclBuR0g2Mms3dTVvekdBdlYtOERsUndVU254SHFwcTc0WDlBN2xWTmNiTlBPeWRTS1pMQ3lvUWFPMnlkRjBhTnhPUHozNHFZWXhxZ0JUVDVwdlpaY25uZk1kVml1aktXbWpkOXNKUUxFVndwZWxqS0R1YnZfNi1tZ3dDRHlEeXVfbWZHX2xjeGlfYll3bEhqMndYNFJPbHNfb3NUdXl5NlJTanlNMWZVdDR0YUVZUFUtUm40bENEMFM1WWdIbGlLSUZBa29qNy1iZ25OTm02a1d4b05hdzVoZjhwX2NzaUJVTmlrcEV40gH6AUFVX3lxTE13R19BRHUzelI0ejRDU1cyZ1hwRmU4Y3VWQ2NFUHgwTnd6eDlWUWRUeFV1czdhR0VmN2FVVElja0g1cjJzWVdHRFQyVTFIY1JYU05DZlpuQVJSM1kxY3lwWFY5WllCWm5UZUwyZjZSZlpHUXBPX1FkbHRCWGswYzZoLXhPM0g2bzB0cHdKUWtqZkNIZC02WUU5MjNfU3RqSFRRZTBBbV9fZUdlX3FtUExsVUV2N2p5X2taakpUS2tKYnduQkRwM3JLNDIwQ1lMdU1nYk9aVUluT2lyeU1fN1dJZXZ5bVZKY3hLVXFVaW55akY4MEd4TlhxYnc?oc=5",
+        "published": "Wed, 03 Jun 2026 10:43:15 IST",
+        "source": "The Economic Times",
+        "source_link": "https://m.economictimes.com"
+      },
+      {
+        "title": "IT stocks crash! TCS, Tech Mahindra, Infosys, others drag down Nifty IT 5% intraday; check key factors behind fall - Upstox",
+        "article_link": "https://news.indianapi.in/CBMigAJBVV95cUxPRFEwWWJOeEJ6ZFhuUmN3NmtxVU9TX29oRWN1cHRsbk1nOU5wTnhlZ2JROVFoQUoyOWoxQXZPU1hpQzE2VmZiZlJGMnlqM3pNc0ZEWkZrTDh0aWtnWEc2QnZRSXdXNkhEQzVIUThGWGlhNXJiQlZRZ194ZXBiR1phTDZIX3Q4Q1R2LXRFREI2ZW5QVGFDdXBmaFNZV0k5UEI4NjgzVGNPYmZGLTUyc0hWdldWc05qVlRuS2x5M2NYczBLMDgxYjJvTGVNcnpFLXpONF8wRnY0cXJrUjJxcDhFVUJBWVNzY0Vwa3JrM3BRZkppYXg3eGtITGNuNmNha0w5?oc=5",
+        "published": "Wed, 03 Jun 2026 10:41:24 IST",
+        "source": "Upstox",
+        "source_link": "https://upstox.com"
+      },
+      {
+        "title": "IT Stocks Today: Infosys, TCS, HCLTech, Wipro Sell-Off Deepens; F&O Data Shows Surge In Bearish Positions - NDTV Profit",
+        "article_link": "https://news.indianapi.in/CBMi3AFBVV95cUxOUzlyQ2c0QjFpRWRCRXY2UURRSHNMY05PMlpVTGRzaE5NMVJvRlZ5MXRZZUdwQ3VvSWlkdEc1YkI4alZ3Rk1VcXRBR0hvMVJrSFhkdE5hblZuNkI5b2tHSHBSWWpwSGRRcDRBbjNsMlE2dWdld2x2VnFDYjY3dU5CcFNYSjB4aUFIUU9jdTljUUJJaTlPWTFMMVo4aFdtVEZoUTdqWmowTVUtMWJVOEstQTdNR09hTFFrZWd5a3E1eFF2LWMzMjJrWS1ucUZxYm5sN2ZmVGZHeDV6Z0lR0gHkAUFVX3lxTE1mWkYtVWQ2Y3haUFRaNi01aUN5MDI3UXZQTHNFcWlfTkVoTWtCZUhtY2l4dGtXaWJRSzhtTGdFelRGSWpKb3BnVUs1c0ZCWnNXRFZFMG1SZzVFZHpzRWdWd2lIRG1sTzMtWHJPNlZCTm5IYk03T21fS0hYaTgtWEppdld5b3VLQXptQ0VkUENuaE9XSUZLUm1xYkRHZmZzeWd5aENxLTdwc3F0Wi1DZ3ZmZVhiSVc3NmdjOC1manFIS3dLSElMUzQ1czE1NkxYTmE3SU9ySWhZajJOMnZGM0ktSnNaag?oc=5",
+        "published": "Wed, 03 Jun 2026 10:38:34 IST",
+        "source": "NDTV Profit",
+        "source_link": "https://www.ndtvprofit.com"
+      },
+      {
+        "title": "TCS Share Price Today Down 7% - Equitymaster",
+        "article_link": "https://news.indianapi.in/CBMijwJBVV95cUxOTzJVOVo3QlV0d0toMEx3dVEtVzRELVBRTEJ2OTczNWhiQ1NxcnpfRFVzVmdBZkp4RlZZVW5NbnJkWGgxWWlnV3BwM28xelNuNHJXN1hyV2dfUVpFWThmckMzc1RFZnotWXlNdFR2c3EwTWx4b3oyQmVZaHhHZVBUQ1pJbEhDTmc0UmV3RU5fT01Sa3VuR3NYcmdJV2xNdmVKR3FIdGhxa3lNSjdfRjB5M0JZXzRVWkFXWGMzTXRLRXd4UjcwNWVRSkg3a0tjUVJjZHBnSGptajdFNlFidEZVd2Z0djYxSDdpbHBibTVxTWFqVnFfcm8tbnFvS2YxSVMzTFpxY3RLeTkyZnRHWWgw?oc=5",
+        "published": "Wed, 03 Jun 2026 10:22:00 IST",
+        "source": "Equitymaster",
+        "source_link": "https://www.equitymaster.com"
+      },
+      {
+        "title": "TCS Shares See Biggest Fall Since February As Stock Slumps Over 7%\u2014 Here's Why - NDTV Profit",
+        "article_link": "https://news.indianapi.in/CBMiuwFBVV95cUxOTGU1aTExbVVVdmVZeTJ2ZHliZVpEdFJOZmw2MkhHcmZjNDd4Q0N6cG9WWXcwSnVVWnRDMTgyb3AxZHBaLWNOdXNXYUcySUFrX0x5UFBETU1ILUJBT1prMEcwbkFGWEJUN0RWalZBdXB1U1JYY0JqTE04cWxDbkd2ZmhDOUUwcW5fVnAxaGJFb1NoV0FYekZZZEUzWjloX2djSlFVdVBOODF6ZUVpU3JyRGFtbXJMbEpOWE1N0gHDAUFVX3lxTE5CU09NaFVVNkszRldhaG9rUno4VDQzSG9KM1ZxX1RNTzJSVndVaXlzMXhxZG81YUdfRlg5ZUE5RVFKa3JXamxjdF9Ea0Ytc3dxMTFNSmx5Yk1Db1NaVUpMTzVIYUJKVWhWZFYyZDBlZUNWUHNfUzRwQU9vTkZKX3ZYTmE5bHRMd1ZISWRjZGJidEs5UldoSnBvMkp3cGx3SC1EY0dFQ09hZlhSLVVSUTFmRzQzOG80eWQybTJTMVV1V2dLWQ?oc=5",
+        "published": "Wed, 03 Jun 2026 10:18:11 IST",
+        "source": "NDTV Profit",
+        "source_link": "https://www.ndtvprofit.com"
+      },
+      {
+        "title": "Momentum Stocks: LTM, TCS, Mohit Industries see negative breakdowns - TradingView",
+        "article_link": "https://news.indianapi.in/CBMixAFBVV95cUxOODRxS1VqM1czdmRtampzZS12aTExN1UxOU5CdjBvSUh6ejVLQ19UZmVoeW1iWllvUjk3VjV0amp4SkxNVUNrTHBscVQ4VHREMG5zMExXQzdoVUx2S1hLTGlBZVhBRmlwdDhwMXkxUDVYUnBfYTJncC02UXhOSkVta21FT3o3dzBVWGdINlBDdi0tWEl5dEpiZkpSSk1wLTEyNzJCcEVPSjhfQ0Y5SnRoUTI1LUFOUDlMQXVocjZCU0xrZVc4?oc=5",
+        "published": "Wed, 03 Jun 2026 09:50:05 IST",
+        "source": "TradingView",
+        "source_link": "https://fr.tradingview.com"
+      },
+      {
+        "title": "Momentum Stocks: LTM, TCS, Mohit Industries see negative breakdowns - Moneycontrol.com",
+        "article_link": "https://news.indianapi.in/CBMixwFBVV95cUxQRjlHYUR0XzFWZHpUay1DU1JEQzRCOEVpNmd0SHZ1YkNCZkhLQzZrNXdIVHMtZkpjb2VCOGtqUVFrTnlKekZ6aHo4cVktMkxvQjFkdEVobUFtMXFZaEtRZXMxM0ZQZVlqQ25RZkVzS2M3cThiOVRoVHNkZEVJZEpiamwzLS1kLWVnc3ZNd0V2Wi10SEFKOU94bnNNUmhzREtBUXhuOWtKNmxmV2ZhOXNEMVRPWmozWmU2c2F0SzNFQXU5Ui00cGlz0gHMAUFVX3lxTFA3ZEtCdFJhZDJaSGxvc1B0QjV2MDVVdEt5bDJOQ05qQWd6OUMtTHpxVndjbjdyXzlkZ25XeVBLZlcxOEw0U3dPcDktOEJsWnRvRE5pMDgtZl9KTTFUNzBPb1BqUHo0SkNEM2loLXBwbWJDOHdjd3dIRXo3VElLTl8zbFhVYXR3VDJEUXpFVElwSm1HdXo3dnktME1KdmJFLXVSVzBfR1RYU2lvXzVsQllrRnRVbEhSQ0RqSTVuLUluX2pVUzNOV2RDM0lBLQ?oc=5",
+        "published": "Wed, 03 Jun 2026 09:50:05 IST",
+        "source": "Moneycontrol.com",
+        "source_link": "https://www.moneycontrol.com"
+      },
+      {
+        "title": "Tata Consultancy Services Ltd. Hits Intraday Low Amid Price Pressure - Markets Mojo",
+        "article_link": "https://news.indianapi.in/CBMiwwFBVV95cUxNX0JNR3ExVjYyVjZDM2pBSGR2UUFfU21qQ0U2LWlVTUZaUC1Fckt6NFBPc3NERWJPaXZ4U2NLTXlVSUtJN3p0QXVERHVOYVAybXJ4LTlPSUhGWmZRLV9ObmlBMmNUdDhSX1ZldENuLW5fMVc5ZGh2WUhuZEs1RWVGRnh6ajFmcTdnOU5kbnIyT19kdmJ4dEJzQzJzSEc1NXBXNm5uQUwzZGt0NVBYQzFJYmlvS1d4dUFzMjBWSEVXZWU0ejg?oc=5",
+        "published": "Wed, 03 Jun 2026 09:45:33 IST",
+        "source": "Markets Mojo",
+        "source_link": "https://www.marketsmojo.com"
+      },
+      {
+        "title": "IT index crashes 5.5%, snaps 3-day rally amid profit booking; TCS, TechM, Infy fall up to 9% - Moneycontrol.com",
+        "article_link": "https://news.indianapi.in/CBMi5gFBVV95cUxNRXZ3MEJxNmFvdTQzSWdOUDNuT0hoazIyR3czTFNJb3BBdFptWVl2bUJnMy03MGFOTmd5V3pGUTdXWW9WbUo5TjJnTk5OUm1YTkkxMXBVampvS2FKM1NrTkdDZzJ2WUVoZWRwMG9vczBPOFplS3RpaFN6V00tRFlqQ2JrYVdLUWdkdXhuVGVKdE1QeWRHTmc0VEdVOVR1TVhnSkhqMFA4NGFhNVdxdWppN3ZGZWN4NFVLa0RpSjM0LTJkLXNOTVNDbzRPd2N6WUN4d2RwWUV2ZUN1TEROM2c3MTMwc0lhd9IB6wFBVV95cUxPQzZLTkVFajJQQUQyRTVacmVDYjhnRENRTXFDdEJzSlVLTTBnY05aR0lBRjJZX0F3T29VdmU3clhyemY1Vjk1aGhiT2k0SjVjUlpreHZKNzZDWWFNd2dEOXVEbi1MWjE5UTdJM0dZdlRaU3YybUR2Q0pEaWcxVjhjcXpZRC10T1ZDSWlHUjk2aUxjemhmMUNNQ182bHgxYTUxcnR5cUk2bXBnMTZxUHUwb0paWmV5eFQ3UDJKVkZ2aWpDclF1MERHNjRNSjM0WXVaWmRsLTM4cmxzQmtScDFyRFBKZ2VVY0g5a0xz?oc=5",
+        "published": "Wed, 03 Jun 2026 09:42:16 IST",
+        "source": "Moneycontrol.com",
+        "source_link": "https://www.moneycontrol.com"
+      },
+      {
+        "title": "TCS Share Price Slumps 7%, Infosys, HCL Tech Fall 3% As Nifty IT Snaps Two-Day Win Streak - NDTV Profit",
+        "article_link": "https://news.indianapi.in/CBMi0AFBVV95cUxQWjB4Z2hFQmpqeDFjbXRMbElqNllpdF9GYVRtUzN0MGFmMjNPZDlwYjRleHk5LUV2d2tXYTBtYnREZy1OajJSVGZKemZkcE1jb1gxSWZfNXo4S29OdW1OTmVZQUlSTGJFdWZpcGVZUl9BcWxEZ2xTcU5hb0w1V0ZhTFVaM3BnY0xrVTk2X1ZscG5UZHRIeGNaNnJ0d0F5SWVtQ2gtZ2lldXVtV3ktTWVkbzNKeXZCdFpiVDJBbjlkaExvUTczTEFOWnZVSWFGdkFz0gHYAUFVX3lxTFBiWXBYaWJsM2ZKRV9YR1MteEpNbWdqSVlIdFdlTjZDWHR3aFJ2LWNOcWhDcXpTN3lyVFVKcG5QU3RlMUYzMXM0aVBOZ3pidGVaT0ZFbHB1czJrb0NmRkpmc0ZkOXMtdlowVTFXMHN0WmhzRkRGTjc2MHhZZk5GOVB2MUtoQXZ6LWJPUVFyNVZ0eHU1dEY4WkM1aEtnVnFQM1BCOGhoWUNTaTd2Xy1IblJPX2tKY1FwTG1qMHJiWnV5NFdwcGVyNWlxdnEyZGpDQnVKTmtmal9NWA?oc=5",
+        "published": "Wed, 03 Jun 2026 09:35:36 IST",
+        "source": "NDTV Profit",
+        "source_link": "https://www.ndtvprofit.com"
+      },
+      {
+        "title": "SENSEX drops over 600 points, NIFTY50 opens at 23,415 as IT stocks drag down indices; TCS, HCL Tech among top losers - Upstox",
+        "article_link": "https://news.indianapi.in/CBMigwJBVV95cUxNb2VWamFQZ0I0Y0ZPVGF4Vzk5WDBlaUxaM2xvRFpqQ2FzU0JlSEZORC1wY3E2b2E5aG9vQV9FTl8tNXBZSmYtdnhSSF9wYmxNM2tqbGlBb3l3Z2hWemZ6cWIycnh0YWFwdFZ4V0oxQkZSMWF2bnJra0pnV0M1U2RiZTVzdWVyV195blJVVmEweXlqUUkzVmZyMmlmc1dnYXAxaGpZb1ZCanNmTDZfX2xWdFBsTU54ZzV5M3dRbUQ5ZE1ndG1pVkpsMFhiM0g2SnlkcU9xZWpfRWkzaVlGZHZwOWo2QkREQ2JhZElWY0gxeU9FRE56aVAyWDRIN2g0MkFqbGJz?oc=5",
+        "published": "Wed, 03 Jun 2026 09:27:49 IST",
+        "source": "Upstox",
+        "source_link": "https://upstox.com"
+      },
+      {
+        "title": "IT stocks led by TCS, Infosys fall up to 8% as profit booking sets in after relief rally - CNBC TV18",
+        "article_link": "https://news.indianapi.in/CBMi1wFBVV95cUxNSWpwQ3dKTmVodjROa1RvaGZWTmR1dk1QVXB6ZzNkbWh3aVpjQnlTX1R5eThISzBqMFBoUGx1bWNobnE1cUhvcjN2QWtQT1Z6OHVUVl9Kam9vOVJPaUpXTk0yZ2RDT2NSbkJaU3hJRHd3MnFzZTZuZXpqekJKbzljLXBYNFE1WEs2b0VtZ0dVVVNwOWZKQWZkaERoX0p5d05JakRxYnBDNjBrMnRzYXQ5NEJYSkxOU0hxcHgzaEhBMm11ai1VSUpaLVF0Q2szTXFDTU9xa0NKd9IB3AFBVV95cUxNQlBBZXZqbmg3MzZRUWhGMVJQNjY2VDN4aU5xNFNKbDVCVFBPT2F0SmhIeWZrcUx3bVR2eFVPMDhhNUpPNTh3anBDVFJrRkVhci1SQWxQWVljZWlWaW14UXVqemRSa2h2cnU3dnE2dm85cnJ0RHlsTVlTWnhvOWlNWWRGbmNveWxMRElBaTJITkE0ZEg3LW5xVUcxeVl1YW1oTmpDWVJWMlVoZWU3U0NhOTQ2c2JFTDdoTE5NU2FLS0tCWjhkbXdnM1RBbkt3cFJzNU52SDQxVTBSSGdm?oc=5",
+        "published": "Wed, 03 Jun 2026 08:14:20 IST",
+        "source": "CNBC TV18",
+        "source_link": "https://www.cnbctv18.com"
+      },
+      {
+        "title": "Infosys, TCS shares surge as CEO pay gap and succession loom - MSN",
+        "article_link": "https://news.indianapi.in/CBMi9AFBVV95cUxNdWZJTWEzaW44V1FITWxFR3BrMXJTSW9CVU5oekh6cm1MbXBodGZGQjA4aDJ4LWwwZUN5ZGl6QnJ1LVhQbnJMcDQzd1FxY0ZkSHlLQnpxWjZWZzZUaTE5d0I2U3lwV0RTQkF6MUN6M2NxRlIzSVhIaHU1UGRUa1NVN2JzTDF3MkRWcmV3bFByRWpHSjRxRGF5dEd3ZjVteFdmaHdGal9PMlZBRjFIeDB2SHo0UElCWl9rSFFlTGEwb2FQa3k5LWhtZDVPYVpOb2FwLUxOWng0Ti1iSGU1U0NJSllmXzlpcmhnaDdxMHRxcjNTU3Ro?oc=5",
+        "published": "Tue, 02 Jun 2026 22:44:45 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "Infosys CEO earns nearly triple TCS chief as IT stocks surge - MSN",
+        "article_link": "https://news.indianapi.in/CBMi9gFBVV95cUxOeUROa21JVERKaW9XYVJ0OWN5TWVoaWEwaFFwR2t5eVJlWTVhRDZiMGZEM3k5OHg3YXFQSHk0amVuN3FvY215MG9WUk1TVUx2TU1zUndJdmpzOUNKTWNLdUlXamhhU2tlVnVFUHI0dlZZcFhsVGE0TUVLanIweG5QNExfWHdPcVdLVnJvT19RSGhaNHl1YzhGR3BrSDh2QlZsVlY4NG9CMnRIOTJfd3hlWkJjVWhZTkxodFZaRVp1dGhPdTdObUE5Ri1zOTQ5N25DZWRFdEFXUk42ZDNidjZ3Rk4weV9yeDJUZnhsemFiRVROUDVUbXc?oc=5",
+        "published": "Tue, 02 Jun 2026 22:44:45 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "Infosys CEO earns nearly triple TCS chief as IT stocks rally - MSN",
+        "article_link": "https://news.indianapi.in/CBMi9gFBVV95cUxNY3FlVG1fUk1zUkZSR3ZOd0lYb2JzclZGMV9ENkVwR010bVBXclE3YmZNcU01d3JEV052dmRWck1mY1EyNlU2NXZqdGZ0eUpOX05xRm00dGlNTXRzcERfYnYwZE9YcEhPTDFvVkVPZ29uZGZpWUxubHNwalAxeXhsZ3BMM3MzTVZ4TlR3TVNUTVRDMXVnaUlBUlk3eXNuOTJLSTl3SzgxZ2tRQS1laEZYTTdxNEFDSjEyVV92ZGtILVZpUXhlVGJ0Z0wwVkRTa3JRM016S1BxdlB3emR6Sk80VVFaM1dZZTBoUnhndkowRlNMNlVaYmc?oc=5",
+        "published": "Tue, 02 Jun 2026 22:44:45 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "Infosys CEO pay nearly triples TCS chief\u2019s as IT stocks rally - MSN",
+        "article_link": "https://news.indianapi.in/CBMi9wFBVV95cUxPWTZXRktNU285dVZtVEZ1RGJIUEZVNWctYXZwLU96bjJ5LS1tME93aENxc0ttdjhUUmY4NmhRYjc3WkZlaXg2QjdtUmc3RGJndmk5OUk0dExkWHFzb01yeVdxdUpxU1JCZ3lIbEZhLVpfaWRKeDJTcjhvb3k1ZGlBbEIxdl9wak5pQ1hfZ09FLXBfOUxmQUo2LUpKSlBPcXhxQThIVENROVQ1TDFONl9oLXZTRFFLVG8zMWhBSmZxajNCUWkzTzZINVo1REc1Q21PeTJGR29Ec082WG83bm0tR040bk55SGQzeC1OTXVfNWtWRjBVdWJZ?oc=5",
+        "published": "Tue, 02 Jun 2026 22:44:45 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "IT Stocks Surge: TCS Jumps 6.5%, Market Rebounds - Rediff MoneyWiz",
+        "article_link": "https://news.indianapi.in/CBMingFBVV95cUxQQkhZSVBjYlBTdHROd3ZTaThwTXNpeHd0YXF2ak1KTVY1cVF6R3FuZHlOS2FPY2RNN3VzbXU4NHR4YWc2cTNIUEpsdU4yS3RqZmZscHhEem5LY1FhVDJ2YW8tbE10TmhXN29FQUxROG1oSmNjYWVsSjNiZF9KbmdSMnhYQzJhY2JGODZhTmpjZ0J0MFltajRIcEl1YW0tUdIBowFBVV95cUxOdTlrSG5FWk1hYzJ5czVCRGZzMXotRUltVlJUSWFrMU4teWhPMEVJdV90YjliZGZhX3JJZkFrUUo0N3hEbUNEcDBlenk3djNOY2dtd0hQUVgyVXpsVUVYeERLTWhjMjM5Tng3RjZNSnQ1dnJCN05UZ3c3YlVCWGQ2UjgwUVpKbnJtMUYxT1ZVS0dyRG9tZnFtQU82ZUx2Q3hLQk9r?oc=5",
+        "published": "Tue, 02 Jun 2026 18:07:19 IST",
+        "source": "Rediff MoneyWiz",
+        "source_link": "https://money.rediff.com"
+      },
+      {
+        "title": "AI Tailwind: 'Nvidia Effect' Powers TCS Shares To A Two-Year High In Daily Gains - NDTV Profit",
+        "article_link": "https://news.indianapi.in/CBMivgFBVV95cUxQWDdFdnpJMW00aG5HS2NPUzIzeFlyWDNIWi1CbXhod0tKaDJfN2RMMTdjMWd3eDVlaDFWY3Vma3FPUEItb3c3Y0JueXFlYkhUc21hdjgxTExCRHF3TmZhZ1VQM181OXdnTlNDSjVtNENEMElTNmxMbW9XMmN0VFUwZVI0LWNhWWxiV3d6ZWdhQzl6RExpajNsSGxJTVVEM2REbVBCS1otNlBfanI1Vkk3VnYzOU9hcHJ6MFY4R2FB0gHGAUFVX3lxTE54RXhRMnpoWDZ5YnpPZWFodFdhR3J3YVVEQ29NVF9vNUV6Vko3TDNKQkR5RVRlSWJUYWFsTmVoVEttMHQ0aXN1SFd5VTRxZUVfVFF6a3pzamxsWXowck5TNnUwNmx5MjVJSjBmX1FFSHNWRHJlcG9zSkxpRW9zWFJiRWYycU8zZ2IyelhCQzltS0JqaTA3b2hsVkRicG5Ncy1taTlvQnRQQXAzZmpsX21YWndDVWlFejNKZktyclFaX2lDSTg2dw?oc=5",
+        "published": "Tue, 02 Jun 2026 16:48:17 IST",
+        "source": "NDTV Profit",
+        "source_link": "https://www.ndtvprofit.com"
+      },
+      {
+        "title": "TCS, Infosys rally up to 9% in 3 days: Want to trade the major IT stocks? Check stop losses - Moneycontrol.com",
+        "article_link": "https://news.indianapi.in/CBMi5wFBVV95cUxPNnJpczlfemkzcUFkLUphdWduRVVNZjRoZVJwVmNEWW1tOER5SVQwSXNXTU1WbGJ4R2wtdlc0U0hqY2FfQzlJVHo1a0FuWTdLWnZBRUhTT1EzRTNsZnRwa1ZXVVNQMVlQTks4UElldk51WkF1S0lFYS1sN3B6dmV1N0JvT1VMZmpFSjBBc1B4aFI1bkxTY01kMXI2WFJFRC1CcUU1Nmk4WEpSa3pvTy1nQ3FqSkpWYUdOWl9EVjQ1WFRkb0RJTy1mLVhMbFN0UllZTFlGWXBid1o3QzhMRGs4TjZaVWxGcUE?oc=5",
+        "published": "Tue, 02 Jun 2026 16:05:16 IST",
+        "source": "Moneycontrol.com",
+        "source_link": "https://www.moneycontrol.com"
+      },
+      {
+        "title": "TCS shares soar 7%, up nearly 9% in just two sessions! What are technical charts indicating? - The Economic Times",
+        "article_link": "https://news.indianapi.in/CBMi9AFBVV95cUxQZ3AxcU9UWjJ0elNGdkhGS240WkdLMHgyTWM4R2dWbDh3N05QZGIzcUEtLVBYbWE0WktzaEVSYVMxSTBHZGRZUVoweF9EN0dVUFpCRTI1RGMzLTFmeGhSX00wMzE4dTRXamprUlhVdlhFSlduR3NKZl9QOHRLTGVHX2RNdW1hS05KOHFPd1lNbWdKYThfcDNKd0hGNm9ZTl9iZzA3eF9iRGhPN2U1YmNlYmdIRW1JN0ZOTG1ENEo4R2ZWUFVVdFFPTHpVbDNhODBfOURlTFNWSzlTODMxczRVWXhWZmNFRUc5U3VHNjB5UnVZWms10gH6AUFVX3lxTE5QUURSRkdrU1I1NnpDUUwyaDBTRXRBVjctSGVrMTdNQVpPUmJ0VUpLdlNxZDAyc0d6XzZPNEJtSWZEUjJOODNtNHBqQUlQV0JUaHFYRFYtRUVYaDZqU2ppNmVNem56RjdnektDMkZreUc1TGFtaW1GWlZ3NXozZzhzWDNoVDdxWUh4TlpSYVR5cF9qUDZNZmlUaWY0RmNvTTVDaVZpd0hZa3JCLUxLbWxYSWI2QUdTNEFRa3Y4amFvSE1kcEI1d2pLNGZhdzc5UTRsX0w3a093S2ZsQjFKTU1xcjlhQklGUm5RaVVhblYxRVVkSzBuYkVpVlE?oc=5",
+        "published": "Tue, 02 Jun 2026 15:19:05 IST",
+        "source": "The Economic Times",
+        "source_link": "https://m.economictimes.com"
+      },
+      {
+        "title": "Why TCS Share Price is Rising - Equitymaster",
+        "article_link": "https://news.indianapi.in/CBMioAFBVV95cUxOMUpFc1RyVTdNNGFFT1o1cmQzdEE1VUxuckZmb2NvOWtHMTFqYVlmc3I5cURpazFWazBCVGFXcmJ2dzdjamJ4SjlfRDI1T0hRMFpZMzE2QjdudmY5bUxUSmt0REpJVjVqT0phXy02RFBYQ2pPR0FNNGh4UmJvTlVtc0xwMDZfdTNyTnFFM21NLWM2Mk5lMmFudldEWGlzNFZR?oc=5",
+        "published": "Tue, 02 Jun 2026 14:22:57 IST",
+        "source": "Equitymaster",
+        "source_link": "https://www.equitymaster.com"
+      },
+      {
+        "title": "Why Infosys, TCS, TechM shares are rising today? - India Infoline",
+        "article_link": "https://news.indianapi.in/CBMilAFBVV95cUxNVjZpeXZHZi1ha3BfaDdYNnd6QlRfMlRvWE15dlZpMU9wb0tCRDlSeWp0b0NDVWVuNzdJcXhEcENjT0REZjdtejJhdGdxeFNqbkFnZ1hkX3hoQ3VwekRlNDB4Qm1Ka1lkQUhZaC02cTQwSGN0SElwQUhBOFU1U3FtX3NYOS1PVGZoclRDM3BRTy1vOVZ0?oc=5",
+        "published": "Tue, 02 Jun 2026 13:16:34 IST",
+        "source": "India Infoline",
+        "source_link": "https://www.indiainfoline.com"
+      },
+      {
+        "title": "Infosys, TCS Lead IT Rally as AI Optimism Sparks Fresh Buying in Software Stocks - HDFC Sky",
+        "article_link": "https://news.indianapi.in/CBMipwFBVV95cUxPRjd0U1Z5ajZlZGVKZWptejcwOS1JNlNxMl9rS25BZ0lHMFFKaDNrX2Y4bGs1YXY2U0IyN1hYb2poRFlYYVVWUnRFRDhDbEhZdXdPWVJra2dKV0Y1b1ZJOGhmZGRXdE1YSG5xYjlWOHhKc1JkcEJpNkJ0NlZZTFEyQ3hnVWV3aC1UeXc5VmdHZlZxS0VLLWhlSFgtYTJmdWFhX3dJbFhmRQ?oc=5",
+        "published": "Tue, 02 Jun 2026 12:56:39 IST",
+        "source": "HDFC Sky",
+        "source_link": "https://hdfcsky.com"
+      },
+      {
+        "title": "IT stocks surge as TCS jumps over 6% on AI optimism - MSN",
+        "article_link": "https://news.indianapi.in/CBMi5wFBVV95cUxQRWRDa1p6U2NHTm05aWk5M3VzeG8zeThFTkRfR09mY3JDUnJXeE9hOFJKV0N1MEhYeTNCUW9LNDVpN1VNZHM5REVqLVdBQ2ZIMUo5cm5jM01HZWY0NmljR1FONVVOZW5QYzk5ZkVIZGlTa2VsaFpoRmlic1dnZ1ZDR19yZHU4azR5T3pmWDd3Z0l3TFpfcEVmOUd6dkx6ZDNXekRLZjRodnJzOExCZGVWRElleHptSTB1MHU3cHdoRmh3R3NuaWFtZlJRX1Q4RVVnYk9mRlg2aXZZRVVEeW5YdHlldmhtaGM?oc=5",
+        "published": "Tue, 02 Jun 2026 11:33:34 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "The Nvidia Effect? Why Infosys, TCS, Coforge And Other IT Stocks Are Surging - NDTV Profit",
+        "article_link": "https://news.indianapi.in/CBMipAFBVV95cUxNSmZPLS1TMFpHYkZ1RDkxVl8zWmJXZTg0eFJ3OTJjM0xGX05ZR0p1Y3ZRY2VlR2tJbHVjdEM2amxMSUNkRE1vUGR5V3hlU21PSHVxOUhtcUVod2wxYWNSSFVkMU9LdzZjRE5uTzExSWQwOG1OTmE2dW80YzU5dHhENzZoRm1KSGxBRVI1OFYzd3otcE1qc28xdXNrVFhDMlRSYlowNtIBrAFBVV95cUxQZm9SNjBJc1JpMmRaX2doRGdlT2xSelJ0ZTM4WFVrQUVEcVQyVE9jeHNUSWs5YV91QUd2ejhBMHVzNVdnRGhUOXg3VEwxenJpQ3ZTMmJuZnZPdjgwWXpIU1p3X3NUZTlZUkFPMU8tSlVlZmNTMGx4VFZpeEFhLU1kbmRFcHkzYTlxaUFfWGNTdFIza3FVR29heGQ1SkVUZGVIdFdaMmMzeTMwUEhr?oc=5",
+        "published": "Tue, 02 Jun 2026 11:21:19 IST",
+        "source": "NDTV Profit",
+        "source_link": "https://www.ndtvprofit.com"
+      },
+      {
+        "title": "TCS, Infosys, HCLTech shares rally up to 6% despite weak market: What's driving the IT stock surge? - Fortune India",
+        "article_link": "https://news.indianapi.in/CBMi0wFBVV95cUxPSHJvM2pXYk5SSXNwVG85SFo2QUY5ZlczT2ZuQksxQkRzTW8xMkhDT2tnWlZSZ0w1c1FtSnZQUXUtLW5nVzlpX19YUmdmN1huQXM3MFpWTXhiR3luT05MalgyUUoweGdJS1prZi15OGNaRkU2R2ZYbnlBVWd2YmFQcnJzNndDM1NncE11WHRfOE9jS1FBbjlPSFI1dUdNYVZKaGkxTnRMZ1piVGEySHFMYVhMTTVScG9JYmZNMlVtRmlqUWxkQVRoa0syLWhENmh2SXFB0gHgAUFVX3lxTE1Xb2VBb0x4cjNBSVFlRTUtXzJsZzcyT2NiTENoTzBnTnpkaWxLdXllWWRKcUZ0dElMWUtuYTd6T0hVS2NIb2sybFA2WjJDemxhWVBzX0NURU50ODBKYWtwS3ZHT0ppYkdSTWNKejFUQ0NKSi04WTVtX3g3VEY5eFFWekU3b3J3NDVINjdHNGRZYXBUT1hrN0tXd0k0a2FjdnNXMW5NUHhLTnpmaW5TeFBxT0NtSDNDM254QVZrbzdub1F3NWxtWXItLWhKUUR0UVF4aHVsZUJKYVVQbGZmTDNX?oc=5",
+        "published": "Tue, 02 Jun 2026 11:13:46 IST",
+        "source": "Fortune India",
+        "source_link": "https://www.fortuneindia.com"
+      },
+      {
+        "title": "Infosys, TCS shares jump 6%; Nifty IT rallies again today as global software stocks extend AI-driven... - Moneycontrol.com",
+        "article_link": "https://news.indianapi.in/CBMi_AFBVV95cUxNVDVWdDVleEhSTFU5UWVTM09PT0w1bVVhT052OUprRFhkY19GQlZKWFNyR2lPODFwV3dCaEt2MlZ4RFBTQ2NiQU9ueVBxRWJUZFdZdzNWRTY0bnJXTjA2QkxfZkxnajhNZG43Nlp3OXh0aEVVZldxTGpXUE5XZ0xsVHI0LTdpZkN6dnVnQ1N5S1VRVi1Fd1lEbHdBenpoMjlFYWtkeG16VlJIaUc0a0xrSWNCMndWY2hFSVFhaEZ3b2pRbkZlR2ZVdUhXVFVfM0c2Mjc1TzZjT3VWSUVXR3BHb1ozQVB3TGFKNnpzSDNGaTNYdEhVZ1Zfc3UxSmnSAYICQVVfeXFMTlY5RFA5ZDJaRnlSZHJIZE1TUHJFeVRmalc0UGhZNnhjdUx4TDNKdldTNkwwc1QwckZTX2J4VzhVenJnektUWVlVWU0xTlNRMHRLcmdnc3F1UDF3M2NmQ29nRVBxMVJ5a3JxcHdXcXFqbEJiR1FLSWZWYVlLeXRaQUxuQjQzdVZBazB6ZzZXWV9rUTBkbGl6QmZ5aVVDNl8tS0hWQ2ZSeTlqV3ZfNUpUaXZia1Jpd2xPSWZCbGRTdmYwQnozaXJiX0ZQckNlN0pnOFl1TFBKODZ5ekx6WmxUUXRQNDA4cF9wYkJvVG11V0pEbElOYnZjYXIxU2I0clpJMmVR?oc=5",
+        "published": "Tue, 02 Jun 2026 10:12:34 IST",
+        "source": "Moneycontrol.com",
+        "source_link": "https://www.moneycontrol.com"
+      },
+      {
+        "title": "TCS, Infosys, HCLTech jump up to 6%. 3 reasons why IT stocks are rallying today? - India Today",
+        "article_link": "https://news.indianapi.in/CBMi3AFBVV95cUxOcTd3NGU5VFhGNV9XVWgtcDNuVXp3U2VJYmg4VVNUZ0p0QzlFa1RIVXhWSDhQS3lvNUJUOXM0Nl9MczhQd0xJOXNLbkREZnRINF9TNTg4UVVfZThSTDh4cXJ1YzA1QVFfc2xDMUFfWE03Q3VYTDd6UGFrUVBJdlNsN2Y1b1FUd0p6VWM2b2xGWC1oVkp4dHNKOXFpaFR0bV92bzlKeXROVmFfckw2aWl6RTJnWk82ajdleGgwYnlwaHJGNUNITXFrNEpEZ0xhTUU3RHdPMU43T09fWW1v0gHiAUFVX3lxTE5OWVM2dU5lNzJNSnpIR0RFelo2ZldVU3R5alNWR0V0OVVGU200czhkZ2NVZEktMEtZemhHZGw5RFNQMmJsUHpJYk8wNGVEUnprODFhMkgxa2ZPaUoyV2ZVUFEyRm9RaXF0Wlo3UHA4eG55eDQ4SUs1MDI4S0Nad1dRcWZ0OU1BLVRjTjFSTEcwX3F1bHhjT1pRQWZLTWhDYXlZekNreEZ2bGVldnRqUHZrbkFFMXhPcFZlb19hX05RZlVoNW5MZU5ZOFpWeTNVQWVJOEtxTFBiRFZmQlRBS3RCVVE?oc=5",
+        "published": "Tue, 02 Jun 2026 10:09:41 IST",
+        "source": "India Today",
+        "source_link": "https://www.indiatoday.in"
+      },
+      {
+        "title": "IT stocks shine again! Infosys, TCS jump 6%, HCLTech gains 5%; are signs of a turnaround emerging? - Upstox",
+        "article_link": "https://news.indianapi.in/CBMi3AFBVV95cUxQelZINjFPczRYYzdOUmpRUFM3ZDR4bHdQdFhiRUFOWGJNLWNKcGFzTlpiWHAyekRCU1pTODN6Y01BT21BQkNzbkFjbloyQWxYandMam1aRlBJckMwd0JRak9rZ3ZLQ2ZXV0JpOXJVRXIwYzZwdzRHcjBHQ3l5WmFtRnlMZW9pRmhfSzM1WVFHLWdWWG9FTWpjSkE1VEcxOEV0UzJhZHhrazRNWk0zOFE2M0toaEJwa1dFR0lrZmVPcGdFeWswblo2VTJFS3JfdnN3S083a1JXWjdXTTlm?oc=5",
+        "published": "Tue, 02 Jun 2026 10:06:13 IST",
+        "source": "Upstox",
+        "source_link": "https://upstox.com"
+      },
+      {
+        "title": "TCS Share Price Highlights: TCS Stock Price History - The Economic Times",
+        "article_link": "https://news.indianapi.in/CBMiuwFBVV95cUxQUzZGc2RqNnFfWkdneTFTeDc4bG9qT25vbXpVRmxoSXdOZXA1ZXluVnRWRjRKNGl6UHRFTVZRY2hTZ3kxbW5OZHRmNllhNjBoY2hfTGhNU2owYjBERDhHMXZzWm9BamgwRmpQTnA3RFpNN3h0VVhDN3RRRGVfeFd5N1JCM05RbmpTTE5sUC0xbUQ0Rkd3THNhUkVJak54LUx0UUh4XzFRTFdnME5fb1M0dVZ5VVFNLWZpZElr0gHAAUFVX3lxTE5LZ1R6enAtZVIyQWJyUTRWNHZWNXRJTG96bk9PRHRwNUdRcXR6YUtiaENITW80WFlEdWg3X1hmeDNUcFEzZTE0UU1xV0I0a2hZLXZWQXpfcERkWlJsVWV6M1JGNk91OU1CbHdUTlJkZjZ6Sms3N1o5RTA0N01VdUk2S2hoNzVEaTQ5Q0VVZjJtSHBRRWw0bmtEZExJa2ZGRVRoVkl1alEzOXgxOGNTWEZ6dWthV2UzRlY3ZVo0NE9zZA?oc=5",
+        "published": "Mon, 01 Jun 2026 18:31:28 IST",
+        "source": "The Economic Times",
+        "source_link": "https://m.economictimes.com"
+      },
+      {
+        "title": "IT stocks rally: Why are Infosys, TCS and Tech Mahindra shares surging despite AI disruption fears? - The Times of India",
+        "article_link": "https://news.indianapi.in/CBMijwJBVV95cUxQWlNoTDctLS16WkF4QWhsamdLdG1pdjN1dDBudU9tVG9yRmhaNXB5Z3RYX0JrbloxaDNQMW1nN3hEYmNqeFY0c3pNU2VaSlhnMWRVOWZ4ME9Kam4ySjFibUwycmtPeUMydXEySUNYMWVMNndMd3p3WXlMa0JhOWQwQjVyd3RMWE9JbFBPTDQyMHRxRDFPRS1WQ2RQYmZoT2NtQ20zSDhKeUZndFU0UDRPUEJjMlNWSzU5YUdKenlYR3JIVUZmMWcxWW00d3RoYkszMDliVHVlSnZWd1JSemY1ajI0OTE3WXdDUkVyU3V4eXpjelVOSjNiQ3JnMGl3UU90Nmt6ZUkxNjA0akdUR0Rz0gGUAkFVX3lxTE5XODlFdC1ZTXdqa3pLa2xHMmNvNWZYQ0lRM1dEeTVHRlFtV1BoOFR6ekxlU0lhUXJGZlJ5bzJEVEVqMll4Tk9EZG56SmhZUXFBVlE3bU0ta2d3bU9MY2hsRGdCQzN3UzJndFp2dmpJRWU1Yjc1X3RRX2hCMzFGMFhpVVQ2aGJYUDhxb2lxbjBTbE5WN0YydXhHOXRta2I2ZUNzQ3J0OU50eUYzTl9PS2FFV1c2QkwtWFptb3doNnJ3eHVuZndvcWF6V0kxY1Zqb3V2NWpVbUlNV2pWdzRvTF9JbzFrbmstRzZkYU1HZVhZY01lOGpOcVRlNG1ldVMxOFpsZW13UDQ5dzVOWjZNSkZ5b2VDMw?oc=5",
+        "published": "Mon, 01 Jun 2026 15:12:00 IST",
+        "source": "The Times of India",
+        "source_link": "https://timesofindia.indiatimes.com"
+      },
+      {
+        "title": "IT Stocks Surge on AI Rally; Infosys, TCS Lead Gains - HDFC Sky",
+        "article_link": "https://news.indianapi.in/CBMixAFBVV95cUxNUThxUlIyV1lQX2tyb1hJeF9CbnVBd1M0U2lGYUNyeVR1M3ZXbUdaeHVyWi1ZY3NNSERaT05pa1MybEllTjc5VmgyNi11eGZEOWFuSzN3S1VWbU43OHV5N2RnNGRGWnF2cFcxODNyOGJDdUtKcE9CMGViNWQzNnlXeU1pR2dmTjlDUnlzLXRWcjltSHNKY1hlWlJDZi1ZVnUtR2ViMThJeTR2TTNJNXVBYnRINzVGTmlpRjlRanlMLUd3ZVBK?oc=5",
+        "published": "Mon, 01 Jun 2026 12:47:22 IST",
+        "source": "HDFC Sky",
+        "source_link": "https://hdfcsky.com"
+      },
+      {
+        "title": "Infosys, TCS, Coforge: Nifty IT gains 4% in weak market; check what CLSA said about Wipro - Upstox",
+        "article_link": "https://news.indianapi.in/CBMi7AFBVV95cUxPa1QwRUlHazI2SndqSmphclQ3Q0JpSFBYYUVZVVRSZ2c5cHNjVVAzQlBqcmpxaWdhMWxZMFBGVk5sN1RQUWFCVk9ham1BQVpiX0xYbUtYdzlYUTFUeXNlSmJhVy00ay1oS0RrYVNHenkyei03d3pVdzhsUWkzeHU0ZzF5QVVRVE1aNUNJc2lRZjgzRGkzSEd1YjMxcDRsRUZJTGl4dnRZOVl6N3BiSG4xcXJjRC1xNlNmRmVRTktEZE1DTGZnd2ZqeTVFenlXU2IzZjBoZVU0TVNUd05xS01sMS1qX1V0SjhiVVdtRQ?oc=5",
+        "published": "Mon, 01 Jun 2026 12:34:48 IST",
+        "source": "Upstox",
+        "source_link": "https://upstox.com"
+      },
+      {
+        "title": "Infosys, TCS gain up to 4%, Nifty IT jumps over 2.6% as strong AI demand boosts Snowflake earnings,... - Moneycontrol.com",
+        "article_link": "https://news.indianapi.in/CBMi6wFBVV95cUxPR19FNEZUeTU4aDB6YU5uVV9lU0g1a1I1bm1QbnBEYW9iTm5VQzFad1Brd1hSREZOS2oxdVFOVVFGS2FUQlJTR3FKZWpONldxZzg0OVBKVkJxQkp1dWpQUlh3RW5ISHEyTi1Tb2wwNnZ5dFhrOUlLWEtJeFlJQ0JUYkNOOEdGWER2cDIwbWotNTBwQVZHeC1KUTJYN2VyR2xNSjF1Q3gzT0g0UzBvVFlFNEFqeUlnR2dHbzd3YUVyS1VQd1o0S05PRlJUZ0NEZ25zcmZ4N3JtSEt6UzM0VjFZWEpURkZKb19RN1Fn0gHwAUFVX3lxTE1Ga3ZsNU1WUXRTOVRvYXNVTjhOTTN5cWJHTHMxMmNkLURldGNqRjA5dWhwc2tzVUVKajlVYlVFZjdqZ0NQY1B3RlF6ZUw5TWtEWTRBUE1hRkpBbDlNeGZXMUFPNHNSWXBEMXlEUEhaSkU0Nk8yTkpiTUE3RjhrQ3lkZGJfTkw5ZHlYTVhJaU9RX2F1cHZ2T3VhcnRJRnVUeTR6ZnpyZHpnR0RSdlBDTDNtcHdTR1pZZmtWQTZ3OXpGeWZ1d0tDY0lTR29OWlJ2VS0xLUxDS28wN0oyQWhTVk00aW1YcnQzaG9SdDJ1QWdHdQ?oc=5",
+        "published": "Mon, 01 Jun 2026 10:15:51 IST",
+        "source": "Moneycontrol.com",
+        "source_link": "https://www.moneycontrol.com"
+      },
+      {
+        "title": "Infosys, Tech Mahindra, TCS jump up to 5%; why are IT stocks rallying today? - India Today",
+        "article_link": "https://news.indianapi.in/CBMiygFBVV95cUxQd180cms0amp1SnNILXpnRjVfV0lYcVk0TTluazJ1NV9qY3o4eDBiZ2FzWG9YdkdyRTNCQU5pR0hfSkZLVU5DLU9CWks1MXZwUV9MQnh2UmNMS2ZzWTJqcVhEWm1HTWRub1RnbTJzSVViWnZUeUhfcmdZUjZhbVNxQkRpM3RfS1J3bmhCbDJIZkNBeUtudHVzRjBCekZZakc0Z3NsLWhrdXd3dXZ2T2VSNGwxRm5EOUl4S182OFJtc2d4ODctbHl4TWZ30gHPAUFVX3lxTE1fV2NRS1VmN19wNzJGcWpNWDFsY043Yk1pUE95OHRzdFFpRDVOTzE2WmtOVVpnXy1kRFN5ZzVqbUFkWHQ3X3BwcFEwSFBkUDBwN2thR3VjM0hIeVRvTk9ONkxCLTF3Y19USXZYY2RpRWtVVGtPc0tYMTdJTDBsRHdudExYZUNsMFplUFloX0ZZOVhUUUpSSVVZRFp1TWZZN2tkNTZadm16TDVqcHg4OGFfVjkxa2NSSE51ZG8xbkFpUHk0MnUwYTBLOE1icXZzOA?oc=5",
+        "published": "Mon, 01 Jun 2026 10:00:34 IST",
+        "source": "India Today",
+        "source_link": "https://www.indiatoday.in"
+      },
+      {
+        "title": "Nifty IT jumps 2.5%; why are Infosys, Wipro, TCS, Coforge up today? - Business Standard",
+        "article_link": "https://news.indianapi.in/CBMizAFBVV95cUxOam0zRjV1elQtOVN2ZWdic1ZUS2Mzc01UUmdFdnA3R3FfZFdQVmtwVjV1WF9JLS1WaDd3ZVJPQ1A1UmtnMVN2cTNBY3BibHA0cHZTRWYtQS1OUm9qWHN1eDBVd1BXdWdhbktHNWc3aEtaeFo3NUx6V1JrTGl2Y3pOTERMSXZPWHRITUZBcnN3OEVrdjFWQTN4NFA5NE1TYXBra1RCYkZnWUxiWXYwTW9YbUxlc0hlTV9Pc3Q5MHBGN0RLaUdQR1hpc0pzaEvSAdIBQVVfeXFMTk1qZjdoOGVlS2xVbEJoRVA1QkVaTWZxbnBUQm10R2kweG1RYU1vV1NiNkNzR0VILVlMQjRBVXk0N3RCS2lBb2JzYjNkamxGX21JbXl3VHZobzB5MDUzNDVVX0VYWlVFNHVJT2xybllFOFI0M01ycHY4WldjQmctVjdicGxNYTBBOHBlUEpqenFDYmtPSDRWUnRnRzRmR1FlcWVEVVVUUmFQN3FJaUc4eURaU3VzV01xNWUyVFNZek9FTDZLVEthMlZWUzdybWtaYjVn?oc=5",
+        "published": "Fri, 29 May 2026 10:52:46 IST",
+        "source": "Business Standard",
+        "source_link": "https://www.business-standard.com"
+      },
+      {
+        "title": "Tata Consultancy Services Ltd. Hits Intraday Low Amid Price Pressure - Markets Mojo",
+        "article_link": "https://news.indianapi.in/CBMiwwFBVV95cUxNNTFna3ZDLXliTFBUQjYtb01tcEZRSjR6S3pQZ25YdzNCdHU1cVUwSVI2em5wWGNLR2J3SGhkSlB3VmU4TDEzRlJVQVotcnI4MHpXM1dTYzFhdjJVYUVaeUlQMm1sbW9nLURkalpubFBSa3ZIVXN0cjV2YVBsdXZNVzRjNkMyUUtwUmJKZ0VJRFM0TzN1VFl0ZGJES2lBUXFlaE9ud2xGUXhrVV94cVlpeVVmbjV1RnNjd19oSjUyWEpVRU0?oc=5",
+        "published": "Fri, 29 May 2026 00:02:31 IST",
+        "source": "Markets Mojo",
+        "source_link": "https://www.marketsmojo.com"
+      },
+      {
+        "title": "Upcoming dividend stocks, bonus issues this week: TCS, Bajaj Auto, LIC, others in focus; check full list - Upstox",
+        "article_link": "https://news.indianapi.in/CBMi7gFBVV95cUxPQ0F2dWxfTnZpY0xMeEl5ZjZzMGN0eVprdW1DcUdDbmpuQWlvWXNBTGp1ejdoZUIxazhJRlREYkI1SmdXVmlXbmdYSUx4d3k4R0phNmZJUlVvVGZ1UFBFYlZpbzJnMV9WUmQwMlVSMm1FSy1xTUlxS0ZoQWMyc25XY3B1NU83WjVwQkQ4UkpKYjI5eFZJTFdzZ0h1NFBjMlNtZmU5a0dGM2JCTmp5emlSQXJ1enhidTByUGIzMnpUS3lCVHpWMy1TbEFRTk9NUHloMDJIMWU2SUJuZzZFQWNDSlNwaUJ5TWpuQTU3Z2Z3?oc=5",
+        "published": "Sun, 24 May 2026 12:30:00 IST",
+        "source": "Upstox",
+        "source_link": "https://upstox.com"
+      },
+      {
+        "title": "Infosys, TCS, Tech Mahindra shares jump: Why IT stocks gained up to 6% today - India Today",
+        "article_link": "https://news.indianapi.in/CBMi1gFBVV95cUxOcnRadXdMQlMyZnVmZ0VtNmtkU2Z1VGJjd2NsaXVqZUlMbnZ4eHVQZGFkbExTeHg0XzFqX2t0NDEtTFBRdGVLek5NTnBURVB0UEpTc3VoQmwtMkxDOGFyRlNVc0ItSWpoNlcwekNaUlNfdVdDV2I1Vi1TVENqQnZBS1N6OGF1d0VKWDFkSjkyNExmRXhvY0NSeTZHRjN4amx0SHRhQ2k1U2h5Tk1VdzlYZkc0YUhYb3JvNkdKSUdBa2JOb1RobGVqSlZVSFBiamlNQzNwTFB30gHbAUFVX3lxTFA1TERoQUpUWlREVVRCbDVCVGpxS0tlU3NNTXI1VkwwM2pVNExkQ1pJUHc3amlzYzhab1hJZGJBanlCZFB0eF9NYkV3TDJsNmpPdUxUZFBEWWJwTllxc0dudTBXRWtGVS1LTVBoSTBRNm5FZEZzbTVUTjVWalp2LVVCam9pUVJreTJ1TEgwdy15blhaX1RzaDFCU0JGalRiek5uVnBmY3Z6SC1nZ1d5QzhyVHFzdmpnRTZtTXBBV0hRUEVObVF3UHdmT1NJSW5xQ1VMOVlEZ1FZRFFqOA?oc=5",
+        "published": "Tue, 19 May 2026 12:30:00 IST",
+        "source": "India Today",
+        "source_link": "https://www.indiatoday.in"
+      },
+      {
+        "title": "TCS share price: Target price for IT major as Q1 sees salary hikes - MSN",
+        "article_link": "https://news.indianapi.in/CBMi3wFBVV95cUxOSFlHTVpwY2FVYVRjUWRqRFZ3YzdkUGFvLVBraDJyRnU1Z3VwakJaZjdRd0EwWG84UlBaU2F5eXp1Ulg5RW9RMlFYZHdQMEJMeFRXX3p6TlhyT2s3dzFTQ2ZzcjFvczNzLXlvM2NuMnZBT1Jtb0RJV0hvQW5NOGtMWmNqTENrYnVPU2JNOWQ2MGFWaHNvbEY4RUlFWW5XV01zU3RVcUkyZ1BCQzctZlRucU95MzB4YjY3WklHUHBlbEZaaGZ2VVBScElObTI5SFJCNkh2RkRiTXhYMkpVcHRR?oc=5",
+        "published": "Tue, 19 May 2026 08:42:52 IST",
+        "source": "MSN",
+        "source_link": "https://www.msn.com"
+      },
+      {
+        "title": "Infosys, TCS and other IT stocks slide for third straight session as AI worries mount - The Economic Times",
+        "article_link": "https://news.indianapi.in/CBMi7wFBVV95cUxPeFg1QV9MOWZxYWdhMlhtazJFeTNMNUZLSlNoMWZKLWl0a0MzMGNTaHM1SDNhRVpwc0duZGFMR09qUUxRV1V3M3BfVW8tOXVPNi1HZ2VqWlZyd2lXRHViYVRxMEw3aUI0MDJSemZmM3R3SGtreXZKblM5QklGdHdFOG9fSUN1Z0d6ZkRYcWg4eU9rLVBjeG82ZWxQSTVURW9DZkZEeWZLT2pta0lZeGYtS29POUM0cjNSMy1jUjZxVG1YVmE0cVc3cTdmcWR4d1lSQ3RjeDFZd19ISDBfcUplMkN3Z1huMFFRRDI4R0phWdIB9AFBVV95cUxNSzhoLTFIamppdnRKTnlyZGd4bURuWW1vX0d3dXdnZkZFbHBOT2dSbzZ4a016OHdGbENFdUd5ekFNLVRBTmRUMjVsbFFBay1xbkRxUUl2VWJ1NVJzOTFMRlo5eVBYa0JQWFo2Nmt5T01mWnpMTFRXTDhrdUExbWUzMTMxbzZOSEVPN29pNDhZUnJGZXRIMW9Pai1sY05uWklLMkhBU0xtaUo2bVhRYWdBOU1FaTJUUWQxeXhyd0p2LXE2a2hhYjVFTGxyQloyUVVGeEZrNHVDN0UzUzNKOE9nZnpXZDZURzlzclBTNHJWS0NNU0Fv?oc=5",
+        "published": "Thu, 14 May 2026 12:30:00 IST",
+        "source": "The Economic Times",
+        "source_link": "https://m.economictimes.com"
+      },
+      {
+        "title": "Infosys, TCS Crash to Fresh 52-Week Lows as OpenAI AI Deployment Push Sparks Panic in IT Stocks - India Infoline",
+        "article_link": "https://news.indianapi.in/CBMi1gFBVV95cUxOYnBkVG50Z0ZRLWhuNXlJQ3N2YUFCemV5cVQtRFJ2QWt5UFZXODlOYmhiNkdjbktaQ3JfLVIwZEpaNGZXdUxDMXB0c002ZjVTaXN4RkJ6VTI2bzhXSnpHZlNwMFIyMHdKdjduaW5pWFZyZWsxVmNMcEsxTGJQVy1LMHZxMVROVFVOVjlQNmI1UVcxWTRZa19lbk8wc01rOVU3UkVGTmk2MVdxdXBROTR4V0pqYnZMdVBDNzNYN1p4Vk84SzdfSC1LWHNGaEhWNjlSUGptZTFR?oc=5",
+        "published": "Tue, 12 May 2026 12:30:00 IST",
+        "source": "India Infoline",
+        "source_link": "https://www.indiainfoline.com"
+      },
+      {
+        "title": "TCS, Infosys, HCL Tech hit 52-week low as IT stocks plunge after OpenAI launches new company - Upstox",
+        "article_link": "https://news.indianapi.in/CBMi5AFBVV95cUxPdHhhWmxQMzBmV2s0WUdicXZqVDFELWZzdXExdDdkZHBsZXZDMkU3OTJmS2VISDQta0Nrd2E1MzQwYlZ0d0kzbjhDZjhtTHJYRkthTWExYmh3Y3M4NW5XMmFqZFQ0MGdzQ194VUZMMDJMNXdzQU92TGNDZFRMNTZabkk0MUZORzNsMWtFRjFreUlMUFMxVWxMbjBtRFZsd19tV3l2eWJxU3cxTEFuU3daZHpPN19SWkdZeG9vd1l6Wmw1azNLVXRVYUw5Z0xjdFVFeVlMMlFkY3JQcHJob01uNkI0R1c?oc=5",
+        "published": "Tue, 12 May 2026 12:30:00 IST",
+        "source": "Upstox",
+        "source_link": "https://upstox.com"
+      },
+      {
+        "title": "Infosys To TCS: Five Reasons Why IT Sector Is Crashing - NDTV Profit",
+        "article_link": "https://news.indianapi.in/CBMivAFBVV95cUxOUWM4T2hxSVh6VzlVc3BKWEE2a3VydTF0WFVzRm51amVQRUo0WnFaa2RqOVpzcExVaHk2TjV1QklFV3VXLU13aVFNTnIwTGtXRG9YX0lCbEt4RThoSWYwYjgxOE5vQmVGdE9LbFR3OGg4Q2ozeW1KNUgyT19pXy1OQ0RaS2ZlWjlQNTJOWDMyeUptSjZyMHc2Qk1GTG9Gc2JUVkVhWWdHa3VRSVI5STVNNV85TjZoTnFUN3VabdIBxAFBVV95cUxQS0NhVFJ2eFMwLWJBX09VRkZPYTZEa241Ykc3dkNfZHlqRHE1c0VfdW1qeF9jR05kbDJERlk4cXVkaDF5VnJoZ3FwbmJOM1dScGtvejIySk00eUNEQUFFOFJpVUtrcWJnQ1U5bTZnUkJrbzE1WXNnMll1SEN0aFY1M2NWLUN3MWRGYWxWSnBwUnFDZVJ5ZzZSbkU1T3Jvc3U2V1FRbzQ5QXEtT25NYS1XRWRrRHlmMDdBNlJ4TnZYcVlhVlhn?oc=5",
+        "published": "Tue, 12 May 2026 12:30:00 IST",
+        "source": "NDTV Profit",
+        "source_link": "https://www.ndtvprofit.com"
+      },
+      {
+        "title": "Where Will TCS Stock Be in the Next 5 Years? - Equitymaster",
+        "article_link": "https://news.indianapi.in/CBMiswFBVV95cUxNTlBMalVHZFM0Mm1CUkltQ1VacjBEcDNJeklRRTk4U3BzTTdVcjBMbkdKNWNNajdzUVpyNThvUkZXaGZMYU5ZbmJOeE9aUms2SHhBMndTSEIxNFYyTGJXUGNCUWY0dkdWa3FGVUo3SHNod2MtMWVDMHdRTlprdlA1NVhqMGRvanRHSWVEMnJaMGFtZWtGS0NlMEZsdUZYZmVaUVBQNGFoMFJ5enRIRUlSVWx1dw?oc=5",
+        "published": "Tue, 14 Apr 2026 12:30:00 IST",
+        "source": "Equitymaster",
+        "source_link": "https://www.equitymaster.com"
+      },
+      {
+        "title": "Why TCS Shares Are Down 23% in 2026: Margin Shocks, Weak Growth and AI Fears - HDFC Sky",
+        "article_link": "https://news.indianapi.in/CBMingFBVV95cUxONlVaQldDTlNxWFRPbjhiTHlUUzVsN3FtM2paRVdUQ1M3QUtUekx1dTlzMHo0NVgyVnVBNFRYcWhmNGtzazFZbEsydXI5WFBZUXdrRUc4WnNxMHBtbk8zTEVxdTZNZGFLaW1xVGVGYVFjbFhPUjBNaDJaMnBfc0xOZGtJb1JjaF9UeUxUUHlhS3FiN3NxdjNsQ0ZpR1Y1Zw?oc=5",
+        "published": "Mon, 13 Apr 2026 12:30:00 IST",
+        "source": "HDFC Sky",
+        "source_link": "https://hdfcsky.com"
+      },
+      {
+        "title": "TCS shares down 3%: Why the IT giant's stock fell despite strong Q4 result? - India Today",
+        "article_link": "https://news.indianapi.in/CBMi4AFBVV95cUxOZFM1Tm56RE9qNjJqaThma2xOYkhjSWZwaF96cElQUkhTak04Y2dUN3F0YkFXSkI0UjJaVmlpeUdzOV9VVGxfYmQxYk1nTnpLRWZ1dUw5WGYtMzZVRkdsVk5PYmJSVGg5RTBtdVNrYm0tZXNZRmh6dXFtclNTeFFFSGNCSU5heWFIN0NhYlF6Z0RRYkw0ekVSaEtEMGZ4eW1jc3gwUGNJdG5fY091YkN2Z3B4eUp3QVBaMWp3SWtqQTVSd18xaGFkVVJKUmxoaU5YeUtOUlJYcUhkdmsyNUhTSNIB5gFBVV95cUxQOU1GTkpBbkY0dURYLS1aV2txSHNfWTFTV01UeGk5b0F0Z0cxbFhuTDY0ZXpxTGRNdVUyYzM3Zk5MUm9QWDNQQy1CaF9qRVdrSkpJVldhSUNfdzhITFFHSnhlLVFJUzZXVS1mZnJOanRtNHhJN04wVGNkS3U0OV8wTEpmdkItQkZJWjNmVzktNDZwdEc2UVU5cFVIVEEwQ1ViQ3FhSTJoX1J6ZnJfOU1RN3dIbnRDT0w3MzRLOFhzN3drOFVLMFJMS3NzbXhKSWUxUkJ2dzY4TVUxSlhVSTVYaDdzYThHdw?oc=5",
+        "published": "Fri, 10 Apr 2026 12:30:00 IST",
+        "source": "India Today",
+        "source_link": "https://www.indiatoday.in"
+      },
+      {
+        "title": "TCS shares fall as rare annual revenue drop dulls quarterly earnings beat - The Hindu",
+        "article_link": "https://news.indianapi.in/CBMi0AFBVV95cUxOR2hlYjhtOUt6ZWhlTlktcFU0bG43bDA2RGlhZ1d0SlU2cU10eVJxQmFtNVRDU0V2Ny1uOFYyY3R3M3JGWURIRGJjNEpVbUtqMy1BX1V4NjRzS2hjTkNJMHFUemI1QnpQb1FzNVZuVkdVd18yVkRfaWoxc0JHWXozRDF5V2F0bU5Eby1IbU9LTWU2MVkyUE5uV200R0ZFUzZNX1lURkZDYjRONElYS3N2enNYT3hyTFAwd0RXS0RHYkNUR2JDdnROZTdCR3JpN19a0gHXAUFVX3lxTE9TaVlrRE5iZms2NUpVX0ZlMkZQUjhnd2VES3VaSENIZHJlVHdpY1JvOGtnN1BiOXZPN0tWa0JEaFcwTUd0S0hfMi1iZjkyMzdObkZxdkpzLWVJM0VsVkg1bXVFUnVNYlVtMTAydXJNLURDRFNmQ1B4ZXBQTXZpdjBzLVdhSE45WHRaTS1WcW9KSXZwV1ZrRGNXS3NwZlo5LUM0LXdvTVpRU3d4U3B4dnJadWlxSWJDbUc3X1pLd3VCRnZ5XzdkUjRoNml4ak1Ecm1LQ3ladDVr?oc=5",
+        "published": "Fri, 10 Apr 2026 12:30:00 IST",
+        "source": "The Hindu",
+        "source_link": "https://www.thehindu.com"
+      },
+      {
+        "title": "TCS stock outlook: Brokerages bullish post Q4 results, see steady growth, AI tailwinds; check target... - Moneycontrol.com",
+        "article_link": "https://news.indianapi.in/CBMi-wFBVV95cUxPYnF5ZGdZZXM4Mkw5RlVXMTh4VjRRbXZZOTRfNVFKTk42T20tcHJqR0pscjJRbW9wR0ZFS2RuRmloVlFtVDNxQnN1cmYtdHFTdi0zUml6TDhBa2FXVHp3UWkxa0tSZ3ZXaFdxOVdiSkxZV1ktWGoxbVVmZmpIekYydDlpUlBZMHZpN0Z3WjYxM1JoT1A3QnplS3ZqbFZPSGRId1pHaUszdFR2SExiOWQ4RnpuLUZLTFhRMTJ2YV9OdFhxVUVzYlI5eXFfVVZuTHU2YS00cUxLWFFaVXJ1MFBnQ1pGZ1ZDWkNoMXctVEdkbGp6TTZMaTREaVh1QdIBgAJBVV95cUxOZXhINUVlSGhNMjluM2sxNGJKeXlrbElIMkRMdlE3Tnk2cmVaSHJhRzB2ZXM0NnlpeUNad05tWEJpZ2xKWXNsd3U2WE5oc3cxREgxNEdVS2VMVm4wWldIdlZ5QnktUEYxZUJYWkRGSEpxU0xKR2RWUnZkOFFZLTQ4WG01aFJTSHJuUDhmbkVyZGZYckFZeDJyS3g5dnRIWkQwcUlvelhRQmd6UUgzMUdndjRndkRMbmF0TU1tTmFUQjk0NDUyZEcybXdzZWNoNTNkUktsWm8zUjFaVXh5REphdG1rTllibWxJQXhzeVRPdmhpTWV0dWZxWjZZU2ktTkVk?oc=5",
+        "published": "Fri, 10 Apr 2026 12:30:00 IST",
+        "source": "Moneycontrol.com",
+        "source_link": "https://www.moneycontrol.com"
+      },
+      {
+        "title": "TCS Share Price: Find out what the bulls and bears say on the road ahead - CNBC TV18",
+        "article_link": "https://news.indianapi.in/CBMiyAFBVV95cUxOR2dfNngzU3NwRjRNN3Q4SHA3T0QzRlR4eWY5eVZNSXU4ZmtCZDFBS0xHSGlUd0p2UXhEYk9ORWRJcnVDVGEyOTZiNFRIVGxVMTVKUnNIWGFVS0FrZGVlU3ZDbUxBVzB2S0s0VXlmZmNvaFpUaF92bXBtUHBobUxhaVh5LUUyaWtOdWoxVlJOblRob2F4bVhJSmVGWUFtemJKY1JmbzZqX1BHTy0zOXNSQmhTMUhPLWxZMzJDMzZNdDVPSEJvOUM1eNIBzgFBVV95cUxOS1gzZzZpVEg0b1dzNWF5RG9BZldhRFVoT2xfSjk5ZnJpSHhSMW02cVBzTlhfekxhekJ0ZkFXcnRwUzRNb3ZDNTZGR0t2dGVwMWlXX1pRUGkzNjJ0MVBBYnFORTlzdkNBR2JqMHQtaHcwWWtGSmIxRkU0N2JYcEd1STJ2QThRZm9YS1FjRG5KUzZ1bjhvdnNpVE0zY2xPWjh3anRRUk5aZXdvdUhCTGNFNmxNSlgxTmtTdTVMSllFZVdXb0dVY1RmNlN3bFV4Zw?oc=5",
+        "published": "Fri, 10 Apr 2026 12:30:00 IST",
+        "source": "CNBC TV18",
+        "source_link": "https://www.cnbctv18.com"
+      },
+      {
+        "title": "TCS share price today: IT major rises ahead of Q4 results; earnings season kick-off in focus - Moneycontrol.com",
+        "article_link": "https://news.indianapi.in/CBMi6wFBVV95cUxOWG9qT3pPcHlvS0txSW1aOEcwVjgyQmtGX0JZNjhaRjFNR01yWng4X0lZdUxlckZLUE1zYTUzbzZTTmFOUGozSFFFbTd2NlhTMXU2eWdWaXhaeDdYNlhYWVB1cENTYmNCVUNxMEZjVTZ6UjJpX0tNY0dUTzhmbjVTcHRLS2JwQ25JRlJHYncyYklPV0xuSTRWNFdMWVl4cnVhbEhyTERlWUdIOEh4VlRLY3RoRl8wZ2FERXN0dHRKM1A0VS04MEpDN1RzYWtrUVZpYmRzZFpvdW40UUV5aVhYb1FSdUhSTzBiNnJF0gHwAUFVX3lxTE0zcjdtVFdiZW96blJPVFZDUmd4OVIxNGtVamFOb25lSzFHU3UwOGdVdEV4QUIxYUZpaFh5S3ItcDdYZ2FWcGV2azVVZjN6ejBSTVc2NTFYX212M0pXYWlTT1ctNk96TUMzSXBReGRoNnZzRG5IWkpJU3QtTUNCeElyTmFVcWhvNTZyU0w0YVkyZ0UzUjJ5UGhKWjhGM0NETTZfd1E3RThBSUJraElLSkhXMjVBbDRQVUhMaWR6Y1N2OWxXeVJuYUUxSzR3SFJMNjBkbUcxenhRV2swdHIxU19WNWp0d195UERqSDd2RXJpaQ?oc=5",
+        "published": "Thu, 09 Apr 2026 12:30:00 IST",
+        "source": "Moneycontrol.com",
+        "source_link": "https://www.moneycontrol.com"
+      },
+      {
+        "title": "Why TCS stock is plunging despite earnings beat strong deal wins? - TradingView",
+        "article_link": "https://news.indianapi.in/CBMivgFBVV95cUxQUlZ3WHBTYW4tM1RsUUJfaVNSM3dlX3pnUTFBNE9vSXBPMWVaQWlkSE55dGtDUzhKeDVWVWYzUElXZHlUVlB3RURnVldwWDRhVnFxNjBrSDE1elRsN3lFbGx4WGxjZjJCclpWaWhJcFlmY2phblI4Wi05cWpOS3h1OExtRHdUWXlXV2o5cGNNUEdSVVp6MnhkbUdmbndwNXZOT1lCVWYwSGtfV25oQmJzU3JQNjNuakg3M3V5UDl3?oc=5",
+        "published": "Thu, 09 Apr 2026 12:30:00 IST",
+        "source": "TradingView",
+        "source_link": "https://www.tradingview.com"
+      }
+    ]
+  },
+  "market_news": {
+    "path": "/news",
+    "params": {
+      "page_no": 1,
+      "size": 10
+    },
+    "status": 200,
+    "body": [
+      {
+        "title": "2026 Tata Tiago First Drive Review: More Than Just a Cosmetic Makeover?",
+        "summary": "Can a hatchback that has been around for nearly a decade still feel fresh? That's the question Tata Motors is trying to answer with the updated 2026 Tiago. The formula hasn't changed dramatically. It remains a compact hatchback aimed at buyers looking for practicality, safety and value.",
+        "url": "https://www.ndtv.com/auto/2026-tata-tiago-first-drive-review-more-than-just-a-cosmetic-makeover-11598926",
+        "image_url": "https://c.ndtvimg.com/2026-06/1vmp06fk_2026-tata-tiago_625x300_06_June_26.jpg?im=FaceCrop,algorithm=dnn,width=1600,height=900",
+        "pub_date": "2026-06-06T11:42:00",
+        "source": "NDTV",
+        "topics": []
+      },
+      {
+        "title": "How KRBL is reinventing India Gate for digital",
+        "summary": "HomeStoryboard18 NewsHow KRBL is reinventing India Gate for digital-first consumers How KRBL is reinventing India Gate for digital-first consumers KRBL, the company behind India Gate rice, is adapting to changing consumer habits through digital-first marketing and regional creator partnerships.",
+        "url": "https://www.cnbctv18.com/videos/storyboard18/krbl-india-gate-rice-regional-creators-quick-commerce-growth-kunal-sharma-19920712.htm",
+        "image_url": "https://images.cnbctv18.com/uploads/2026/06/1780726184_sapHDng2NX-KRBLjpg-X1BHIURp28.jpg?im=FitAndFill,width=500,height=300",
+        "pub_date": "2026-06-06T11:39:27",
+        "source": "CNBC TV18",
+        "topics": [
+          "Partnerships and Alliances"
+        ]
+      },
+      {
+        "title": "India is witnessing strong growth for Made-in-India vehicles: Piyush Goyal",
+        "summary": "India's automotive sector has demonstrated remarkable resilience and momentum, recording a stellar 23 per cent year-on-year growth in the for May 2026. Data released indicated that nearly 4.4 lakh units were sold during the month, a performance credited to robust domestic demand and the strengthening of the \"Make in India\" manufacturing ecosystem.",
+        "url": "https://auto.economictimes.indiatimes.com/news/industry/india-is-witnessing-strong-growth-for-made-in-india-vehicles-piyush-goyal/131545489",
+        "image_url": "https://etimg.etb2bimg.com/thumb/msid-131545489,imgsize-50654,width-1200,height=627,overlay-etauto,resizemode-75/industry/india-is-witnessing-strong-growth-for-made-in-india-vehicles-piyush-goyal.jpg",
+        "pub_date": "2026-06-06T11:16:05",
+        "source": "The Economic Times",
+        "topics": [
+          "Financial Results"
+        ]
+      },
+      {
+        "title": "92,000 women become 'lakhpati didis' in Ranchi, says Union MoS Sanjay Seth",
+        "summary": "Ranchi (Jharkhand) [India], June 6 (ANI): Union Minister of State Sanjay Seth highlighted the significant strides made in women\u2019s economic independence under the central government\u2019s initiatives, asserting that over 90,000 women in Ranchi have become \u2018Lakhpati Didis\u2019.",
+        "url": "https://www.news18.com/agency-feeds/92000-women-become-lakhpati-didis-in-ranchi-says-union-mos-sanjay-seth-10133576.html",
+        "image_url": "https://images.news18.com/ibnlive/uploads/2025/05/News18_India_Section_Default_Image_1600x900-2025-05-b4faf46d67a95708181b01e36cf20c4b.jpg",
+        "pub_date": "2026-06-06T11:15:00",
+        "source": "News18",
+        "topics": []
+      },
+      {
+        "title": "RBI imposes penalty on Canara Bank",
+        "summary": "The Reserve Bank of India (RBI) on Friday (June 5) said it has imposed a penalty of \u20b91.8 lakh on Canara Bank for non-compliance with certain provisions, including those related to Know Your Customer norms. After a supervisory evaluation (ISE 2025) of the bank with reference to its financial position as on March 31, 2025, the RBI found that Canara Bank did not upload KYC records of certain customers onto Central KYC Records Registry (CKYCR) within the prescribed timeline.",
+        "url": "https://www.cnbctv18.com/business/finance/rbi-imposes-penalty-on-canara-bank-kyc-non-compliance-ws-l-19920702.htm",
+        "image_url": "https://images.cnbctv18.com/uploads/2026/04/rbi-chatgpt-image-mar-30-2026-04-4c5a2cc4df21a1b2d406a6674f4286ac.jpg?im=FitAndFill,width=500,height=300",
+        "pub_date": "2026-06-06T10:38:00",
+        "source": "CNBC TV18",
+        "topics": []
+      },
+      {
+        "title": "India\u2019s changing relationship with gold: From ownership to financial utility",
+        "summary": "India\u2019s households possess around 30,000 tonnes of gold holdings, which places them among the largest owners of gold in the world. However, the majority of the holdings have been economically inactive assets, stored either in bank locker facilities or household safes.",
+        "url": "https://www.thehindubusinessline.com/markets/gold/indias-changing-relationship-with-gold-from-ownership-to-financial-utility/article71066910.ece",
+        "image_url": "https://bl-i.thgim.com/public/incoming/dytkyv/article71068588.ece/alternates/LANDSCAPE_1200/PO17_Banking_services_mobile.jpg",
+        "pub_date": "2026-06-06T10:30:00",
+        "source": "The Hindu BusinessLine",
+        "topics": []
+      },
+      {
+        "title": "E85 fuel to get Rs 20/litre cheaper as India ramps up ethanol push",
+        "summary": "India\u2019s clean fuel journey is stepping up a gear, with state-run oil firms gearing up to roll out E85 petrol at a discounted price across the country. State-run oil marketing companies will offer E85 fuel at a discount of Rs 20 per litre compared with E20 petrol to make up for the biofuel\u2019s lower energy content, petroleum and natural gas minister Hardeep Singh Puri said after inaugurating an E85 dispensing facility at a petrol pump in Delhi.",
+        "url": "https://timesofindia.indiatimes.com/business/india-business/e85-fuel-to-get-rs-20/litre-cheaper-as-india-ramps-up-ethanol-push/articleshow/131544721.cms",
+        "image_url": "https://static.toiimg.com/thumb/msid-131544795,width-1280,height-720,resizemode-6,overlay-toi_sw,pt-32,y_pad-600/photo.jpg",
+        "pub_date": "2026-06-06T10:19:00",
+        "source": "The Times of India",
+        "topics": [
+          "ESG"
+        ]
+      },
+      {
+        "title": "Adani Ports incorporates UAE-based step-down subsidiary for marine operations",
+        "summary": "Adani Ports and Special Economic Zone (APSEZ) has incorporated a new step-down wholly owned subsidiary in the United Arab Emirates as part of its marine business expansion strategy. The newly incorporated entity will be engaged in ship management and operations.",
+        "url": "https://www.business-standard.com/markets/capital-market-news/adani-ports-incorporates-uae-based-step-down-subsidiary-for-marine-operations-126060600174_1.html",
+        "image_url": "https://www.business-standard.com/assets/web-assets/images/Business_Standard_1_685x385.jpg",
+        "pub_date": "2026-06-06T10:16:02",
+        "source": "Business Standard",
+        "topics": [
+          "Business Expansion"
+        ]
+      },
+      {
+        "title": "KPMG forensic review says IDFC First Bank Chandigarh fraud an isolated incident",
+        "summary": "MUMBAI: Private sector lender IDFC First Bank said a forensic review by KPMG found that the \u20b9 646 crore fraud uncovered at its Chandigarh branch earlier this year was an isolated incident involving collusion between branch employees, customer representatives and third parties.",
+        "url": "https://www.livemint.com/companies/news/kpmg-forensic-review-says-idfc-first-bank-chandigarh-fraud-an-isolated-incident-11780731428126.html",
+        "image_url": "https://www.livemint.com/lm-img/img/2026/06/06/1600x900/logo/The-order-said-that-during-the-course-of-ACB-inves_1780732878025_1780732886279_3959e39f-9437-4ab1-9b82-41b79d3fe5d8.jpg",
+        "pub_date": "2026-06-06T06:30:00",
+        "source": "Live Mint",
+        "topics": []
+      },
+      {
+        "title": "Board of SpiceJet approves change in registered office",
+        "summary": "The board of SpiceJet at its meeting held on 05 June 2026 has approved the change of the Company's Registered Office from \u201cIndira Gandhi International Airport, Terminal 1D, New Delhi \u2013 110037\u201d to \u201c505, 5th Floor, Caddie Commercial Tower, Aerocity (DIAL), New Delhi \u2013 110037\u201d, within the local limits of New Delhi, with immediate effect.",
+        "url": "https://www.capitalmarket.com/markets/news/corporate-news/board-of-spicejet-approves-change-in-registered-office/1704310",
+        "image_url": "https://capitalmarket.com/markets/images/cmlogo1.png",
+        "pub_date": "2026-06-06T06:30:00",
+        "source": "Capital Market",
+        "topics": []
+      }
+    ]
+  },
+  "ai_news": {
+    "path": "/ai_news",
+    "params": null,
+    "status": 200,
+    "body": {
+      "Error": "Invalid category specified"
+    }
+  }
+}

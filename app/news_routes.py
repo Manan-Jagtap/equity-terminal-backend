@@ -2,9 +2,11 @@
 app/news_routes.py — Company news endpoint.
 
 Sources (merged, deduplicated, sorted newest-first, cached 30 min):
-  1. Marketaux API   (MARKETAUX_API_KEY env var)
-  2. Anthropic web_search (ANTHROPIC_API_KEY env var)
-  3. yfinance fallback
+  1. IndianAPI /company_news  (INDIANAPI_KEY env var)  ← primary
+  2. Marketaux API            (MARKETAUX_API_KEY env var)
+  3. Anthropic web_search     (ANTHROPIC_API_KEY env var, opt-in)
+
+No Yahoo Finance — fully removed.
 
 GET /api/companies/{ticker}/news
 """
@@ -12,6 +14,7 @@ from __future__ import annotations
 import os, json, time, ssl, urllib.request
 from datetime import datetime, timezone
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -22,6 +25,7 @@ router = APIRouter(prefix="/api/companies")
 _NEWS_CACHE: dict[str, tuple[float, dict]] = {}
 _CACHE_TTL  = 1800
 _HAIKU      = "claude-haiku-4-5-20251001"
+_INDIANAPI_BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
 
 
 # ── Source 1: Marketaux ──────────────────────────────────────────────────────
@@ -177,29 +181,46 @@ def _anthropic_news(ticker: str, company_name: str, api_key: str) -> tuple[list[
         return [], f"exception:{str(e)[:100]}"
 
 
-# ── Source 3: yfinance ───────────────────────────────────────────────────────
-def _yfinance_news(ticker: str) -> tuple[list[dict], str | None]:
+# ── Source 1 (primary): IndianAPI /company_news ──────────────────────────────
+def _indianapi_news(ticker: str) -> tuple[list[dict], str | None]:
+    key = os.getenv("INDIANAPI_KEY", "").strip()
+    if not key:
+        return [], "no_key"
     try:
-        import yfinance as yf
-        for sym in [ticker+".NS", ticker+".BO", ticker]:
-            raw = yf.Ticker(sym).news or []
-            if not raw:
-                continue
-            items = []
-            for n in raw[:15]:
-                ts = n.get("providerPublishTime") or 0
-                try:
-                    pub = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-                except Exception:
-                    pub = None
-                items.append({"title":n.get("title",""),"source":n.get("publisher",""),
-                               "url":n.get("link",""),"published":pub,
-                               "summary":n.get("summary",""),"type":"news","_ts":ts})
-            if items:
-                return items, None
-        return [], "no_results"
+        r = requests.get(_INDIANAPI_BASE + "/company_news",
+                         headers={"X-API-Key": key, "x-api-key": key},
+                         params={"stock_name": ticker}, timeout=20)
+        if r.status_code != 200:
+            return [], f"http_{r.status_code}"
+        data = r.json()
     except Exception as e:
         return [], str(e)[:80]
+
+    arts = data if isinstance(data, list) else (data.get("news") or data.get("data") or [])
+    items = []
+    for a in arts[:25]:
+        if not isinstance(a, dict):
+            continue
+        pub_raw = (a.get("published") or a.get("pub_date") or "").strip()
+        ts, pub = 0, pub_raw
+        # company_news: "Fri, 05 Jun 2026 22:16:58 IST"; market_news: ISO.
+        for fmt in ("%a, %d %b %Y %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                dt = datetime.strptime(pub_raw.replace(" IST", "").strip()[:25], fmt)
+                ts, pub = dt.timestamp(), dt.strftime("%Y-%m-%dT%H:%M:%S")
+                break
+            except Exception:
+                continue
+        items.append({
+            "title":   a.get("title", ""),
+            "source":  a.get("source", "IndianAPI"),
+            "url":     a.get("article_link") or a.get("url", ""),
+            "published": pub,
+            "summary": a.get("summary", ""),
+            "type":    "news",
+            "_ts":     ts,
+        })
+    return (items, None) if items else ([], "no_results")
 
 
 # ── Merge + dedupe ───────────────────────────────────────────────────────────
@@ -241,6 +262,11 @@ def company_news(ticker: str, refresh: bool = False, db: Session = Depends(get_d
 
     sources, all_items, debug = [], [], {}
 
+    # Primary: IndianAPI company news.
+    ia_items, ia_err = _indianapi_news(ticker)
+    if ia_items: all_items.append(ia_items); sources.append("indianapi")
+    if ia_err:   debug["indianapi_err"] = ia_err
+
     mx_items, mx_err = _marketaux_news(ticker, mx_key)
     if mx_items: all_items.append(mx_items); sources.append("marketaux")
     if mx_err:   debug["marketaux_err"] = mx_err
@@ -248,10 +274,6 @@ def company_news(ticker: str, refresh: bool = False, db: Session = Depends(get_d
     aw_items, aw_err = _anthropic_news(ticker, co.name, ant_key)
     if aw_items: all_items.append(aw_items); sources.append("web_search")
     if aw_err:   debug["web_search_err"] = aw_err
-
-    yf_items, yf_err = _yfinance_news(ticker)
-    if yf_items: all_items.append(yf_items); sources.append("yfinance")
-    if yf_err:   debug["yfinance_err"] = yf_err
 
     merged = _merge(all_items)
     result = {"ticker":ticker,"name":co.name,"count":len(merged),
