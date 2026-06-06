@@ -1,88 +1,100 @@
 """
-price_ingester.py — pulls live prices + 1yr OHLC from Yahoo Finance (free, no API key).
+price_ingester.py — refresh current prices (and optionally 1yr OHLC) from Yahoo.
 
-NSE tickers: append .NS  (e.g. MUTHOOTFIN.NS)
-BSE tickers: append .BO  (e.g. 500271.BO)
+FIX: previously this only refreshed a hard-coded 6-ticker map, so every other
+company showed a stale price from the original bulk load. It now refreshes the
+current price for EVERY company in the DB (or a ticker subset), using yfinance's
+fast quote with a history fallback. Batched + resilient (per-company commit).
 
-Run manually:   python -m app.ingest.price_ingester
-Run on Railway: add to Procfile or schedule via a cron job.
+Note on freshness: Yahoo gives the last traded / latest close — current but not
+tick-by-tick real-time. Good enough for a fundamentals terminal.
+
+Run:
+  python -m app.ingest.price_ingester                 # all companies, price only
+  python -m app.ingest.price_ingester --history       # also refresh 1yr OHLC
+  python -m app.ingest.price_ingester --ticker TCS    # one company
 """
 import os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 import yfinance as yf
 from sqlalchemy.orm import Session
-from app.database import SessionLocal, engine
+from app.database import SessionLocal, engine, Base
 from app import models
-from app.database import Base
 
 Base.metadata.create_all(bind=engine)
 
-# Map our ticker → Yahoo Finance symbol
-TICKER_MAP = {
-    "MUTHOOTFIN": "MUTHOOTFIN.NS",
-    "MANAPPURAM":  "MANAPPURAM.NS",
-    "FEDFINA":     "FEDFINA.NS",
-    "IIFL":        "IIFL.NS",
-    "BAJFINANCE":  "BAJFINANCE.NS",
-    "TITAN":       "TITAN.NS",
-}
+
+def _current_price(tk):
+    """Latest price via fast_info, falling back to the most recent daily close."""
+    try:
+        p = tk.fast_info.last_price
+        if p:
+            return float(p)
+    except Exception:
+        pass
+    try:
+        h = tk.history(period="1d")
+        if not h.empty:
+            return float(h["Close"].iloc[-1])
+    except Exception:
+        pass
+    return None
 
 
-def ingest_prices(db: Session):
-    print("Starting price ingestion...")
-    for our_ticker, yf_symbol in TICKER_MAP.items():
-        co = db.query(models.Company).filter_by(ticker=our_ticker).first()
-        if not co:
-            print(f"  {our_ticker}: not in DB, skipping")
+def ingest_prices(db: Session, with_history=False, ticker=None, limit=None):
+    q = db.query(models.Company)
+    if ticker:
+        q = q.filter(models.Company.ticker == ticker.upper())
+    companies = q.all()
+    if limit:
+        companies = companies[:limit]
+
+    print(f"Refreshing prices for {len(companies)} companies "
+          f"({'with' if with_history else 'no'} OHLC history)...")
+    ok = 0
+    for co in companies:
+        sym = (co.ticker or "").upper()
+        if not sym:
             continue
         try:
-            stock = yf.Ticker(yf_symbol)
-            info = stock.info
-
-            # current price
-            price = (info.get("currentPrice")
-                     or info.get("regularMarketPrice")
-                     or info.get("previousClose"))
+            tk = yf.Ticker(sym + ".NS")
+            price = _current_price(tk)
             if not price:
-                print(f"  {our_ticker}: no price returned, skipping")
+                print(f"  {co.ticker}: no price")
                 continue
+            price = round(price, 2)
 
-            # upsert market snapshot
-            snap = co.market
-            if snap:
-                snap.price = price
+            if co.market:
+                co.market.price = price
             else:
                 db.add(models.MarketSnapshot(company_id=co.id, price=price))
 
-            # historical OHLC — last 1 year, daily
-            hist = stock.history(period="1y", interval="1d")
-            if not hist.empty:
-                # delete old price points
-                db.query(models.PricePoint).filter_by(company_id=co.id).delete()
-                for i, (date, row) in enumerate(hist.iterrows()):
-                    db.add(models.PricePoint(
-                        company_id=co.id,
-                        t=i,
-                        close=round(float(row["Close"]), 2)
-                    ))
-                print(f"  {our_ticker}: price={price:.2f}  {len(hist)} daily points loaded")
-            else:
-                print(f"  {our_ticker}: price={price:.2f}  (no history returned)")
+            if with_history:
+                hist = tk.history(period="1y", interval="1d")
+                if not hist.empty:
+                    db.query(models.PricePoint).filter_by(company_id=co.id).delete()
+                    for i, (_, row) in enumerate(hist.iterrows()):
+                        db.add(models.PricePoint(company_id=co.id, t=i,
+                                                 close=round(float(row["Close"]), 2)))
 
             db.commit()
-            time.sleep(1)  # be polite to Yahoo
-
+            ok += 1
         except Exception as e:
             db.rollback()
-            print(f"  {our_ticker}: ERROR — {e}")
+            print(f"  {co.ticker}: ERROR — {type(e).__name__}")
+        time.sleep(0.2)  # be polite to Yahoo
 
-    print("Price ingestion complete.")
+    print(f"Price refresh complete. {ok}/{len(companies)} updated.")
 
 
 if __name__ == "__main__":
+    args = sys.argv[1:]
+    with_history = "--history" in args
+    ticker = args[args.index("--ticker") + 1] if "--ticker" in args else None
+    limit = int(args[args.index("--limit") + 1]) if "--limit" in args else None
     db = SessionLocal()
     try:
-        ingest_prices(db)
+        ingest_prices(db, with_history=with_history, ticker=ticker, limit=limit)
     finally:
         db.close()
