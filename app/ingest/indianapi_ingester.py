@@ -315,44 +315,41 @@ def _latest_quarter(ticker):
     return out or None
 
 
-def _target(tid):
-    """Analyst consensus target price (best-effort parse — store raw too)."""
-    if not tid:
+def _target(ticker):
+    """Analyst consensus target price. NB: /stock_target_price's `stock_id`
+    param actually wants the TICKER NAME (confirmed), not the S00xxxxx id."""
+    r = _get_safe("/stock_target_price", {"stock_id": ticker})
+    if not isinstance(r, dict):
         return None
-    r = _get_safe("/stock_target_price", {"stock_id": tid})
-    if r is None:
+    pt = r.get("priceTarget") or {}
+    mean = _num(pt.get("Mean")) or _num(pt.get("UnverifiedMean")) or _num(pt.get("PreliminaryMean"))
+    if mean is None:
         return None
-    found = {}
-    def scan(o):
-        if isinstance(o, dict):
-            for k, v in o.items():
-                kl = k.lower()
-                n = _num(v)
-                if n is not None and any(t in kl for t in ("target", "mean", "high", "low", "median")):
-                    found.setdefault(kl, n)
-                scan(v)
-        elif isinstance(o, list):
-            for v in o:
-                scan(v)
-    scan(r)
-    return {"raw": r, "parsed": found or None}
+    return {
+        "mean": mean,
+        "median": _num(pt.get("Median")),
+        "high": _num(pt.get("High")),
+        "low": _num(pt.get("Low")),
+        "n_estimates": _num(pt.get("NumberOfEstimates")),
+        "std": _num(pt.get("StandardDeviation")),
+        "currency": pt.get("CurrencyCode") or "INR",
+    }
 
 
-def _forecasts(tid):
-    """Forward EPS + revenue estimates (store raw — shape parsed once confirmed)."""
-    if not tid:
-        return None
+def _forecasts(ticker):
+    """Forward EPS + revenue estimates. Same misnamed param → use ticker name.
+    Stores raw responses; the precise shape is parsed by the /insights route."""
     out = {}
     for code, label in (("EPS", "eps"), ("SAL", "revenue")):
         r = _get_safe("/stock_forecasts", {
-            "stock_id": tid, "measure_code": code, "period_type": "Annual",
+            "stock_id": ticker, "measure_code": code, "period_type": "Annual",
             "data_type": "Estimates", "age": "Current"})
-        if r is not None:
+        if r is not None and not (isinstance(r, list) and r and isinstance(r[0], dict) and "error" in r[0]):
             out[label] = r
     return out or None
 
 
-def _build_insight(s, co, stock):
+def _build_insight(s, co, stock, debug=False):
     """Assemble + upsert a CompanyInsight row. Returns a short status string."""
     ticker = (co.ticker or "").upper()
     tid = _ticker_id(stock)
@@ -367,11 +364,17 @@ def _build_insight(s, co, stock):
     except Exception: pass
     try: data["latest_q"] = _latest_quarter(ticker)
     except Exception: pass
-    try: data["target"]   = _target(tid)
+    try: data["target"]   = _target(ticker)
     except Exception: pass
-    try: data["forecasts"]= _forecasts(tid)
+    try: data["forecasts"]= _forecasts(ticker)
     except Exception: pass
     data = {k: v for k, v in data.items() if v}
+
+    if debug and data.get("forecasts"):
+        import json as _j
+        for label, raw in data["forecasts"].items():
+            preview = _j.dumps(raw)[:400]
+            print(f"    ── forecast[{label}] shape: {preview}")
 
     row = s.query(models.CompanyInsight).filter_by(company_id=co.id).first()
     if row:
@@ -385,7 +388,7 @@ def _build_insight(s, co, stock):
     if data.get("ratios"):    tags.append("ratios")
     if data.get("growth"):    tags.append("growth")
     if data.get("latest_q"):  tags.append("Q")
-    if data.get("target", {}).get("parsed"): tags.append("target")
+    if data.get("target", {}).get("mean"): tags.append("target")
     if data.get("forecasts"): tags.append("fwd")
     return "id=" + (tid or "?") + " · " + (", ".join(tags) if tags else "no extras")
 
@@ -454,7 +457,7 @@ def ingest_company(s, co, dump=False, insights=True):
     status = ""
     if insights:
         try:
-            status = "  ·  " + _build_insight(s, co, stock)
+            status = "  ·  " + _build_insight(s, co, stock, debug=dump)
         except Exception as e:
             status = f"  ·  insight skipped ({type(e).__name__})"
 

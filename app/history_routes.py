@@ -141,12 +141,12 @@ def _forward_eps(forecasts):
                 walk(v)
 
     walk(eps)
-    # Prefer a value tagged as a mean/estimate; else the largest plausible EPS.
+    # Only return a CLEARLY-labelled forward estimate — never a guessed number,
+    # so a wrong forward P/E can't slip through. (Shape finalised once confirmed.)
     for key, val in nums:
-        if any(t in key.lower() for t in ("mean", "estimate", "consensus")) and 0 < val < 100000:
+        if any(t in key.lower() for t in ("mean", "estimate", "consensus", "forward")) and 0 < val < 100000:
             return val
-    plausible = [v for _, v in nums if 0 < v < 100000]
-    return max(plausible) if plausible else None
+    return None
 
 
 @router.get("/{ticker}/metrics")
