@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 from app.database import SessionLocal
 from app.ingest.price_ingester import ingest_prices
 from app.ingest.fundamentals_ingester import ingest_fundamentals
+from app.ingest.statements_ingester import ingest_statements
 
 
 def run_prices():
@@ -36,7 +37,7 @@ def run_prices():
 
 
 def run_fundamentals():
-    log.info("Running weekly fundamentals refresh...")
+    log.info("Running weekly fundamentals + statements refresh...")
     db = SessionLocal()
     try:
         ingest_fundamentals(db)
@@ -45,16 +46,13 @@ def run_fundamentals():
         log.error(f"Fundamentals refresh failed: {e}")
     finally:
         db.close()
-
-
-def run_valuations():
-    log.info("Recomputing valuation cache...")
+    # Multi-year statements (powers the Financials tab and growth/CAGR ratios).
+    # Uses its own per-company sessions, so pass nothing.
     try:
-        from app.ingest.compute_valuations import run as compute_run
-        compute_run()
-        log.info("Valuation cache refresh complete.")
+        ingest_statements()
+        log.info("Statements refresh complete.")
     except Exception as e:
-        log.error(f"Valuation refresh failed: {e}")
+        log.error(f"Statements refresh failed: {e}")
 
 
 # ── Intraday: every 15 mins, Mon-Fri, 9:15am–3:30pm IST (03:45–10:00 UTC) ──
@@ -84,15 +82,10 @@ schedule.every(15).minutes.do(run_prices_if_market_open)
 
 # End-of-day full refresh — 3:45pm IST = 10:15 UTC, Mon-Fri
 schedule.every().monday.at("10:15").do(run_prices)
-schedule.every().monday.at("10:30").do(run_valuations)
 schedule.every().tuesday.at("10:15").do(run_prices)
-schedule.every().tuesday.at("10:30").do(run_valuations)
 schedule.every().wednesday.at("10:15").do(run_prices)
-schedule.every().wednesday.at("10:30").do(run_valuations)
 schedule.every().thursday.at("10:15").do(run_prices)
-schedule.every().thursday.at("10:30").do(run_valuations)
 schedule.every().friday.at("10:15").do(run_prices)
-schedule.every().friday.at("10:30").do(run_valuations)
 
 # Weekly fundamentals — 6:00am IST Sunday = 00:30 UTC
 schedule.every().sunday.at("00:30").do(run_fundamentals)
