@@ -2,11 +2,10 @@
 app/news_routes.py — Company news endpoint.
 
 Sources (merged, deduplicated, sorted newest-first, cached 30 min):
-  1. IndianAPI /company_news  (INDIANAPI_KEY env var)  ← primary
-  2. Marketaux API            (MARKETAUX_API_KEY env var)
-  3. Anthropic web_search     (ANTHROPIC_API_KEY env var, opt-in)
+  1. IndianAPI /company_news  (INDIANAPI_KEY env var)  ← sole feed
+  2. Anthropic web_search     (ANTHROPIC_API_KEY env var, opt-in, off by default)
 
-No Yahoo Finance — fully removed.
+No Yahoo Finance, no Marketaux — fully removed.
 
 GET /api/companies/{ticker}/news
 """
@@ -26,45 +25,6 @@ _NEWS_CACHE: dict[str, tuple[float, dict]] = {}
 _CACHE_TTL  = 1800
 _HAIKU      = "claude-haiku-4-5-20251001"
 _INDIANAPI_BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
-
-
-# ── Source 1: Marketaux ──────────────────────────────────────────────────────
-def _marketaux_news(ticker: str, api_key: str) -> tuple[list[dict], str | None]:
-    if not api_key:
-        return [], "no_key"
-    ctx = ssl.create_default_context()
-    for sym in [f"NSE:{ticker}", ticker]:
-        url = (f"https://api.marketaux.com/v1/news/all"
-               f"?symbols={sym}&filter_entities=true&language=en"
-               f"&limit=15&api_token={api_key}")
-        req = urllib.request.Request(url, headers={"User-Agent":"EquityTerminal/1.0"})
-        try:
-            with urllib.request.urlopen(req, context=ctx, timeout=10) as r:
-                data = json.loads(r.read())
-            articles = data.get("data", [])
-            if not articles:
-                continue
-            items = []
-            for a in articles:
-                pub = a.get("published_at","")
-                try:
-                    dt  = datetime.fromisoformat(pub.replace("Z","+00:00"))
-                    pub = dt.strftime("%Y-%m-%dT%H:%M:%S")
-                    ts  = dt.timestamp()
-                except Exception:
-                    ts = 0
-                items.append({"title":a.get("title",""),"source":a.get("source","Marketaux"),
-                               "url":a.get("url",""),"published":pub,
-                               "summary":a.get("description",""),"type":"news","_ts":ts})
-            if items:
-                return items, None
-        except urllib.error.HTTPError as e:
-            if e.code == 422:
-                continue
-            return [], f"http_{e.code}"
-        except Exception as e:
-            return [], str(e)[:80]
-    return [], "no_results"
 
 
 # ── Source 2: Anthropic web_search (multi-turn) ──────────────────────────────
@@ -257,20 +217,16 @@ def company_news(ticker: str, refresh: bool = False, db: Session = Depends(get_d
     if not co:
         raise HTTPException(404, f"Unknown ticker {ticker}")
 
-    mx_key  = os.getenv("MARKETAUX_API_KEY","")
     ant_key = os.getenv("ANTHROPIC_API_KEY","")
 
     sources, all_items, debug = [], [], {}
 
-    # Primary: IndianAPI company news.
+    # Primary (and sole) feed: IndianAPI company news.
     ia_items, ia_err = _indianapi_news(ticker)
     if ia_items: all_items.append(ia_items); sources.append("indianapi")
     if ia_err:   debug["indianapi_err"] = ia_err
 
-    mx_items, mx_err = _marketaux_news(ticker, mx_key)
-    if mx_items: all_items.append(mx_items); sources.append("marketaux")
-    if mx_err:   debug["marketaux_err"] = mx_err
-
+    # Optional AI web-search enrichment (off unless NEWS_LLM_ENABLED=true).
     aw_items, aw_err = _anthropic_news(ticker, co.name, ant_key)
     if aw_items: all_items.append(aw_items); sources.append("web_search")
     if aw_err:   debug["web_search_err"] = aw_err
