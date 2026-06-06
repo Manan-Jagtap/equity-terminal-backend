@@ -10,7 +10,7 @@ No Yahoo Finance, no Marketaux — fully removed.
 GET /api/companies/{ticker}/news
 """
 from __future__ import annotations
-import os, json, time, ssl, urllib.request
+import os, re, json, time, ssl, urllib.request
 from datetime import datetime, timezone
 
 import requests
@@ -142,23 +142,9 @@ def _anthropic_news(ticker: str, company_name: str, api_key: str) -> tuple[list[
 
 
 # ── Source 1 (primary): IndianAPI /company_news ──────────────────────────────
-def _indianapi_news(ticker: str) -> tuple[list[dict], str | None]:
-    key = os.getenv("INDIANAPI_KEY", "").strip()
-    if not key:
-        return [], "no_key"
-    try:
-        r = requests.get(_INDIANAPI_BASE + "/company_news",
-                         headers={"X-API-Key": key, "x-api-key": key},
-                         params={"stock_name": ticker}, timeout=20)
-        if r.status_code != 200:
-            return [], f"http_{r.status_code}"
-        data = r.json()
-    except Exception as e:
-        return [], str(e)[:80]
-
-    arts = data if isinstance(data, list) else (data.get("news") or data.get("data") or [])
+def _parse_news_items(arts: list) -> list[dict]:
     items = []
-    for a in arts[:25]:
+    for a in (arts or [])[:25]:
         if not isinstance(a, dict):
             continue
         pub_raw = (a.get("published") or a.get("pub_date") or "").strip()
@@ -180,7 +166,66 @@ def _indianapi_news(ticker: str) -> tuple[list[dict], str | None]:
             "type":    "news",
             "_ts":     ts,
         })
-    return (items, None) if items else ([], "no_results")
+    return items
+
+
+def _indianapi_news(ticker: str, name: str = "") -> tuple[list[dict], str | None]:
+    """IndianAPI company news. Tries the ticker, then the full company name,
+    then a suffix-stripped name — some companies (M&M, BAJAJ-AUTO, banks) match
+    by name where the symbol returns nothing, so this gives news for all."""
+    key = os.getenv("INDIANAPI_KEY", "").strip()
+    if not key:
+        return [], "no_key"
+
+    cands = [ticker]
+    nm = (name or "").strip()
+    if nm and nm not in cands:
+        cands.append(nm)
+        stripped = re.sub(r"\s+(Ltd\.?|Limited|Industries|Corporation|Corp\.?|Company)\s*$", "", nm, flags=re.I).strip()
+        if stripped and stripped not in cands:
+            cands.append(stripped)
+
+    last_err = "no_results"
+    for q in cands:
+        try:
+            r = requests.get(_INDIANAPI_BASE + "/company_news",
+                             headers={"X-API-Key": key, "x-api-key": key},
+                             params={"stock_name": q}, timeout=20)
+            if r.status_code != 200:
+                last_err = f"http_{r.status_code}"
+                continue
+            data = r.json()
+        except Exception as e:
+            last_err = str(e)[:80]
+            continue
+        arts = data if isinstance(data, list) else (data.get("news") or data.get("data") or [])
+        items = _parse_news_items(arts)
+        if items:
+            return items, None
+    return [], last_err
+
+
+def _market_news_for(ticker: str, name: str) -> tuple[list[dict], str | None]:
+    """Fallback: scan general market news for any mention of the company, so the
+    News tab is never empty even for low-coverage names."""
+    key = os.getenv("INDIANAPI_KEY", "").strip()
+    if not key:
+        return [], "no_key"
+    try:
+        r = requests.get(_INDIANAPI_BASE + "/news",
+                         headers={"X-API-Key": key, "x-api-key": key},
+                         params={"page_no": 1, "size": 50}, timeout=20)
+        if r.status_code != 200:
+            return [], f"http_{r.status_code}"
+        data = r.json()
+    except Exception as e:
+        return [], str(e)[:80]
+    arts = data if isinstance(data, list) else (data.get("news") or data.get("data") or [])
+    terms = [t.lower() for t in [ticker, (name or "").split()[0] if name else ""] if len(t) > 2]
+    matched = [a for a in arts if isinstance(a, dict)
+               and any(t in (str(a.get("title", "")) + " " + str(a.get("summary", ""))).lower() for t in terms)]
+    items = _parse_news_items(matched)
+    return (items, None) if items else ([], "no_market_match")
 
 
 # ── Merge + dedupe ───────────────────────────────────────────────────────────
@@ -221,8 +266,8 @@ def company_news(ticker: str, refresh: bool = False, db: Session = Depends(get_d
 
     sources, all_items, debug = [], [], {}
 
-    # Primary (and sole) feed: IndianAPI company news.
-    ia_items, ia_err = _indianapi_news(ticker)
+    # Primary feed: IndianAPI company news (ticker → name → stripped name).
+    ia_items, ia_err = _indianapi_news(ticker, co.name)
     if ia_items: all_items.append(ia_items); sources.append("indianapi")
     if ia_err:   debug["indianapi_err"] = ia_err
 
@@ -230,6 +275,13 @@ def company_news(ticker: str, refresh: bool = False, db: Session = Depends(get_d
     aw_items, aw_err = _anthropic_news(ticker, co.name, ant_key)
     if aw_items: all_items.append(aw_items); sources.append("web_search")
     if aw_err:   debug["web_search_err"] = aw_err
+
+    # Last-resort fallback so the News tab is never empty: filter market news
+    # for any mention of the company name / ticker.
+    if not all_items:
+        mkt, mkt_err = _market_news_for(ticker, co.name)
+        if mkt: all_items.append(mkt); sources.append("market")
+        if mkt_err: debug["market_err"] = mkt_err
 
     merged = _merge(all_items)
     result = {"ticker":ticker,"name":co.name,"count":len(merged),
