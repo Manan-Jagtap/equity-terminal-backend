@@ -62,6 +62,19 @@ log.info("Scheduler v3 (IndianAPI) started.")
 log.info("Daily prices: 3:45pm IST Mon-Fri (10:15 UTC)")
 log.info("Weekly full refresh: 6:00am IST Sunday (00:30 UTC)")
 
+# ── One-off on-boot refresh (manual trigger from Railway) ────────────────────
+# Set RUN_FULL_NOW=true on the scheduler service's Variables and redeploy to
+# run a full refresh immediately ON RAILWAY (no laptop needed). Remove the
+# variable afterwards so it doesn't re-run on every future restart.
+if os.getenv("RUN_FULL_NOW", "").strip().lower() in ("1", "true", "yes"):
+    log.info("RUN_FULL_NOW set — running a one-off FULL refresh now (server-side)…")
+    try:
+        run_full()
+        log.info("One-off full refresh complete. "
+                 "Remove RUN_FULL_NOW from Variables to avoid re-running on restart.")
+    except Exception as e:
+        log.error(f"One-off full refresh failed: {e}")
+
 while True:
     schedule.run_pending()
     time.sleep(60)
