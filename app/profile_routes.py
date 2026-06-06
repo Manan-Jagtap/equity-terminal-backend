@@ -152,6 +152,40 @@ def _announcements(name):
     return out
 
 
+_MONTHS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+           "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+
+
+def _q_key(label):
+    try:
+        mon, yr = str(label).split()
+        return (int(yr), _MONTHS.get(mon[:3].lower(), 0))
+    except Exception:
+        return (0, 0)
+
+
+@router.get("/{ticker}/quarterly")
+def company_quarterly(ticker: str, db: Session = Depends(get_db)):
+    """Last 5 quarters of results (Sales, Operating Profit, OPM, Net Profit,
+    EPS …) from /historical_stats?stats=quarter_results — shape {metric:
+    {quarter: value}}. Returns columns newest-last."""
+    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
+    if not co:
+        raise HTTPException(404, f"Unknown ticker {ticker}")
+    data = _get("/historical_stats", {"stock_name": ticker.upper(), "stats": "quarter_results"})
+    if not isinstance(data, dict) or not data:
+        return {"ticker": co.ticker, "has_data": False}
+
+    labels = set()
+    for series in data.values():
+        if isinstance(series, dict):
+            labels.update(series.keys())
+    quarters = sorted(labels, key=_q_key)[-5:]
+    metrics = {name: [series.get(q) for q in quarters]
+               for name, series in data.items() if isinstance(series, dict)}
+    return {"ticker": co.ticker, "has_data": bool(quarters), "quarters": quarters, "metrics": metrics}
+
+
 @router.get("/{ticker}/profile")
 def company_profile(ticker: str, db: Session = Depends(get_db)):
     co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
