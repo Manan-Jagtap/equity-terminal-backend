@@ -67,7 +67,10 @@ def list_companies(db: Session = Depends(get_db)):
         return _COMPANIES_CACHE["data"]
 
     rows = []
-    for co in db.query(models.Company).all():
+    # Only companies that actually have ingested market data — skips the ~450
+    # un-ingested seed names, so the loop stays small and fast (and can't time out).
+    companies = db.query(models.Company).join(models.MarketSnapshot).all()
+    for co in companies:
         try:
             data = build_company(db, co)
             a = assumptions_dict(co.assumptions)
