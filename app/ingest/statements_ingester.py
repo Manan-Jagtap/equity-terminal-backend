@@ -33,15 +33,19 @@ CR = 1e7  # ₹ → ₹ crore
 
 PL_MAP = {
     "Total Revenue": "revenue", "Operating Revenue": "revenue",
+    "Total Revenue As Reported": "total_income",
     "Cost Of Revenue": "raw_material", "Gross Profit": "gross_profit",
+    "Operating Expense": "opex",
+    "Total Expenses": "total_expenses",
+    "Other Income Expense": "other_income", "Total Other Finance Cost": "other_income",
     "EBITDA": "ebitda", "Normalized EBITDA": "ebitda",
     "Reconciled Depreciation": "depreciation",
+    "Depreciation And Amortization In Income Statement": "depreciation",
     "EBIT": "ebit", "Operating Income": "ebit",
-    "Interest Expense": "interest_expense",
+    "Interest Expense": "interest_expense", "Net Non Operating Interest Income Expense": "interest_expense",
     "Pretax Income": "pbt", "Tax Provision": "tax",
     "Net Income": "pat", "Net Income Common Stockholders": "pat",
     "Net Interest Income": "nii", "Interest Income": "interest_income",
-    "Total Revenue As Reported": "total_income",
 }
 BS_MAP = {
     "Common Stock Equity": "equity",
