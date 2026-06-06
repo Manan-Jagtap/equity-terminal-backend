@@ -1,14 +1,20 @@
 """
 statements_ingester.py — multi-year P&L / Balance Sheet / Cash Flow from yfinance.
 
-This is the missing piece that fills the **Financials** tab and the growth /
-CAGR ratios. `bulk_ingester` only writes a single current-year FinancialFact;
-the multi-year HistoricalFinancial rows were never populated (the XBRL ingester
-was a stub). yfinance exposes ~4 fiscal years of statements per ticker, which we
-map to the app's canonical line-item names and store in ₹ crore.
+Fills the **Financials** tab and the growth / CAGR ratios. bulk_ingester only
+wrote a single current-year FinancialFact; the multi-year HistoricalFinancial
+rows were never populated. yfinance exposes ~4 fiscal years of statements per
+ticker, mapped here to the app's canonical line-item names and stored in ₹ crore.
+
+Robust by design:
+  * de-duplicates within a company (several yfinance labels can map to the same
+    canonical field — last value wins, no duplicate-key crash);
+  * a fresh DB session per company with one retry, so a dropped connection on
+    one company never kills the whole run;
+  * yfinance fetched OUTSIDE the DB session to keep transactions short.
 
 Run:
-  python -m app.ingest.statements_ingester                 # all companies in DB
+  python -m app.ingest.statements_ingester                 # all companies
   python -m app.ingest.statements_ingester --limit 50      # first 50 (test)
   python -m app.ingest.statements_ingester --ticker TITAN  # one company
 
@@ -25,7 +31,6 @@ Base.metadata.create_all(bind=engine)
 
 CR = 1e7  # ₹ → ₹ crore
 
-# yfinance income-statement row label → canonical line_item
 PL_MAP = {
     "Total Revenue": "revenue", "Operating Revenue": "revenue",
     "Cost Of Revenue": "raw_material", "Gross Profit": "gross_profit",
@@ -63,22 +68,19 @@ CF_MAP = {
 }
 
 
-def _upsert(db, co, year, stmt, item, value):
-    row = (db.query(models.HistoricalFinancial)
-             .filter_by(company_id=co.id, fiscal_year=year,
-                        statement_type=stmt, line_item=item).first())
-    if row:
-        row.value = value
-    else:
-        db.add(models.HistoricalFinancial(
-            company_id=co.id, fiscal_year=year, statement_type=stmt,
-            line_item=item, value=value, source="yfinance"))
+def _first_nonempty(*dfs):
+    """yfinance renamed these accessors across versions; use whichever returns data."""
+    for d in dfs:
+        if d is not None and not getattr(d, "empty", True):
+            return d
+    return None
 
 
-def _ingest_df(db, co, df, mapping, stmt):
+def _collect(df, mapping, stmt, staged):
+    """Stage values into staged[(year, stmt, item)] = value. Last write wins,
+    which dedupes the case where two yfinance labels map to the same field."""
     if df is None or getattr(df, "empty", True):
-        return 0
-    n = 0
+        return
     for label, item in mapping.items():
         if label not in df.index:
             continue
@@ -93,61 +95,86 @@ def _ingest_df(db, co, df, mapping, stmt):
                 continue
             if v != v:  # NaN
                 continue
-            _upsert(db, co, int(year), stmt, item, v / CR)
-            n += 1
-    return n
+            staged[(int(year), stmt, item)] = v / CR
 
 
-def _first_nonempty(*dfs):
-    """yfinance renamed these accessors across versions; use whichever returns data."""
-    for d in dfs:
-        if d is not None and not getattr(d, "empty", True):
-            return d
-    return None
+def _write(cid, staged):
+    """Upsert one company's staged rows in a fresh session; retry once on a
+    transient network error. Returns True on success."""
+    for attempt in (1, 2):
+        s = SessionLocal()
+        try:
+            for (year, stmt, item), v in staged.items():
+                row = (s.query(models.HistoricalFinancial)
+                         .filter_by(company_id=cid, fiscal_year=year,
+                                    statement_type=stmt, line_item=item).first())
+                if row:
+                    row.value = v
+                else:
+                    s.add(models.HistoricalFinancial(
+                        company_id=cid, fiscal_year=year, statement_type=stmt,
+                        line_item=item, value=v, source="yfinance"))
+            s.commit()
+            return True
+        except Exception as e:
+            s.rollback()
+            if attempt == 1 and "network" in str(e).lower():
+                time.sleep(3)
+                continue
+            raise
+        finally:
+            s.close()
+    return False
 
 
-def ingest_statements(db, limit=None, ticker=None):
-    q = db.query(models.Company)
+def ingest_statements(db=None, limit=None, ticker=None):
+    # Read the company list with a throwaway session, then release it — we don't
+    # hold one long-lived connection across the whole (slow) run.
+    s0 = SessionLocal()
+    q = s0.query(models.Company)
     if ticker:
         q = q.filter(models.Company.ticker == ticker.upper())
-    companies = q.all()
+    targets = [(c.id, c.ticker) for c in q.all()]
+    s0.close()
     if limit:
-        companies = companies[:limit]
+        targets = targets[:limit]
 
-    print(f"Ingesting multi-year statements for {len(companies)} companies...")
+    print(f"Ingesting multi-year statements for {len(targets)} companies...")
     ok = 0
-    for co in companies:
-        sym = (co.ticker or "").upper()
+    for cid, tkr in targets:
+        sym = (tkr or "").upper()
         if not sym:
             continue
         try:
             tk = yf.Ticker(sym + ".NS")
-            # Modern yfinance: income_stmt / balance_sheet / cash_flow.
-            # Legacy fallback: financials / balance_sheet / cashflow.
             inc = _first_nonempty(getattr(tk, "income_stmt", None), getattr(tk, "financials", None))
             bal = _first_nonempty(getattr(tk, "balance_sheet", None))
             cfs = _first_nonempty(getattr(tk, "cash_flow", None), getattr(tk, "cashflow", None))
-            n = 0
-            n += _ingest_df(db, co, inc, PL_MAP, "PL")
-            n += _ingest_df(db, co, bal, BS_MAP, "BS")
-            n += _ingest_df(db, co, cfs, CF_MAP, "CF")
-            db.commit()
-            if n:
-                ok += 1
-            print(f"  {co.ticker}: {n} statement line-items")
         except Exception as e:
-            db.rollback()
-            print(f"  {co.ticker}: skipped ({type(e).__name__}: {e})")
+            print(f"  {tkr}: yfinance fetch failed ({type(e).__name__})")
+            continue
+
+        staged = {}
+        _collect(inc, PL_MAP, "PL", staged)
+        _collect(bal, BS_MAP, "BS", staged)
+        _collect(cfs, CF_MAP, "CF", staged)
+        if not staged:
+            print(f"  {tkr}: no statement data on Yahoo")
+            continue
+
+        try:
+            _write(cid, staged)
+            ok += 1
+            print(f"  {tkr}: {len(staged)} statement line-items")
+        except Exception as e:
+            print(f"  {tkr}: db write failed ({type(e).__name__})")
         time.sleep(0.3)  # be gentle with Yahoo
-    print(f"Done. {ok}/{len(companies)} companies now have multi-year statements.")
+
+    print(f"Done. {ok}/{len(targets)} companies now have multi-year statements.")
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
     limit = int(args[args.index("--limit") + 1]) if "--limit" in args else None
     ticker = args[args.index("--ticker") + 1] if "--ticker" in args else None
-    db = SessionLocal()
-    try:
-        ingest_statements(db, limit=limit, ticker=ticker)
-    finally:
-        db.close()
+    ingest_statements(limit=limit, ticker=ticker)
