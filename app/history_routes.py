@@ -100,9 +100,11 @@ def company_insights(ticker: str, db: Session = Depends(get_db)):
 
     data = dict(row.data)
 
-    # Forward P/E, when forecast EPS is available in a recognisable shape.
+    # Forward EPS trajectory + next-FY forward P/E (confirmed Refinitiv shape).
+    eps_est = _eps_estimates(data.get("forecasts"))
+    fwd_eps = eps_est[0]["mean"] if eps_est else None
+    fwd_eps_year = eps_est[0]["year"] if eps_est else None
     fwd_pe = None
-    fwd_eps = _forward_eps(data.get("forecasts"))
     if fwd_eps and price:
         try:
             fwd_pe = round(price / fwd_eps, 2)
@@ -115,38 +117,62 @@ def company_insights(ticker: str, db: Session = Depends(get_db)):
         "price": price,
         "ticker_id": row.ticker_id,
         "forward_eps": fwd_eps,
+        "forward_eps_year": fwd_eps_year,
         "forward_pe": fwd_pe,
+        "eps_estimates": eps_est,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         **data,
     }
 
 
-def _forward_eps(forecasts):
-    """Best-effort: pull the next forward annual EPS estimate from whatever
-    shape /stock_forecasts returned. Returns None if not recognisable."""
-    if not isinstance(forecasts, dict):
+def _estimate_inner(period):
+    """Return the inner Estimate dict from a forecast period, or None."""
+    est = period.get("Estimates")
+    if not isinstance(est, dict):
         return None
-    eps = forecasts.get("eps")
-    nums = []
+    arr = est.get("Estimate") or est.get("Estimates")
+    if isinstance(arr, list) and arr:
+        return arr[0] if isinstance(arr[0], dict) else None
+    return arr if isinstance(arr, dict) else None
 
-    def walk(o):
-        if isinstance(o, dict):
-            for k, v in o.items():
-                if isinstance(v, (int, float)):
-                    nums.append((str(k), float(v)))
-                else:
-                    walk(v)
-        elif isinstance(o, list):
-            for v in o:
-                walk(v)
 
-    walk(eps)
-    # Only return a CLEARLY-labelled forward estimate — never a guessed number,
-    # so a wrong forward P/E can't slip through. (Shape finalised once confirmed.)
-    for key, val in nums:
-        if any(t in key.lower() for t in ("mean", "estimate", "consensus", "forward")) and 0 < val < 100000:
-            return val
-    return None
+def _eps_estimates(forecasts):
+    """Forward EPS estimates (FY+1, FY+2 …) from the Refinitiv-style forecast.
+    Each forward period has RelativePeriod.Number >= 1 and an Estimates block
+    with Mean/High/Low/NumberOfEstimates. Returns a year-sorted list of dicts;
+    [0] is the nearest forward year (used for forward P/E)."""
+    eps = (forecasts or {}).get("eps")
+    if not isinstance(eps, dict):
+        return None
+    out = []
+    for p in (eps.get("periods") or []):
+        num = (p.get("RelativePeriod") or {}).get("Number")
+        if num is None or num < 1:
+            continue
+        inner = _estimate_inner(p)
+        if not inner:
+            continue
+        try:
+            mean = float(inner.get("Mean") or inner.get("UnverifiedMean"))
+        except (TypeError, ValueError):
+            continue
+        if mean <= 0:
+            continue
+        year = (p.get("FiscalPeriod") or {}).get("Year")
+        out.append({
+            "year": year, "n_rel": num, "mean": round(mean, 2),
+            "high": _safe_f(inner.get("High")), "low": _safe_f(inner.get("Low")),
+            "n_estimates": _safe_f(inner.get("NumberOfEstimates")),
+        })
+    out.sort(key=lambda e: e["n_rel"])
+    return out or None
+
+
+def _safe_f(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 @router.get("/{ticker}/metrics")
