@@ -26,6 +26,8 @@ from app.news_routes import router as news_router
 app.include_router(news_router)
 from app.bse_routes import router as bse_router
 app.include_router(bse_router)
+from app.market_routes import router as market_router
+app.include_router(market_router)
 from app.onepager import build_onepager
 
 origins = os.getenv("FRONTEND_ORIGIN", "*")
