@@ -210,6 +210,40 @@ def company_annual_pl(ticker: str, db: Session = Depends(get_db)):
             "order": (r or {}).get("order", [])}
 
 
+def _periodic_response(co, stats, n=5):
+    r = _periodic_pl(co.ticker, stats, n)
+    return {"ticker": co.ticker, "has_data": bool(r and r["periods"]),
+            "periods": (r or {}).get("periods", []), "metrics": (r or {}).get("metrics", {}),
+            "order": (r or {}).get("order", [])}
+
+
+@router.get("/{ticker}/balance_sheet")
+def company_balance_sheet(ticker: str, db: Session = Depends(get_db)):
+    """Annual balance sheet — original IndianAPI line items, last 5 years."""
+    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
+    if not co:
+        raise HTTPException(404, f"Unknown ticker {ticker}")
+    return _periodic_response(co, "balancesheet")
+
+
+@router.get("/{ticker}/cash_flow")
+def company_cash_flow(ticker: str, db: Session = Depends(get_db)):
+    """Annual cash flow — original IndianAPI line items, last 5 years."""
+    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
+    if not co:
+        raise HTTPException(404, f"Unknown ticker {ticker}")
+    return _periodic_response(co, "cashflow")
+
+
+@router.get("/{ticker}/ratios_live")
+def company_ratios_live(ticker: str, db: Session = Depends(get_db)):
+    """IndianAPI ratios published as-is (sector-specific), last 8 years."""
+    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
+    if not co:
+        raise HTTPException(404, f"Unknown ticker {ticker}")
+    return _periodic_response(co, "ratios", n=8)
+
+
 @router.get("/{ticker}/profile")
 def company_profile(ticker: str, db: Session = Depends(get_db)):
     co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
