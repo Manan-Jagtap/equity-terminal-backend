@@ -164,26 +164,45 @@ def _q_key(label):
         return (0, 0)
 
 
-@router.get("/{ticker}/quarterly")
-def company_quarterly(ticker: str, db: Session = Depends(get_db)):
-    """Last 5 quarters of results (Sales, Operating Profit, OPM, Net Profit,
-    EPS …) from /historical_stats?stats=quarter_results — shape {metric:
-    {quarter: value}}. Returns columns newest-last."""
-    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
-    if not co:
-        raise HTTPException(404, f"Unknown ticker {ticker}")
-    data = _get("/historical_stats", {"stock_name": ticker.upper(), "stats": "quarter_results"})
+def _periodic_pl(ticker: str, stats: str, n: int = 5):
+    """Screener-style P&L from /historical_stats — shape {metric: {period:
+    value}}. `stats=quarter_results` → quarters; `stats=yoy_results` → years.
+    Returns the last `n` periods (newest-last) so quarterly & annual share one
+    identical format."""
+    data = _get("/historical_stats", {"stock_name": ticker, "stats": stats})
     if not isinstance(data, dict) or not data:
-        return {"ticker": co.ticker, "has_data": False}
-
+        return None
     labels = set()
     for series in data.values():
         if isinstance(series, dict):
             labels.update(series.keys())
-    quarters = sorted(labels, key=_q_key)[-5:]
-    metrics = {name: [series.get(q) for q in quarters]
+    periods = sorted(labels, key=_q_key)[-n:]
+    metrics = {name: [series.get(p) for p in periods]
                for name, series in data.items() if isinstance(series, dict)}
-    return {"ticker": co.ticker, "has_data": bool(quarters), "quarters": quarters, "metrics": metrics}
+    return {"periods": periods, "metrics": metrics}
+
+
+@router.get("/{ticker}/quarterly")
+def company_quarterly(ticker: str, db: Session = Depends(get_db)):
+    """Last 5 quarters of results, newest-last."""
+    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
+    if not co:
+        raise HTTPException(404, f"Unknown ticker {ticker}")
+    r = _periodic_pl(ticker.upper(), "quarter_results")
+    # keep legacy "quarters" key for the frontend
+    return {"ticker": co.ticker, "has_data": bool(r and r["periods"]),
+            "quarters": (r or {}).get("periods", []), "metrics": (r or {}).get("metrics", {})}
+
+
+@router.get("/{ticker}/annual_pl")
+def company_annual_pl(ticker: str, db: Session = Depends(get_db)):
+    """Last 5 fiscal years of P&L in the SAME format as quarterly (yoy_results)."""
+    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
+    if not co:
+        raise HTTPException(404, f"Unknown ticker {ticker}")
+    r = _periodic_pl(ticker.upper(), "yoy_results")
+    return {"ticker": co.ticker, "has_data": bool(r and r["periods"]),
+            "periods": (r or {}).get("periods", []), "metrics": (r or {}).get("metrics", {})}
 
 
 @router.get("/{ticker}/profile")
