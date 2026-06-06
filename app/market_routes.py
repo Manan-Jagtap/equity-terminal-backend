@@ -13,13 +13,14 @@ auto-refreshing, and serves the last good payload if an upstream call fails.
   GET /api/market/snapshot   → all of the above in one call (one round-trip)
 """
 import os, time, requests
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/market")
 
 BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
-TTL = 120  # seconds — market feeds refresh ~once a minute; 2-min cache is plenty
+TTL = 900  # seconds — market feeds change slowly; 15-min cache keeps loads fast
 
 _cache = {}  # key -> (ts, data)
 
@@ -147,11 +148,16 @@ def high_low():
 
 @router.get("/snapshot")
 def snapshot():
-    """Everything the dashboard needs in one round-trip."""
+    """Everything the dashboard needs in one round-trip — the 4 feeds are
+    fetched concurrently so the dashboard loads in ~1 upstream round-trip."""
+    try:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            f_idx = ex.submit(_indices); f_mov = ex.submit(_movers)
+            f_act = ex.submit(_active);  f_hl = ex.submit(_high_low)
+            indices, movers, active, high_low = f_idx.result(), f_mov.result(), f_act.result(), f_hl.result()
+    except Exception:
+        indices, movers, active, high_low = _indices(), _movers(), _active(), _high_low()
     return {
-        "indices": _indices(),
-        "movers": _movers(),
-        "active": _active(),
-        "high_low": _high_low(),
-        "as_of": time.strftime("%Y-%m-%d %H:%M"),
+        "indices": indices, "movers": movers, "active": active,
+        "high_low": high_low, "as_of": time.strftime("%Y-%m-%d %H:%M"),
     }

@@ -11,6 +11,7 @@ GET /api/companies/{ticker}/profile  →  {
 All real IndianAPI data — no editorial / AI-generated content.
 """
 import os, time, requests
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -251,6 +252,16 @@ def company_profile(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(404, f"Unknown ticker {ticker}")
 
     name = ticker.upper()
+    # Warm all 5 upstream calls concurrently (~3s vs ~15s sequential); the parse
+    # helpers below then hit the in-memory cache instantly.
+    _warm = [("/stock", {"name": name}), ("/concalls", {"stock_name": name}),
+             ("/annual_reports", {"stock_name": name}), ("/credit_ratings", {"stock_name": name}),
+             ("/recent_announcements", {"stock_name": name})]
+    try:
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            list(ex.map(lambda c: _get(c[0], c[1]), _warm))
+    except Exception:
+        pass
     stock = _get("/stock", {"name": name}) or {}
     prof = stock.get("companyProfile") or {}
 
