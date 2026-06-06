@@ -1,16 +1,24 @@
 """
-scheduler.py — upgraded to 15-minute price refresh during market hours.
+scheduler.py — IndianAPI-powered refresh (v3).
 
-Schedule:
-- Every 15 mins between 9:15am and 3:30pm IST (Mon-Fri) = prices refresh during market hours
-- Once daily at 3:45pm IST (Mon-Fri) = end-of-day full refresh
-- Every Sunday at 6:00am IST = weekly fundamentals refresh
+Replaces the old yfinance refresh entirely. The yfinance ingesters were the
+inaccurate source we migrated away from; running them here would overwrite the
+accurate IndianAPI data, so they are no longer called.
 
-IST = UTC + 5:30
-So:
-  9:15 IST  = 03:45 UTC
-  3:30 IST  = 10:00 UTC
-  3:45 IST  = 10:15 UTC
+Schedule (IST = UTC + 5:30):
+  - Daily end-of-day price refresh : Mon-Fri 3:45pm IST (10:15 UTC)
+        → Nifty 50 prices via IndianAPI  (~50 calls/day)
+  - Weekly full refresh            : Sunday 6:00am IST (00:30 UTC)
+        → Nifty 50 statements + facts + insights  (~400 calls)
+
+  Monthly budget ≈ 50×22 + 400×4 ≈ 2,700 calls — well within the 10,000/mo plan.
+
+  (The 15-minute intraday refresh is intentionally deferred until the
+   /nse_stock_batch_live_price endpoint is wired in Phase 2 — that refreshes all
+   50 in ONE call, so intraday becomes quota-safe. Per-company intraday polling
+   would blow the monthly quota, so we don't do it.)
+
+Requires env var INDIANAPI_KEY on this service.
 """
 import schedule, time, os, sys, logging
 sys.path.insert(0, os.path.dirname(__file__))
@@ -18,82 +26,41 @@ sys.path.insert(0, os.path.dirname(__file__))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
 
-from app.database import SessionLocal
-from app.ingest.price_ingester import ingest_prices
-from app.ingest.fundamentals_ingester import ingest_fundamentals
-from app.ingest.statements_ingester import ingest_statements
+from app.ingest.indianapi_ingester import run as indianapi_run, KEY
 
 
 def run_prices():
-    log.info("Running price refresh...")
-    db = SessionLocal()
+    log.info("IndianAPI daily price refresh (Nifty 50)…")
     try:
-        ingest_prices(db)
+        indianapi_run(price_only=True, nifty50=True)
         log.info("Price refresh complete.")
     except Exception as e:
         log.error(f"Price refresh failed: {e}")
-    finally:
-        db.close()
 
 
-def run_fundamentals():
-    log.info("Running weekly fundamentals + statements refresh...")
-    db = SessionLocal()
+def run_full():
+    log.info("IndianAPI weekly full refresh (statements + facts + insights)…")
     try:
-        ingest_fundamentals(db)
-        log.info("Fundamentals refresh complete.")
+        indianapi_run(nifty50=True, insights=True)
+        log.info("Weekly full refresh complete.")
     except Exception as e:
-        log.error(f"Fundamentals refresh failed: {e}")
-    finally:
-        db.close()
-    # Multi-year statements (powers the Financials tab and growth/CAGR ratios).
-    # Uses its own per-company sessions, so pass nothing.
-    try:
-        ingest_statements()
-        log.info("Statements refresh complete.")
-    except Exception as e:
-        log.error(f"Statements refresh failed: {e}")
+        log.error(f"Weekly full refresh failed: {e}")
 
 
-# ── Intraday: every 15 mins, Mon-Fri, 9:15am–3:30pm IST (03:45–10:00 UTC) ──
-# We schedule every 15 mins and check if we're inside market hours
-def run_prices_if_market_open():
-    """Only runs if current UTC time is within NSE market hours."""
-    import datetime
-    now_utc = datetime.datetime.utcnow()
-    weekday = now_utc.weekday()  # 0=Mon, 4=Fri, 5=Sat, 6=Sun
+if not KEY:
+    log.warning("INDIANAPI_KEY is NOT set on this service — refreshes will no-op "
+                "until you add it in Railway → equity-terminal-scheduler → Variables.")
 
-    if weekday >= 5:  # Saturday or Sunday — market closed
-        return
+# Daily EOD price refresh — 3:45pm IST = 10:15 UTC, Mon-Fri
+for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
+    getattr(schedule.every(), _day).at("10:15").do(run_prices)
 
-    # NSE market hours: 9:15 IST to 3:30 IST = 3:45 UTC to 10:00 UTC
-    market_open  = now_utc.replace(hour=3, minute=45, second=0, microsecond=0)
-    market_close = now_utc.replace(hour=10, minute=0,  second=0, microsecond=0)
+# Weekly full refresh — 6:00am IST Sunday = 00:30 UTC
+schedule.every().sunday.at("00:30").do(run_full)
 
-    if market_open <= now_utc <= market_close:
-        log.info("Market open — running 15-min price refresh")
-        run_prices()
-    else:
-        log.info(f"Market closed at {now_utc.strftime('%H:%M')} UTC — skipping intraday refresh")
-
-
-# Every 15 minutes — guard function checks if market is open
-schedule.every(15).minutes.do(run_prices_if_market_open)
-
-# End-of-day full refresh — 3:45pm IST = 10:15 UTC, Mon-Fri
-schedule.every().monday.at("10:15").do(run_prices)
-schedule.every().tuesday.at("10:15").do(run_prices)
-schedule.every().wednesday.at("10:15").do(run_prices)
-schedule.every().thursday.at("10:15").do(run_prices)
-schedule.every().friday.at("10:15").do(run_prices)
-
-# Weekly fundamentals — 6:00am IST Sunday = 00:30 UTC
-schedule.every().sunday.at("00:30").do(run_fundamentals)
-
-log.info("Scheduler v2 started.")
-log.info("Intraday: every 15 mins during NSE market hours (9:15am-3:30pm IST, Mon-Fri)")
-log.info("End-of-day: 3:45pm IST Mon-Fri")
-log.info("Fundamentals: 6:00am IST Sunday")
+log.info("Scheduler v3 (IndianAPI) started.")
+log.info("Daily prices: 3:45pm IST Mon-Fri (10:15 UTC)")
+log.info("Weekly full refresh: 6:00am IST Sunday (00:30 UTC)")
 
 while True:
     schedule.run_pending()
