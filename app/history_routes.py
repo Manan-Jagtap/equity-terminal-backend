@@ -113,11 +113,18 @@ def company_insights(ticker: str, db: Session = Depends(get_db)):
 
     rev_est = _rev_estimates(data.get("forecasts"))
 
+    # The company's OWN market multiples (P/E, P/B, ROE TTM, net margin, div
+    # yield) — IndianAPI doesn't expose these on the company's page, but they
+    # appear wherever the company is listed as another company's peer. We build
+    # one global map from all peer lists so the same numbers show everywhere.
+    self_metrics = _peer_metrics_map(db).get(row.ticker_id) if row.ticker_id else None
+
     return {
         "ticker": co.ticker,
         "has_data": True,
         "price": price,
         "ticker_id": row.ticker_id,
+        "self_metrics": self_metrics,
         "forward_eps": fwd_eps,
         "forward_eps_year": fwd_eps_year,
         "forward_pe": fwd_pe,
@@ -126,6 +133,30 @@ def company_insights(ticker: str, db: Session = Depends(get_db)):
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         **data,
     }
+
+
+# Global peer-metrics map: ticker_id → {pe, pb, roe_ttm, npm_ttm, div_yield,
+# price, rating, name}, assembled from every company's stored peer list. Cached
+# for an hour. Lets a company display the SAME IndianAPI multiples it shows when
+# it appears as someone else's peer (single source of truth).
+_PEER_MAP = None
+_PEER_MAP_TS = 0.0
+
+
+def _peer_metrics_map(db):
+    global _PEER_MAP, _PEER_MAP_TS
+    import time as _t
+    if _PEER_MAP is not None and (_t.time() - _PEER_MAP_TS) < 3600:
+        return _PEER_MAP
+    m = {}
+    for row in db.query(models.CompanyInsight).all():
+        for p in ((row.data or {}).get("peers") or []):
+            tid = p.get("ticker_id")
+            if tid and tid not in m:
+                m[tid] = {k: p.get(k) for k in
+                          ("pe", "pb", "roe_ttm", "npm_ttm", "div_yield", "price", "rating", "name")}
+    _PEER_MAP, _PEER_MAP_TS = m, _t.time()
+    return m
 
 
 def _rev_estimates(forecasts):
