@@ -443,6 +443,12 @@ def ingest_company(s, co, dump=False, insights=True):
         print(f"    ── financials: {len(fin)} entries; first sections="
               f"{list((fin[0].get('stockFinancialMap') or {}).keys()) if fin else []}")
 
+    # Purge any prior statements (old yfinance rows) so ONLY fresh IndianAPI
+    # data remains. Fixes mixed/stale years (some showed 7, 8, 10) and the
+    # stale numbers the Ratios/Peers tabs were computing from.
+    s.query(models.HistoricalFinancial).filter_by(company_id=co.id).delete()
+    s.flush()
+
     n = _parse_financials(s, co.id, co, stock)
 
     # Insurer / 0-year fallback (SBILIFE, HDFCLIFE, …)

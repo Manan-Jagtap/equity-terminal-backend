@@ -141,7 +141,10 @@ def build_financials_response(
         if row.value is not None:
             nested[row.fiscal_year][row.statement_type][row.line_item] = row.value
 
-    years_available = sorted(nested.keys())
+    # Standardise every company to the LATEST 5 fiscal years (some sources
+    # returned 7–10). Keep only the 5 most recent so statements are consistent.
+    years_available = sorted(nested.keys())[-5:]
+    nested = {y: nested[y] for y in years_available}
 
     # Compute derived margins inline where possible
     for yr, stmts in nested.items():
