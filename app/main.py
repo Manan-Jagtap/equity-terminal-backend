@@ -130,6 +130,41 @@ def list_companies(db: Session = Depends(get_db)):
     return rows
 
 
+_PEER_UNIV_CACHE = {"ts": 0.0, "data": None}
+
+
+@app.get("/api/peer_universe")
+def peer_universe(db: Session = Depends(get_db)):
+    """Every company's market multiples (P/E, P/B, ROE TTM, net margin, div
+    yield, price, rating) on ONE consistent IndianAPI basis, with its sector —
+    so the Peer Universe tab can compare across the whole sector and compute a
+    median, not just the 5–6 peers IndianAPI returns per company."""
+    import time as _t
+    if _PEER_UNIV_CACHE["data"] is not None and (_t.time() - _PEER_UNIV_CACHE["ts"]) < 1800:
+        return _PEER_UNIV_CACHE["data"]
+    from app.history_routes import _peer_metrics_map
+    pm = _peer_metrics_map(db)
+    out = []
+    for r in db.query(models.CompanyInsight).all():
+        if not r.ticker_id:
+            continue
+        m = pm.get(r.ticker_id)
+        if not m:
+            continue
+        co = db.query(models.Company).get(r.company_id)
+        if not co:
+            continue
+        out.append({
+            "ticker": co.ticker, "name": co.name, "sector": co.sector,
+            "pe": m.get("pe"), "pb": m.get("pb"), "roe_ttm": m.get("roe_ttm"),
+            "npm_ttm": m.get("npm_ttm"), "div_yield": m.get("div_yield"),
+            "price": m.get("price"), "rating": m.get("rating"),
+        })
+    out.sort(key=lambda r: r["name"] or "")
+    _PEER_UNIV_CACHE["ts"], _PEER_UNIV_CACHE["data"] = _t.time(), out
+    return out
+
+
 def _get_or_404(db, ticker):
     co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
     if not co:
