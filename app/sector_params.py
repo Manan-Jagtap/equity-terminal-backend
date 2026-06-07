@@ -69,8 +69,11 @@ SECTOR_PARAMS: dict[str, dict] = {
     "TELECOM":       _P(beta=0.90, terminal_growth=0.050, mature_roic=0.13, mature_roe=0.15, exit_pe=32, exit_ev_ebitda=9,  exit_pb=None),
     "MANUFACTURING": _P(beta=1.00, terminal_growth=0.050, mature_roic=0.15, mature_roe=0.16, exit_pe=28, exit_ev_ebitda=15, exit_pb=None),
     # ── Financials (RI / P-B-vs-ROE) ────────────────────────────────────────
-    "BANK":          _P(beta=1.05, terminal_growth=0.055, mature_roic=0.15, mature_roe=0.155, exit_pe=16, exit_ev_ebitda=None, exit_pb=2.4),
-    "NBFC":          _P(beta=1.20, terminal_growth=0.055, mature_roic=0.16, mature_roe=0.165, exit_pe=18, exit_ev_ebitda=None, exit_pb=3.0),
+    # Betas trimmed to align Ke with observed: India's large private banks run
+    # 2-5yr betas ~0.9-1.0 and sell-side Ke ~11.5%, not the 12.2% a 1.05 beta
+    # implied. NBFCs carry more cyclicality, so a smaller trim.
+    "BANK":          _P(beta=0.95, terminal_growth=0.055, mature_roic=0.15, mature_roe=0.155, exit_pe=16, exit_ev_ebitda=None, exit_pb=2.4),
+    "NBFC":          _P(beta=1.10, terminal_growth=0.055, mature_roic=0.16, mature_roe=0.165, exit_pe=18, exit_ev_ebitda=None, exit_pb=3.0),
     "INSURANCE":     _P(beta=0.90, terminal_growth=0.055, mature_roic=0.15, mature_roe=0.16,  exit_pe=24, exit_ev_ebitda=None, exit_pb=2.2),
 }
 

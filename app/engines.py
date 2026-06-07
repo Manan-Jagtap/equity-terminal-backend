@@ -16,19 +16,31 @@ def cost_of_equity(a: Dict) -> float:
 
 
 def residual_income(co: Dict, a: Dict) -> Dict:
+    """Two-stage Residual Income (excess-return) model for financials.
+
+    Stage 1 (high-return phase, ~half the horizon): the franchise EARNS its
+    forecast ROE and book value compounds at ROE × retention. This is what a
+    single immediate-fade model missed — India's best banks/NBFCs sustain a
+    decade-plus of mid-teens ROE and ~12-15% book growth, which is exactly what
+    justifies their 2-2.5x P/B. Fading ROE from year 1 understated them badly.
+
+    Stage 2 (fade): ROE glides from the franchise level to the sector-mature
+    terminal ROE. Terminal: RI perpetuity at terminal ROE & growth."""
     ke = cost_of_equity(a)
     bvps0 = co["equity"] / co["shares"]
     retention = 1 - a["payout"]
     N = max(3, round(a["fade_years"]))
+    N1 = max(1, N // 2)                     # high-ROE phase length
+    f_roe, t_roe = a["forecast_roe"], a["terminal_roe"]
     bv, pv, rows = bvps0, 0.0, []
     for t in range(1, N + 1):
-        roe = a["forecast_roe"] + (a["terminal_roe"] - a["forecast_roe"]) * (t / N)
+        roe = f_roe if t <= N1 else f_roe + (t_roe - f_roe) * ((t - N1) / (N - N1))
         ri = (roe - ke) * bv
         disc = (1 + ke) ** t
         pv += ri / disc
         rows.append({"t": t, "roe": roe, "bv_begin": bv, "ri": ri, "pv": ri / disc})
         bv = bv * (1 + roe * retention)
-    ri_next = (a["terminal_roe"] - ke) * bv
+    ri_next = (t_roe - ke) * bv
     tv = ri_next / (ke - a["terminal_growth"]) if a["terminal_growth"] < ke else 0.0
     tv_pv = tv / ((1 + ke) ** N)
     intrinsic = bvps0 + pv + tv_pv

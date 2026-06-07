@@ -163,12 +163,14 @@ def _derive_financial(statements, vs):
     networth = _series(statements, "BS", "net_worth") or _series(statements, "BS", "reserves")
     dividends = _series(statements, "CF", "dividends")
 
-    # 5-year window so a single transition year (e.g. a post-merger ROE dip)
-    # doesn't define the franchise's normalized return.
-    forecast_roe = _ratio_median(pat, networth, lo=0.06, hi=0.30, n=5)
+    # 3-year median ROE — the franchise's RECENT, post-cleanup earning power.
+    # A 5y window anchored banks to the 2019-21 NPA-cycle / COVID trough, which
+    # are no longer representative; the last 3y reflect normalized returns and is
+    # what should drive the high-ROE phase of the two-stage RI model.
+    forecast_roe = _ratio_median(pat, networth, lo=0.06, hi=0.30, n=3)
     if forecast_roe is None:
         forecast_roe = p["mature_roe"]
-    drivers["forecast_roe"] = "median(PAT/NetWorth, 5y)"
+    drivers["forecast_roe"] = "median(PAT/NetWorth, 3y)"
 
     # Fade realized ROE toward the sector's mature ROE, but weight the franchise's
     # OWN realized return more (0.55) — India's best private banks/NBFCs sustain

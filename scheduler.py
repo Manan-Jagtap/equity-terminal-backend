@@ -112,10 +112,26 @@ log.info("Weekly full refresh: 6:00am IST Sunday (00:30 UTC)")
 #                                the blended-valuation change live for our active
 #                                universe without rebuilding the whole table.
 #   RUN_COMPUTE_NOW=true       → recompute valuations for ALL companies (full rebuild)
+#   RUN_REINGEST_TICKERS=A,B,C → re-pull statements+facts+price for ONLY these
+#                                tickers from IndianAPI, then recompute. Use this
+#                                to fix a single bad row (e.g. KOTAKBANK's split-
+#                                scaled price/shares) without touching the rest.
 #
 _flag = lambda k: os.getenv(k, "").strip().lower() in ("1", "true", "yes")
 
-if _flag("RUN_BOOTSTRAP_NOW"):
+_reingest = os.getenv("RUN_REINGEST_TICKERS", "").strip()
+if _reingest:
+    tickers = [t.strip().upper() for t in _reingest.split(",") if t.strip()]
+    log.info(f"RUN_REINGEST_TICKERS set — re-ingesting {tickers} from IndianAPI…")
+    for t in tickers:
+        try:
+            indianapi_run(ticker=t, insights=True)
+            log.info(f"  re-ingested {t}")
+        except Exception as e:
+            log.error(f"  re-ingest {t} failed: {e}")
+    run_compute(nifty50=True)
+    log.info("Re-ingest + recompute done. Remove RUN_REINGEST_TICKERS from Variables now.")
+elif _flag("RUN_BOOTSTRAP_NOW"):
     log.info("RUN_BOOTSTRAP_NOW set — running the full server-side bootstrap now…")
     try:
         run_bootstrap()
