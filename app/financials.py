@@ -163,10 +163,22 @@ def build_financials_response(
                 if pat and "pat_margin" not in pl:
                     pl["pat_margin"] = pat / rev
         else:
-            eq = stmts.get("BS", {}).get("equity") or stmts.get("BS", {}).get("net_worth")
+            # ROE must use NET WORTH (shareholders' funds), NOT the share-capital
+            # line. The BS "equity" item is face-value share capital (~₹500cr for a
+            # bank); using it produced absurd ROEs (68–92%). Prefer net_worth, then
+            # equity+reserves, and only fall back to share capital if nothing else.
+            bs = stmts.get("BS", {})
+            eq = (bs.get("net_worth")
+                  or ((bs.get("equity") or 0) + (bs.get("reserves") or 0)) or None
+                  or bs.get("equity"))
             pat = pl.get("pat")
-            if eq and pat and "roe" not in pl:
+            if eq and eq > 0 and pat and "roe" not in pl:
                 pl["roe"] = pat / eq
+            # Cash-flow FCF is meaningless for a lender (no capex-driven FCF) —
+            # drop it so the CF statement doesn't imply a misleading number.
+            cf = stmts.get("CF")
+            if isinstance(cf, dict):
+                cf.pop("fcf", None)
 
     # Growth calculations (need at least 2 years)
     growth: dict[str, float | None] = {}

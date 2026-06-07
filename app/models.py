@@ -153,6 +153,37 @@ class CompanyInsight(Base):
     company    = relationship("Company", backref="insight", uselist=False)
 
 
+class Valuation(Base):
+    """Precomputed INDEPENDENT valuation per company, so /api/companies is
+    instant instead of running the full DCF + technicals on every request.
+    Populated by app.ingest.compute_valuations. The analyst consensus is stored
+    alongside but kept SEPARATE (never blended into `intrinsic`)."""
+    __tablename__ = "valuations"
+    id          = Column(Integer, primary_key=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), unique=True, nullable=False, index=True)
+    # Independent model
+    intrinsic   = Column(Float, nullable=True)
+    mos         = Column(Float, nullable=True)
+    verdict     = Column(String, nullable=True)
+    composite   = Column(Float, nullable=True)
+    reliable    = Column(Integer, nullable=True)   # 1/0
+    confidence  = Column(String, nullable=True)
+    method      = Column(String, nullable=True)
+    valuation_sector = Column(String, nullable=True)
+    # Snapshot fundamentals (so the screener needn't recompute)
+    roe         = Column(Float, nullable=True)
+    pb          = Column(Float, nullable=True)
+    pe          = Column(Float, nullable=True)
+    # Analyst consensus (SEPARATE — for the consensus tab/column, never anchored)
+    analyst_target = Column(Float, nullable=True)
+    analyst_low    = Column(Float, nullable=True)
+    analyst_high   = Column(Float, nullable=True)
+    analyst_rating = Column(String, nullable=True)
+    analyst_upside = Column(Float, nullable=True)
+    updated_at  = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    company     = relationship("Company", backref="valuation", uselist=False)
+
+
 class QuarterlyDocument(Base):
     __tablename__ = "quarterly_documents"
     __table_args__ = (

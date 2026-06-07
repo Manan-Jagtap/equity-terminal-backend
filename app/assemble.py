@@ -4,6 +4,9 @@ All fields have safe defaults so None values never crash the engines.
 """
 from sqlalchemy.orm import Session
 from . import models, concepts as K
+from . import templates as T
+from . import sector_params as SP
+from .derive import derive_assumptions
 
 
 def safe(val, default=0.0):
@@ -82,4 +85,38 @@ def build_company(db: Session, co: models.Company) -> dict:
         out["revenue"]  = facts.get(K.REVENUE)
         out["net_debt"] = facts.get(K.NET_DEBT)
 
+    # Attach the 5-year statement history + valuation sector so the engine can
+    # derive forward drivers from the company's OWN data (see derive.py).
+    template_code = co.template_code or T.classify(co.sector)
+    is_fin = T.is_financial(template_code) or co.type == "financial"
+    out["template_code"] = template_code
+    out["is_financial_template"] = is_fin
+    out["valuation_sector"] = SP.classify_valuation_sector(co.sector, template_code)
+
+    hist_rows = (db.query(models.HistoricalFinancial)
+                   .filter_by(company_id=co.id).all())
+    out["statements"] = _shape_statements(hist_rows)
+
     return out
+
+
+def _shape_statements(hist_rows) -> dict:
+    """Nested { year:int -> { 'PL':{item:val}, 'BS':{...}, 'CF':{...} } } from the
+    last 5 fiscal years — the shape derive.py and the metrics layer expect."""
+    nested: dict = {}
+    for r in hist_rows:
+        if r.value is None:
+            continue
+        nested.setdefault(int(r.fiscal_year), {}).setdefault(r.statement_type, {})[r.line_item] = r.value
+    years = sorted(nested.keys())[-5:]
+    return {y: nested[y] for y in years}
+
+
+def effective_assumptions(db: Session, co: models.Company, data: dict) -> dict:
+    """The INDEPENDENT assumption block used for valuation: derived from the
+    company's own stored history + sector_params. Replaces the old yfinance-
+    seeded Assumptions rows as the live default."""
+    vs = data.get("valuation_sector") or SP.classify_valuation_sector(co.sector, co.template_code)
+    is_fin = data.get("is_financial_template",
+                      T.is_financial(co.template_code or T.classify(co.sector)) or co.type == "financial")
+    return derive_assumptions(data.get("statements") or {}, vs, is_fin)

@@ -227,14 +227,19 @@ def recommend(co: Dict, a: Dict) -> Dict:
     # Scale by data confidence — weak data can never produce a strong score.
     composite = raw * (0.6 + 0.4 * conf["score"]) if reliable else raw * 0.5
 
+    # Verdict scheme (no "TRIM"): BUY / ACCUMULATE / HOLD / REDUCE / AVOID,
+    # plus the two data-state sentinels. This is the INDEPENDENT model's own
+    # view from margin of safety + composite quality — analyst consensus is
+    # surfaced separately and never blended in here.
     if iv is None:                              verdict = "NO DATA"
     elif conf["score"] < 0.5:                   verdict = "LOW CONF"
     elif composite >= 68 and mos > 0.15:        verdict = "BUY"
     elif composite >= 58 and mos > 0.05:        verdict = "ACCUMULATE"
     elif mos >= -0.10:                          verdict = "HOLD"
-    elif mos >= -0.25:                          verdict = "TRIM"
+    elif mos >= -0.25:                          verdict = "REDUCE"
     else:                                       verdict = "AVOID"
 
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
             "intrinsic": iv, "confidence": conf, "reliable": reliable,
-            "reasons": reasons, "composite": composite, "verdict": verdict}
+            "reasons": reasons, "composite": composite, "verdict": verdict,
+            "drivers": a.get("_drivers"), "valuation_sector": a.get("_valuation_sector")}

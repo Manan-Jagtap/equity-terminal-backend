@@ -222,6 +222,20 @@ def classify(sector: str | None) -> str:
     return TemplateCode.MANUFACTURING
 
 
+def classify_company(name: str | None, sector: str | None) -> str:
+    """Name-aware classification. Indian banks frequently carry the generic
+    sector 'Financial Services' (no 'bank' keyword), so the sector-only
+    classifier mis-routes them to NBFC. The company NAME disambiguates:
+    'HDFC Bank Ltd.' is a BANK regardless of its sector string.
+    """
+    n = (name or "").lower()
+    if "bank" in n:                       # any '... Bank ...' is a BANK
+        return TemplateCode.BANK
+    if "insurance" in n or "life insur" in n or "assurance" in n:
+        return TemplateCode.INSURANCE
+    return classify(sector)
+
+
 def is_financial(template_code: str) -> bool:
     """True iff the template uses a financial-firm P&L (NII-based)."""
     return template_code in FINANCIAL_TEMPLATES

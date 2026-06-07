@@ -59,225 +59,88 @@ def _latest_facts(db, company_id):
 
 _COMPANIES_CACHE = {"ts": 0.0, "data": None}
 
-# India sector P/E medians — mirrors the frontend SECTOR_PE so the screener's
-# consensus-anchored fair value matches the company DCF/Verdict pages.
-_SCREENER_SECTOR_PE = {
-    "IT_SERVICES": 25, "MANUFACTURING": 20, "CONSUMER": 36, "PHARMA": 30,
-    "ENERGY": 12, "AUTO": 24, "METAL": 10, "TELECOM": 24, "CEMENT": 26,
-    "UTILITIES": 15, "NBFC": 18, "BANK": 14, "INSURANCE": 26,
-}
-
-
-def _sector_template(sector):
-    s = (sector or "").lower()
-    for kw, tmpl in (
-        ("information technology", "IT_SERVICES"), ("software", "IT_SERVICES"), ("technology", "IT_SERVICES"),
-        ("bank", "BANK"), ("insurance", "INSURANCE"),
-        ("fast moving", "CONSUMER"), ("fmcg", "CONSUMER"), ("consumer", "CONSUMER"), ("retail", "CONSUMER"),
-        ("pharma", "PHARMA"), ("health", "PHARMA"),
-        ("auto", "AUTO"), ("power", "UTILITIES"), ("utilit", "UTILITIES"),
-        ("oil", "ENERGY"), ("gas", "ENERGY"), ("petroleum", "ENERGY"), ("energy", "ENERGY"),
-        ("telecom", "TELECOM"), ("communication", "TELECOM"),
-        ("metal", "METAL"), ("mining", "METAL"),
-        ("construction material", "CEMENT"), ("cement", "CEMENT"),
-        ("financ", "NBFC"),
-    ):
-        if kw in s:
-            return tmpl
-    return "MANUFACTURING"
-
-
-# Sector P/B medians for financials (where EPS-based valuation breaks: banks,
-# NBFCs, and especially insurers that trade on embedded value, not earnings).
-_SCREENER_SECTOR_PB = {"BANK": 2.2, "NBFC": 3.0, "INSURANCE": 8.0}
-
-
-def _consensus_overlay(price, backend_iv, sector, template_code, idata, eps=None, bvps=None):
-    """Fair value for the screener.
-    WITH an analyst target → blend (consensus 60% + forward-P/E 20% + DCF 20%),
-    each component clamped into the analyst target range.
-    WITHOUT a target → a sector-multiple relative value (P/B for financials,
-    P/E for everyone else), sanity-bounded to ±2× CMP so no company can ever
-    show an absurd gap. Returns (fv, target, rating)."""
-    if not price or price <= 0:
-        return None, None, None
-
-    def _f(x):
-        try:
-            return float(x)
-        except (TypeError, ValueError):
-            return None
-
-    tmpl = template_code if template_code in _SCREENER_SECTOR_PE else _sector_template(sector)
-    sector_pe = _SCREENER_SECTOR_PE.get(tmpl, 18)
-
-    def _fallback_fv():
-        fv = None
-        if tmpl in _SCREENER_SECTOR_PB and bvps and bvps > 0:
-            fv = bvps * _SCREENER_SECTOR_PB[tmpl]            # financials → P/B
-        elif eps and eps > 0:
-            fv = eps * sector_pe                              # others → P/E
-        elif backend_iv and backend_iv > 0:
-            fv = backend_iv
-        if fv:
-            fv = max(0.6 * price, min(fv, 1.7 * price))       # sanity band vs CMP (≤40% downside)
-        return fv
-
-    tgt = (idata or {}).get("target") or {}
-    target = _f(tgt.get("mean"))
-    if not target or target <= 0:
-        return _fallback_fv(), None, None                    # no analyst target
-    low, high = _f(tgt.get("low")), _f(tgt.get("high"))
-
-    fwd_pe_val = None
-    try:
-        from app.history_routes import _eps_estimates
-        ests = _eps_estimates(idata.get("forecasts")) or []
-        if ests:
-            fe = _f(ests[0].get("mean"))
-            if fe and fe > 0:
-                fwd_pe_val = fe * sector_pe
-    except Exception:
-        pass
-
-    # Clamp each fundamental component into the analyst target band so a wrong
-    # sector multiple / over-conservative DCF can't drag fair value below where
-    # the analyst set actually sits.
-    def _clampc(v):
-        if v is None or v <= 0:
-            return None
-        if low and low > 0 and high and high > 0:
-            return max(low, min(v, high))
-        return v
-
-    parts = [(target, 0.60)]
-    fpv = _clampc(fwd_pe_val)
-    if fpv:
-        parts.append((fpv, 0.20))
-    biv = _clampc(backend_iv)
-    if biv:
-        parts.append((biv, 0.20))
-    wsum = sum(w for _, w in parts)
-    fv = sum(v * w for v, w in parts) / wsum
-    if low and low > 0 and fv < low * 0.95:
-        fv = low * 0.95
-    if high and high > 0 and fv > high * 1.05:
-        fv = high * 1.05
-    rating = (idata.get("analyst") or {}).get("rating")
-    return fv, target, rating
-
-
-def _screener_verdict(exp_ret, rating):
-    if exp_ret is None:
-        return None
-    bull = bool(rating) and ("buy" in str(rating).lower())
-    if exp_ret >= 0.15 and bull:
-        return "BUY"
-    if exp_ret >= 0.06:
-        return "ACCUMULATE"
-    if exp_ret >= -0.07:
-        return "HOLD"
-    if exp_ret >= -0.20:
-        return "REDUCE"
-    return "AVOID"
-
-
 _VERDICT_RANK = {"BUY": 5, "ACCUMULATE": 4, "HOLD": 3, "REDUCE": 2, "AVOID": 1}
+
+# Verdicts the old engine could emit; map to the current scheme just in case a
+# stale precomputed Valuation row is read.
+_NORMALIZE_VERDICT = {"TRIM": "REDUCE"}
+
+
+def _live_recommend(db, co):
+    """Run the INDEPENDENT model live for one company (used when no precomputed
+    Valuation row exists). Returns the model dict or None on failure."""
+    try:
+        data = build_company(db, co)
+        a = effective_assumptions(db, co, data)
+        rec = engines.recommend(data, a)
+    except Exception:
+        return None
+    f = rec["fundamentals"]
+    return {
+        "intrinsic": rec.get("intrinsic"), "mos": rec.get("mos"),
+        "verdict": rec.get("verdict"), "composite": rec.get("composite"),
+        "reliable": bool(rec.get("reliable")),
+        "confidence": rec["confidence"]["level"],
+        "roe": f["roe"], "pb": f["pb"], "pe": f["pe"],
+        "valuation_sector": rec.get("valuation_sector"),
+    }
 
 
 @app.get("/api/companies")
 def list_companies(db: Session = Depends(get_db)):
+    """Screener rows. The headline intrinsic/MoS/verdict are the INDEPENDENT
+    model's own view (DCF/RI from history-derived drivers). The analyst
+    consensus is returned in a SEPARATE `analyst` block — never blended into the
+    intrinsic — so the screener can show both columns honestly."""
     import time as _t
     if _COMPANIES_CACHE["data"] is not None and (_t.time() - _COMPANIES_CACHE["ts"]) < 300:
         return _COMPANIES_CACHE["data"]
 
     rows = []
-    # Analyst insights (target + forecasts + rating) keyed by company — loaded
-    # once so the consensus overlay below doesn't query per row.
-    insights_by_cid = {}
-    for r in db.query(models.CompanyInsight).all():
-        if r.data:
-            insights_by_cid[r.company_id] = r.data
+    insights_by_cid = {r.company_id: r.data for r in db.query(models.CompanyInsight).all() if r.data}
+    # Prefer precomputed independent valuations (instant); fall back to live.
+    val_by_cid = {v.company_id: v for v in db.query(models.Valuation).all()}
 
-    # Only companies that actually have ingested market data — skips the ~450
-    # un-ingested seed names, so the loop stays small and fast (and can't time out).
     companies = db.query(models.Company).join(models.MarketSnapshot).all()
     for co in companies:
-        try:
-            data = build_company(db, co)
-            a = assumptions_dict(co.assumptions)
-            rec = engines.recommend(data, a)
-        except Exception:
-            # One bad company must never take down the whole screener.
-            continue
-
-        f = rec["fundamentals"]
+        price = co.market.price if co.market else None
         facts = _latest_facts(db, co.id)
 
-        # Consensus overlay → intrinsic / MoS / verdict that match the company
-        # pages. Falls back to a sector-multiple value when a name has no analyst
-        # target, so EVERY company gets a sane number (no stray "TRIM" rows).
-        intrinsic, mos, verdict = rec.get("intrinsic"), rec["mos"], rec["verdict"]
-        price = data["price"]
-        sh = co.shares_outstanding
-        eps  = (facts.get(K.NET_PROFIT) / sh) if (facts.get(K.NET_PROFIT) and sh) else None
-        bvps = (facts.get(K.NET_WORTH) / sh) if (facts.get(K.NET_WORTH) and sh) else None
-        fv, target, rating = _consensus_overlay(
-            price, rec.get("intrinsic"), co.sector, co.template_code,
-            insights_by_cid.get(co.id), eps=eps, bvps=bvps)
-        if fv and price:
-            intrinsic = round(fv, 2)
-            mos = (fv - price) / price
-            analyst_up = (target - price) / price if target else mos
-            exp_ret = (mos + analyst_up) / 2
-            v = _screener_verdict(exp_ret, rating)
-            if v:
-                verdict = v
-        # Normalise any legacy verdict from the old engine into the new scheme.
-        verdict = {"TRIM": "REDUCE", "ACCUMULATE": "ACCUMULATE"}.get(verdict, verdict)
+        v = val_by_cid.get(co.id)
+        if v is not None and v.intrinsic is not None:
+            m = {"intrinsic": v.intrinsic, "mos": v.mos, "verdict": v.verdict,
+                 "composite": v.composite, "reliable": bool(v.reliable),
+                 "confidence": v.confidence, "roe": v.roe, "pb": v.pb, "pe": v.pe,
+                 "valuation_sector": v.valuation_sector}
+        else:
+            m = _live_recommend(db, co)
+            if m is None:
+                continue
 
-        row = {
-            # Identity
-            "ticker":    co.ticker,
-            "name":      co.name,
-            "sector":    co.sector,
-            "type":      co.type,
+        verdict = _NORMALIZE_VERDICT.get(m["verdict"], m["verdict"])
+        cons = analyst_consensus(insights_by_cid.get(co.id), price)
 
-            # Real values from DB — used by frontend buildFromApi
-            "shares":      co.shares_outstanding,           # actual shares (cr)
-            "equity":      facts.get(K.NET_WORTH),          # ₹ cr
-            "net_profit":  facts.get(K.NET_PROFIT),         # ₹ cr
-            "revenue":     facts.get(K.REVENUE),            # ₹ cr (non-fin only)
-            "net_debt":    facts.get(K.NET_DEBT),           # ₹ cr (non-fin only)
+        rows.append({
+            "ticker": co.ticker, "name": co.name, "sector": co.sector, "type": co.type,
+            "shares": co.shares_outstanding,
+            "equity": facts.get(K.NET_WORTH), "net_profit": facts.get(K.NET_PROFIT),
+            "revenue": facts.get(K.REVENUE), "net_debt": facts.get(K.NET_DEBT),
+            "aum": facts.get(K.AUM), "gnpa": facts.get(K.GNPA), "nnpa": facts.get(K.NNPA),
+            "crar": facts.get(K.CRAR), "nim": facts.get(K.NIM), "roa": facts.get(K.ROA),
+            "price": price,
+            # INDEPENDENT model (headline)
+            "intrinsic": m["intrinsic"], "mos": m["mos"], "verdict": verdict,
+            "composite": m["composite"], "reliable": m["reliable"],
+            "confidence": m["confidence"], "valuation_sector": m.get("valuation_sector"),
+            "roe": m["roe"], "pb": m["pb"], "pe": m["pe"],
+            # ANALYST consensus (separate; for the consensus column/tab)
+            "analyst": cons,
+            "analyst_target": (cons or {}).get("target"),
+            "analyst_upside": (cons or {}).get("upside"),
+            "analyst_rating": (cons or {}).get("rating"),
+        })
 
-            # NBFC-specific (financial type only)
-            "aum":         facts.get(K.AUM),
-            "gnpa":        facts.get(K.GNPA),
-            "nnpa":        facts.get(K.NNPA),
-            "crar":        facts.get(K.CRAR),
-            "nim":         facts.get(K.NIM),
-            "roa":         facts.get(K.ROA),
-
-            # Market
-            "price":       data["price"],
-
-            # Consensus-anchored screener metrics (match the company pages)
-            "intrinsic":   intrinsic,
-            "mos":         mos,
-            "roe":         f["roe"],
-            "pb":          f["pb"],
-            "pe":          f["pe"],
-            "composite":   rec["composite"],
-            "verdict":     verdict,
-            "confidence":  rec["confidence"]["level"],
-            "confidence_score": rec["confidence"]["score"],
-            "reliable":    rec["reliable"],
-        }
-        rows.append(row)
-
-    # Rank: reliable names first, then by verdict (BUY → AVOID), then by upside,
-    # so the top of the screener surfaces the most attractive consensus-aligned
-    # opportunities instead of an undifferentiated wall of AVOID.
+    # Rank: reliable first, then independent verdict (BUY→AVOID), then upside.
     rows.sort(key=lambda r: (
         r["reliable"],
         _VERDICT_RANK.get(r["verdict"], 0),
@@ -359,15 +222,23 @@ def _get_or_404(db, ticker):
     return co
 
 
+def _consensus_block(db, co, price):
+    ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
+    return analyst_consensus(ins.data if ins else None, price)
+
+
 @app.get("/api/companies/{ticker}")
 def company_detail(ticker: str, db: Session = Depends(get_db)):
     co = _get_or_404(db, ticker)
     data = build_company(db, co)
-    a = assumptions_dict(co.assumptions)
+    # Same INDEPENDENT assumptions the screener uses → company page and screener
+    # now agree exactly. Analyst consensus is returned separately, never blended.
+    a = effective_assumptions(db, co, data)
     rec = engines.recommend(data, a)
     sens = engines.sensitivity(data, a)
     return {"company": _public(data), "assumptions": a,
-            "recommendation": rec, "sensitivity": sens}
+            "recommendation": rec, "sensitivity": sens,
+            "analyst": _consensus_block(db, co, data.get("price"))}
 
 
 @app.post("/api/companies/{ticker}/valuation")
@@ -375,7 +246,10 @@ def recompute(ticker: str, override: AssumptionOverride,
               db: Session = Depends(get_db)):
     co = _get_or_404(db, ticker)
     data = build_company(db, co)
-    a = assumptions_dict(co.assumptions)
+    # Start from the independent derived assumptions, then apply the user's
+    # what-if overrides on top.
+    a = effective_assumptions(db, co, data)
+    a = {k: v for k, v in a.items() if not k.startswith("_")}
     payload = override.dict(exclude_none=True)
     if "price" in payload:
         data["price"] = payload.pop("price")
@@ -383,7 +257,8 @@ def recompute(ticker: str, override: AssumptionOverride,
     rec = engines.recommend(data, a)
     sens = engines.sensitivity(data, a)
     return {"company": _public(data), "assumptions": a,
-            "recommendation": rec, "sensitivity": sens}
+            "recommendation": rec, "sensitivity": sens,
+            "analyst": _consensus_block(db, co, data.get("price"))}
 
 
 @app.post("/api/companies/{ticker}/onepager")
@@ -409,14 +284,15 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
             from app.metrics import compute_metrics
             metrics = compute_metrics(co, facts, {}, price, template)
         except: pass
+        # Use the SAME independent engine as the rest of the terminal (no more
+        # divorced inline DCF).
         intrinsic = None
         try:
-            eq = facts.get("NET_WORTH") or co.shares_outstanding * 200
-            pat = facts.get("NET_PROFIT") or 0
-            ke, g = 0.071 + 0.86 * 0.085, 0.05
-            if eq and pat and ke > g:
-                intrinsic = (eq / co.shares_outstanding) * ((pat/eq) / (ke - g))
-        except: pass
+            data = build_company(db, co)
+            a = effective_assumptions(db, co, data)
+            intrinsic = engines.recommend(data, a).get("intrinsic")
+        except Exception:
+            pass
         pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic, None)
         return Response(content=pdf_bytes, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{co.ticker}_onepager.pdf"',

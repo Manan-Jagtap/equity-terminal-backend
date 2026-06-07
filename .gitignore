@@ -1,9 +1,36 @@
+# ── Python ────────────────────────────────────────────────────────────────
 venv/
-backend/
-*.db
-onepager_out/
-*.pdf
-*.bak.*
-app/**/*.bak.*
+.venv/
 __pycache__/
 *.pyc
+*.py[cod]
+.pytest_cache/
+
+# ── Local databases (prod is Railway Postgres) ──────────────────────────────
+*.db
+terminal.db
+equity_terminal.db
+
+# ── Editor / tooling backups (use git history instead) ──────────────────────
+*.bak
+*.bak.*
+*.bak2
+app/**/*.bak.*
+app/**/*.bak2
+
+# ── Ingestion scratch & API probe dumps (debug only, never shipped) ─────────
+app/ingest/probe_*.py
+app/ingest/*_dump.json
+scratch/
+
+# ── One-pager build output ──────────────────────────────────────────────────
+onepager_out/
+*.pdf
+
+# ── OS noise ────────────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+
+# ── Secrets ─────────────────────────────────────────────────────────────────
+.env
+.env.*

@@ -1,0 +1,204 @@
+"""
+app/derive.py — derive forward valuation drivers from a company's OWN history.
+
+This replaces the previous approach where assumptions came from yfinance `info`
+(stale third-party point estimates, a flat beta of ~1.0 for everyone). Here,
+growth / margins / tax / reinvestment / ROE are computed deterministically from
+the 7-year IndianAPI statements already stored in `historical_financials`, and
+risk (beta), terminal growth and mature returns come from `sector_params`.
+
+The result is an *independent*, reproducible, auditable assumption set: feed the
+same history in and you get the same DCF out — no hidden vendor snapshot.
+
+Public API:
+    derive_assumptions(statements, valuation_sector, is_financial) -> dict
+    where `statements` is { year:int -> { "PL":{...}, "BS":{...}, "CF":{...} } }
+    (exactly the shape build_financials_response produces).
+
+The returned dict is the full assumption block engines.py consumes, plus a
+`_drivers` provenance sub-dict explaining where each number came from.
+"""
+from __future__ import annotations
+from statistics import median
+
+from . import sector_params as SP
+
+
+def _clamp(x, lo, hi):
+    return max(lo, min(hi, x))
+
+
+def _series(statements, stmt, item):
+    """Year-ascending list of (year, value) for a line item, skipping None."""
+    out = []
+    for yr in sorted(statements.keys()):
+        v = (statements.get(yr, {}).get(stmt, {}) or {}).get(item)
+        if v is not None:
+            out.append((int(yr), float(v)))
+    return out
+
+
+def _cagr(series, max_n=4):
+    """CAGR across the available window (capped at max_n years), positive ends only."""
+    if len(series) < 2:
+        return None
+    pts = series[-(max_n + 1):]
+    v0, v1 = pts[0][1], pts[-1][1]
+    n = pts[-1][0] - pts[0][0]
+    if v0 is None or v1 is None or v0 <= 0 or v1 <= 0 or n <= 0:
+        return None
+    return (v1 / v0) ** (1 / n) - 1
+
+
+def _ratio_median(num_series, den_series, lo=None, hi=None, n=3):
+    """Median of num/den over the last n overlapping years."""
+    dn = dict(den_series)
+    vals = []
+    for yr, num in num_series[-n:]:
+        den = dn.get(yr)
+        if den and den != 0:
+            vals.append(num / den)
+    if not vals:
+        return None
+    m = median(vals)
+    if lo is not None or hi is not None:
+        m = _clamp(m, lo if lo is not None else -1e9, hi if hi is not None else 1e9)
+    return m
+
+
+# ── Non-financial driver derivation (FCFF) ─────────────────────────────────
+def _derive_nonfinancial(statements, vs):
+    p = SP.params(vs)
+    drivers = {}
+
+    rev = _series(statements, "PL", "revenue")
+    ebit = _series(statements, "PL", "ebit")
+    ebitda = _series(statements, "PL", "ebitda")
+    pat = _series(statements, "PL", "pat")
+    tax = _series(statements, "PL", "tax")
+    pbt = _series(statements, "PL", "pbt")
+    borrowings = _series(statements, "BS", "borrowings")
+    networth = _series(statements, "BS", "net_worth") or _series(statements, "BS", "equity")
+    interest = _series(statements, "PL", "interest_expense")
+
+    # Near-term revenue growth: blend 3–4yr CAGR with the latest YoY, then cap.
+    cagr = _cagr(rev, max_n=4)
+    yoy = None
+    if len(rev) >= 2 and rev[-2][1] > 0:
+        yoy = rev[-1][1] / rev[-2][1] - 1
+    cand = [g for g in (cagr, yoy) if g is not None]
+    if cand:
+        rev_growth = sum(cand) / len(cand)
+    else:
+        rev_growth = p["terminal_growth"] + 0.03
+    rev_growth = _clamp(rev_growth, 0.02, 0.18)
+    drivers["rev_growth"] = f"blend(CAGR={_pct(cagr)}, YoY={_pct(yoy)}) capped"
+
+    # EBIT margin: median of last 3yr; fall back to EBITDA-derived if EBIT absent.
+    ebit_margin = _ratio_median(ebit, rev, lo=0.02, hi=0.45, n=3)
+    if ebit_margin is None:
+        em = _ratio_median(ebitda, rev, lo=0.04, hi=0.55, n=3)
+        ebit_margin = (em * 0.8) if em else 0.14
+    drivers["ebit_margin"] = "median(EBIT/Rev, 3y)" if ebit else "0.8×median(EBITDA/Rev)"
+
+    # Effective tax rate from PBT (clamp to India statutory band).
+    tax_rate = _ratio_median(tax, pbt, lo=0.12, hi=0.32, n=3) or 0.25
+    drivers["tax_rate"] = "median(Tax/PBT, 3y)"
+
+    # Reinvestment tied to growth and steady-state ROIC (Damodaran identity):
+    #   reinvestment_rate = g / ROIC. Keeps FCFF internally consistent.
+    roic = p["mature_roic"]
+    reinvest_rate = _clamp(rev_growth / roic, 0.10, 0.80) if roic else 0.40
+    drivers["reinvest_rate"] = f"g/ROIC (g={_pct(rev_growth)}, ROIC={_pct(roic)})"
+
+    # Capital structure from the latest balance sheet.
+    debt_weight = 0.15
+    if borrowings and networth:
+        b = borrowings[-1][1]
+        e = networth[-1][1]
+        if b is not None and e and (b + e) > 0:
+            debt_weight = _clamp(b / (b + e), 0.0, 0.60)
+    drivers["debt_weight"] = "borrowings/(borrowings+net worth), latest"
+
+    cost_debt = 0.085
+    if interest and borrowings:
+        cd = _ratio_median(interest, borrowings, lo=0.06, hi=0.12, n=2)
+        if cd:
+            cost_debt = cd
+
+    return {
+        "beta": p["beta"], "risk_free": SP.RISK_FREE, "erp": SP.ERP,
+        "rev_growth": round(rev_growth, 4),
+        "ebit_margin": round(ebit_margin, 4),
+        "tax_rate": round(tax_rate, 4),
+        "reinvest_rate": round(reinvest_rate, 4),
+        "debt_weight": round(debt_weight, 4),
+        "cost_debt": round(cost_debt, 4),
+        "fade_years": 8,
+        "terminal_growth": p["terminal_growth"],
+        # RI fields unused for non-financials but kept for a uniform dict:
+        "forecast_roe": 0.15, "terminal_roe": p["mature_roe"], "payout": 0.25,
+        "_drivers": drivers, "_valuation_sector": vs,
+    }
+
+
+# ── Financial driver derivation (Residual Income) ──────────────────────────
+def _derive_financial(statements, vs):
+    p = SP.params(vs)
+    drivers = {}
+
+    pat = _series(statements, "PL", "pat")
+    # CRITICAL: ROE must use NET WORTH, never share capital.
+    networth = _series(statements, "BS", "net_worth") or _series(statements, "BS", "reserves")
+    dividends = _series(statements, "CF", "dividends")
+
+    # 5-year window so a single transition year (e.g. a post-merger ROE dip)
+    # doesn't define the franchise's normalized return.
+    forecast_roe = _ratio_median(pat, networth, lo=0.06, hi=0.30, n=5)
+    if forecast_roe is None:
+        forecast_roe = p["mature_roe"]
+    drivers["forecast_roe"] = "median(PAT/NetWorth, 5y)"
+
+    # Fade realized ROE toward the sector's mature ROE (weighted to mature so a
+    # quality franchise isn't penalised for a temporarily depressed year).
+    terminal_roe = _clamp(0.4 * forecast_roe + 0.6 * p["mature_roe"], 0.10, 0.22)
+    drivers["terminal_roe"] = "0.4×realized + 0.6×sector mature ROE"
+
+    # Payout from dividends/PAT (dividends stored negative in CF → abs).
+    payout = 0.20
+    if dividends and pat:
+        dp = dict(pat)
+        vals = []
+        for yr, dv in dividends[-3:]:
+            pp = dp.get(yr)
+            if pp and pp > 0:
+                vals.append(min(abs(dv) / pp, 0.95))
+        if vals:
+            payout = _clamp(median(vals), 0.0, 0.70)
+    drivers["payout"] = "median(|Dividends|/PAT, 3y)"
+
+    return {
+        "beta": p["beta"], "risk_free": SP.RISK_FREE, "erp": SP.ERP,
+        "forecast_roe": round(forecast_roe, 4),
+        "terminal_roe": round(terminal_roe, 4),
+        "payout": round(payout, 4),
+        "fade_years": 8,
+        "terminal_growth": p["terminal_growth"],
+        # FCFF fields unused for financials but kept for a uniform dict:
+        "rev_growth": 0.10, "ebit_margin": 0.12, "tax_rate": 0.25,
+        "reinvest_rate": 0.35, "debt_weight": 0.20, "cost_debt": 0.085,
+        "_drivers": drivers, "_valuation_sector": vs,
+    }
+
+
+def derive_assumptions(statements: dict, valuation_sector: str,
+                       is_financial: bool) -> dict:
+    """Derive the full assumption block from stored history + sector params."""
+    statements = statements or {}
+    if is_financial:
+        return _derive_financial(statements, valuation_sector)
+    return _derive_nonfinancial(statements, valuation_sector)
+
+
+def _pct(x):
+    return f"{x*100:.1f}%" if isinstance(x, (int, float)) else "n/a"

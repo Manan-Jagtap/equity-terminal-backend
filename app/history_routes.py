@@ -79,6 +79,14 @@ def financial_history(ticker: str, db: Session = Depends(get_db)):
     resp["ticker"] = co.ticker
     resp["name"] = co.name
     resp["type"] = co.type
+    # Data-integrity tie-outs (balance sheet balances, PAT reconciles, etc.) so
+    # the UI can flag "numbers don't tie" instead of silently showing a bad one.
+    try:
+        from app.validation import validate_statements, validation_summary
+        checks = validate_statements(resp.get("statements", {}), resp.get("is_financial", False))
+        resp["validation"] = validation_summary(checks)
+    except Exception:
+        resp["validation"] = None
     return resp
 
 

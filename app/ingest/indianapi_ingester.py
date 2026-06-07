@@ -405,6 +405,62 @@ _STMT_FACT_MAP = {
 }
 
 
+# Bank/NBFC P&L line items that the Reuters INC block in /stock does NOT carry
+# (it only yields pbt/tax/pat for lenders). We pull them from /statement, where
+# IndianAPI exposes the Screener-style bank P&L: interest earned, interest
+# expended, operating expenses, provisions, other income.
+_FIN_PL_KEYS = {
+    "interest_income":   ("revenue", "sales", "interest_earned", "interest_income", "total_revenue"),
+    "interest_expense":  ("interest", "interest_expended", "interest_expense", "finance_cost"),
+    "other_income":      ("other_income",),
+    "opex":              ("expenses", "operating_expenses", "operating_cost", "other_expenses"),
+    "provisions":        ("provisions", "provisions_and_contingencies", "provisioning"),
+    "pbt":               ("profit_before_tax",),
+    "tax":               ("tax",),
+    "pat":               ("net_profit",),
+}
+
+
+def _financial_pl_supplement(s, co):
+    """For BANK/NBFC/INSURANCE companies, enrich the latest-year P&L with the
+    lender-specific lines (interest income/expense, NII, opex, provisions) that
+    /stock omits. ADDITIVE: only fills items not already present, so it never
+    clobbers /stock data. NII is derived = interest income − interest expense."""
+    ticker = (co.ticker or "").upper()
+    import datetime
+    year = datetime.date.today().year
+    wrote = 0
+    # Prefer the annual profit & loss; fall back to the latest quarter.
+    for stat in ("profit_loss", "quarter_results"):
+        r = _get_safe("/statement", {"stock_name": ticker, "stats": stat})
+        if not isinstance(r, dict):
+            continue
+        vals = {}
+        for canon, keys in _FIN_PL_KEYS.items():
+            for k in keys:
+                v = _num(r.get(k))
+                if v is not None:
+                    vals[canon] = v
+                    break
+        # Net interest income = interest earned − interest expended.
+        if "interest_income" in vals and "interest_expense" in vals:
+            vals["nii"] = vals["interest_income"] - vals["interest_expense"]
+        # total income = NII + other income (best-effort).
+        if "nii" in vals and "other_income" in vals:
+            vals["total_income"] = vals["nii"] + vals["other_income"]
+        for canon, v in vals.items():
+            # additive: skip if a real /stock value already exists for this year
+            existing = (s.query(models.HistoricalFinancial)
+                          .filter_by(company_id=co.id, fiscal_year=year,
+                                     statement_type="PL", line_item=canon).first())
+            if existing is None:
+                _upsert_hist(s, co.id, year, "PL", canon, v)
+                wrote += 1
+        if wrote:
+            break
+    return wrote
+
+
 def _insurer_statements(s, co):
     """Fallback statements via /statement for companies /stock can't cover."""
     ticker = (co.ticker or "").upper()
@@ -459,6 +515,17 @@ def ingest_company(s, co, dump=False, insights=True):
                 print(f"    insurer fallback → {w} line items via /statement")
         except Exception as e:
             print(f"    insurer fallback failed — {e}")
+
+    # Banks/NBFCs: supplement the lender P&L (interest income/expense, NII,
+    # provisions, opex) that /stock doesn't carry. Additive, so it's safe even
+    # when /stock already gave some years.
+    if (co.type == "financial") or (co.template_code in ("BANK", "NBFC", "INSURANCE")):
+        try:
+            w = _financial_pl_supplement(s, co)
+            if w:
+                print(f"    financial P&L supplement → {w} lender line items")
+        except Exception as e:
+            print(f"    financial P&L supplement failed — {e}")
 
     status = ""
     if insights:
