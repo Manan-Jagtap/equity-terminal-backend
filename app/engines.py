@@ -5,6 +5,11 @@ Fixed: handles None values for NBFC metrics on bulk-ingested companies.
 from typing import Dict, List
 from . import sector_params as SP
 
+# Diversified conglomerates / incubators that no single-sector model can value —
+# their parts trade on different economics, so the blended DCF/RI is wrong by
+# construction and they're surfaced as LOW CONF (need sum-of-the-parts).
+_CONGLOMERATES = {"RELIANCE", "ADANIENT"}
+
 
 def safe(val, default=0.0):
     """Return val if not None, else default."""
@@ -373,13 +378,24 @@ def recommend(co: Dict, a: Dict) -> Dict:
     elif f["roe"] is not None and 0 < f["roe"] < 0.04:
         # Negligible current returns (early-stage / pre-profit growth names like
         # Eternal/Zomato, Jio Financial). A DCF/RI built on near-zero earnings is
-        # meaningless — don't show a confident AVOID. (Conglomerates/incubators
-        # such as Adani Enterprises also belong here but need SOTP to detect.)
+        # meaningless — don't show a confident AVOID.
         verdict = "LOW CONF"
         reliable = False
         reasons.append({"label": "Model", "score": 50,
                         "note": "Early-stage / negligible current earnings — intrinsic "
                                 "model unreliable on near-zero ROE.",
+                        "good": False, "bad": True})
+    elif co.get("ticker") in _CONGLOMERATES:
+        # Diversified holding companies / incubators (Reliance: oil+telecom+retail;
+        # Adani Enterprises: an incubator). No single sector model fits — the parts
+        # trade on completely different economics, so a one-engine DCF is wrong by
+        # construction (it ignores Jio/Retail for RIL, the pipeline for ADANIENT).
+        # These need sum-of-the-parts, which we don't model — so flag, don't AVOID.
+        verdict = "LOW CONF"
+        reliable = False
+        reasons.append({"label": "Model", "score": 50,
+                        "note": "Diversified conglomerate — needs sum-of-the-parts; a "
+                                "single-sector DCF understates it. Model unreliable here.",
                         "good": False, "bad": True})
 
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
