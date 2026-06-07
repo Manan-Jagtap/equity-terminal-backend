@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
 
 from app.ingest.indianapi_ingester import run as indianapi_run, run_intraday, KEY
-from app.ingest.compute_valuations import run as compute_valuations
+from app.ingest.compute_valuations import run as compute_valuations, refresh_mos
 from app.ingest.reclassify import run as reclassify
 
 
@@ -55,12 +55,12 @@ def run_prices():
 
 
 def run_intraday_prices():
-    """Quota-safe intraday spot-price refresh — ONE batch call updates all 50.
-    Only fires during NSE market hours (9:15-15:30 IST = 03:45-10:00 UTC, Mon-Fri),
-    so off-hours ticks cost nothing. After updating prices it recomputes the
-    valuations (pure local, no API) so the screener's MoS tracks the live price."""
-    import datetime
-    now = datetime.datetime.utcnow()
+    """Intraday spot-price refresh — ONE batched Yahoo call updates all 50, then
+    a CHEAP mos/verdict refresh (no DCF re-run — intrinsic doesn't move with
+    price). Only fires during NSE market hours (9:15-15:30 IST = 03:45-10:00 UTC,
+    Mon-Fri), so off-hours ticks cost nothing."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
     if now.weekday() >= 5:
         return
     mins = now.hour * 60 + now.minute
@@ -69,8 +69,8 @@ def run_intraday_prices():
     try:
         n = run_intraday()
         if n:
-            run_compute(nifty50=True)
-        log.info(f"Intraday price refresh: {n} prices updated.")
+            refresh_mos()                          # cheap: mos/verdict only
+        log.info(f"Intraday price refresh: {n} prices updated (yfinance).")
     except Exception as e:
         log.error(f"Intraday price refresh failed: {e}")
 
@@ -183,17 +183,16 @@ elif _flag("RUN_COMPUTE_NOW"):
     except Exception as e:
         log.error(f"Compute failed: {e}")
 elif _flag("RUN_INTRADAY_NOW"):
-    # One-off test/probe of the batch live-price endpoint. Logs the raw shape so
-    # we can confirm the parser, then updates prices + recomputes once.
-    log.info("RUN_INTRADAY_NOW set — probing the batch live-price endpoint…")
+    # One-off test of the yfinance live-price path: fetch all 50, update prices,
+    # cheap mos/verdict refresh.
+    log.info("RUN_INTRADAY_NOW set — testing the yfinance live-price refresh…")
     try:
         n = run_intraday(debug=True)
-        log.info(f"Intraday probe: {n} prices updated.")
         if n:
-            run_compute(nifty50=True)
-        log.info("Done. Remove RUN_INTRADAY_NOW from Variables now.")
+            refresh_mos()
+        log.info(f"Intraday test: {n} prices updated. Remove RUN_INTRADAY_NOW now.")
     except Exception as e:
-        log.error(f"Intraday probe failed: {e}")
+        log.error(f"Intraday test failed: {e}")
 elif _flag("RUN_FULL_NOW"):
     log.info("RUN_FULL_NOW set — running a one-off FULL refresh now (server-side)…")
     try:

@@ -649,89 +649,64 @@ NIFTY_50 = {
 }
 
 
-# ── Intraday spot-price refresh (single batch call, quota-safe) ──────────────
+# ── Intraday spot-price refresh (yfinance — all 50 in ONE batched call) ──────
+# IndianAPI has no all-50 batch live-price endpoint (confirmed: only the top-10
+# NSE_most_active, or per-company /stock). Yahoo, via yfinance, returns every
+# NSE quote in a single batched request — free, no API key, no IndianAPI quota.
+# We use it ONLY for the live spot price; all fundamentals still come from
+# IndianAPI (yfinance fundamentals were the inaccurate source we migrated off).
 
-def _norm(s):
-    return re.sub(r"[^a-z0-9]", "", (s or "").lower()).replace("limited", "").replace("ltd", "")
-
-# Endpoints to try for an all-in-one NSE live-price batch (first that yields a
-# usable list of rows wins). The exact path/shape varies by IndianAPI plan, so
-# we probe defensively and log the raw shape on the one-off RUN_INTRADAY_NOW.
-_BATCH_PATHS = ("/nse_stock_batch_live_price", "/stock_batch_live_price",
-                "/NSE_most_active", "/trending")
-
-
-def _row_price(row):
-    for k in ("ltp", "lastPrice", "last_price", "price", "currentPrice", "nsePrice", "close"):
-        v = row.get(k)
-        if isinstance(v, dict):
-            v = v.get("NSE") or v.get("BSE")
-        n = _num(v)
-        if n:
-            return n
-    return None
-
-
-def _extract_rows(r):
-    if isinstance(r, list):
-        return [x for x in r if isinstance(x, dict)]
-    if isinstance(r, dict):
-        for k in ("data", "stocks", "results", "body", "NSE", "trending_stocks", "top_gainers"):
-            v = r.get(k)
-            if isinstance(v, list):
-                return [x for x in v if isinstance(x, dict)]
-            if isinstance(v, dict):
-                inner = _extract_rows(v)
-                if inner:
-                    return inner
-    return []
-
-
-def _batch_live_prices(debug=False):
-    import json as _json
-    for path in _BATCH_PATHS:
-        r = _get_safe(path, {})
-        rows = _extract_rows(r)
+def _yf_live_prices(tickers, debug=False):
+    """All NSE spot prices in ONE batched Yahoo call → {OUR_TICKER: price}.
+    Yahoo uses the .NS suffix; we map back to the bare NSE symbol we store."""
+    import yfinance as yf
+    yf_syms = {f"{t}.NS": t for t in tickers}
+    try:
+        df = yf.download(list(yf_syms.keys()), period="1d", interval="5m",
+                         progress=False, threads=True)
+    except Exception as e:
         if debug:
-            samp = _json.dumps(rows[0])[:320] if rows else _json.dumps(r)[:200]
-            print(f"  [intraday probe] {path}: {('list of ' + str(len(rows))) if rows else 'no rows'} · {samp}")
-        if rows:
-            return rows
-    return []
+            print(f"  [intraday] yfinance download failed: {type(e).__name__}: {e}")
+        return {}
+    out = {}
+    try:
+        close = df["Close"]
+        if hasattr(close, "columns"):              # multi-ticker → DataFrame
+            for ysym in close.columns:
+                s = close[ysym].dropna()
+                if len(s):
+                    out[yf_syms.get(ysym, ysym)] = round(float(s.iloc[-1]), 2)
+        else:                                      # single ticker → Series
+            s = close.dropna()
+            if len(s):
+                out[list(yf_syms.values())[0]] = round(float(s.iloc[-1]), 2)
+    except Exception as e:
+        if debug:
+            print(f"  [intraday] yfinance parse failed: {type(e).__name__}: {e}")
+    if debug:
+        print(f"  [intraday] yfinance returned {len(out)}/{len(tickers)} live prices")
+    return out
 
 
 def run_intraday(debug=False):
-    """Refresh Nifty 50 spot prices from a single batch live-price call. Returns
-    the number of prices updated. Pure price update (no statements/insights), so
-    it's cheap enough to run every ~15 min during market hours."""
-    rows = _batch_live_prices(debug=debug)
-    if not rows:
+    """Refresh Nifty 50 spot prices from a single batched Yahoo call. Pure price
+    update — no statements/insights — so it's cheap to run every ~15 min during
+    market hours. Returns the number of prices updated."""
+    prices = _yf_live_prices(sorted(NIFTY_50), debug=debug)
+    if not prices:
         return 0
     s = SessionLocal()
     try:
-        companies = s.query(models.Company).all()
-        by_id = {c.id: c for c in companies}
-        by_ticker = {(c.ticker or "").upper(): c for c in companies}
-        by_name = {_norm(c.name): c for c in companies}
-        by_tid = {}
-        for ins in s.query(models.CompanyInsight).all():
-            if ins.ticker_id and ins.company_id in by_id:
-                by_tid[str(ins.ticker_id)] = by_id[ins.company_id]
+        by_ticker = {(c.ticker or "").upper(): c for c in s.query(models.Company).all()}
         updated = 0
-        for row in rows:
-            price = _row_price(row)
-            if not price:
-                continue
-            co = (by_tid.get(str(row.get("tickerId") or row.get("ticker_id") or ""))
-                  or by_ticker.get(str(row.get("symbol") or row.get("ticker")
-                                       or row.get("nseScripCode") or "").upper())
-                  or by_name.get(_norm(row.get("companyName") or row.get("company") or row.get("name"))))
-            if not co:
+        for tk, price in prices.items():
+            co = by_ticker.get(tk.upper())
+            if not co or not price:
                 continue
             if co.market:
-                co.market.price = round(float(price), 2)
+                co.market.price = price
             else:
-                s.add(models.MarketSnapshot(company_id=co.id, price=round(float(price), 2)))
+                s.add(models.MarketSnapshot(company_id=co.id, price=price))
             updated += 1
         s.commit()
         return updated

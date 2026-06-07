@@ -87,6 +87,55 @@ def _compute_one(company_id, retries=3):
     return "neterr"
 
 
+def _verdict_from(mos, composite, reliable, current):
+    """Recompute the verdict from a NEW margin of safety, preserving the model's
+    special states (LOW CONF / NO DATA — insurers, conglomerates, early-stage)
+    that don't depend on price. Mirrors engines.recommend's verdict bands."""
+    if current in ("LOW CONF", "NO DATA"):
+        return current
+    if mos is None:
+        return "NO DATA"
+    if not reliable:
+        return "LOW CONF"
+    if (composite or 0) >= 68 and mos > 0.15:
+        return "BUY"
+    if (composite or 0) >= 58 and mos > 0.05:
+        return "ACCUMULATE"
+    if mos >= -0.10:
+        return "HOLD"
+    if mos >= -0.25:
+        return "REDUCE"
+    return "AVOID"
+
+
+def refresh_mos():
+    """CHEAP intraday update: a price tick doesn't move the intrinsic (that's
+    derived from fundamentals), only the margin of safety and verdict. So we
+    recompute ONLY mos + verdict from the new price and the EXISTING precomputed
+    intrinsic — no DCF re-run. Milliseconds, not the full ~minute recompute."""
+    from app import models
+    db = SessionLocal()
+    try:
+        price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+        n = 0
+        for v in db.query(models.Valuation).all():
+            price = price_by.get(v.company_id)
+            if not price or v.intrinsic is None:
+                continue
+            v.mos = v.intrinsic / price - 1
+            v.verdict = _verdict_from(v.mos, v.composite, bool(v.reliable), v.verdict)
+            n += 1
+        db.commit()
+        return n
+    except Exception as e:
+        try: db.rollback()
+        except Exception: pass
+        print(f"  refresh_mos failed: {type(e).__name__}: {e}")
+        return 0
+    finally:
+        db.close()
+
+
 def run(nifty50: bool = False):
     """Precompute the blended valuations into the `valuations` cache.
 
