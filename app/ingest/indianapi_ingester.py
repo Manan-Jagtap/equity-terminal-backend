@@ -409,28 +409,31 @@ _STMT_FACT_MAP = {
 # (it only yields pbt/tax/pat for lenders). We pull them from /statement, where
 # IndianAPI exposes the Screener-style bank P&L: interest earned, interest
 # expended, operating expenses, provisions, other income.
+# ONLY lender-specific lines that /stock does NOT carry. We deliberately do NOT
+# include pbt/tax/pat here — /stock already provides those (at the correct annual
+# scale); re-adding them from /statement would both collide on the unique key and
+# risk mixing a quarterly figure with annual ones.
 _FIN_PL_KEYS = {
     "interest_income":   ("revenue", "sales", "interest_earned", "interest_income", "total_revenue"),
     "interest_expense":  ("interest", "interest_expended", "interest_expense", "finance_cost"),
     "other_income":      ("other_income",),
     "opex":              ("expenses", "operating_expenses", "operating_cost", "other_expenses"),
     "provisions":        ("provisions", "provisions_and_contingencies", "provisioning"),
-    "pbt":               ("profit_before_tax",),
-    "tax":               ("tax",),
-    "pat":               ("net_profit",),
 }
 
 
-def _financial_pl_supplement(s, co):
-    """For BANK/NBFC/INSURANCE companies, enrich the latest-year P&L with the
-    lender-specific lines (interest income/expense, NII, opex, provisions) that
-    /stock omits. ADDITIVE: only fills items not already present, so it never
-    clobbers /stock data. NII is derived = interest income − interest expense."""
+def _financial_pl_supplement(s, co, year):
+    """For BANK/NBFC/INSURANCE companies, enrich the given fiscal year's P&L with
+    the lender-specific lines (interest income/expense, NII, opex, provisions)
+    that /stock omits. STRICTLY ADDITIVE: only writes a line if it isn't already
+    present for that year, so it never collides with or clobbers /stock data.
+    Requires the caller to have flushed prior inserts (autoflush is off), so the
+    existence checks below actually see them."""
     ticker = (co.ticker or "").upper()
-    import datetime
-    year = datetime.date.today().year
+    if not year:
+        import datetime
+        year = datetime.date.today().year
     wrote = 0
-    # Prefer the annual profit & loss; fall back to the latest quarter.
     for stat in ("profit_loss", "quarter_results"):
         r = _get_safe("/statement", {"stock_name": ticker, "stats": stat})
         if not isinstance(r, dict):
@@ -442,14 +445,27 @@ def _financial_pl_supplement(s, co):
                 if v is not None:
                     vals[canon] = v
                     break
-        # Net interest income = interest earned − interest expended.
+        # ── Annual-scale guard ──────────────────────────────────────────────
+        # /statement sometimes returns the latest QUARTER, not the annual P&L.
+        # For a lender, ANNUAL interest income must exceed both annual interest
+        # expense AND annual PAT (it's the gross top line). If it doesn't, these
+        # are sub-annual figures — skip rather than mix quarterly lines into the
+        # annual statement.
+        ii = vals.get("interest_income")
+        ie = vals.get("interest_expense")
+        pat_row = (s.query(models.HistoricalFinancial)
+                     .filter_by(company_id=co.id, fiscal_year=year,
+                                statement_type="PL", line_item="pat").first())
+        pat_annual = pat_row.value if pat_row else None
+        if ii is None or (ie is not None and ii <= ie) or \
+           (pat_annual is not None and ii <= pat_annual):
+            continue   # not annual-scale (or no interest income) → try next stat
+
         if "interest_income" in vals and "interest_expense" in vals:
             vals["nii"] = vals["interest_income"] - vals["interest_expense"]
-        # total income = NII + other income (best-effort).
         if "nii" in vals and "other_income" in vals:
             vals["total_income"] = vals["nii"] + vals["other_income"]
         for canon, v in vals.items():
-            # additive: skip if a real /stock value already exists for this year
             existing = (s.query(models.HistoricalFinancial)
                           .filter_by(company_id=co.id, fiscal_year=year,
                                      statement_type="PL", line_item=canon).first())
@@ -516,25 +532,41 @@ def ingest_company(s, co, dump=False, insights=True):
         except Exception as e:
             print(f"    insurer fallback failed — {e}")
 
+    # Commit the CORE statements + facts + price FIRST, in their own transaction.
+    # This way a later optional stage (lender supplement, insights) that errors
+    # can be rolled back WITHOUT losing the authoritative /stock data.
+    s.commit()
+
     # Banks/NBFCs: supplement the lender P&L (interest income/expense, NII,
-    # provisions, opex) that /stock doesn't carry. Additive, so it's safe even
-    # when /stock already gave some years.
+    # provisions, opex) that /stock doesn't carry. STRICTLY ADDITIVE; written to
+    # the SAME latest fiscal year as /stock. Isolated commit so a failure here
+    # never touches the core statements above.
     if (co.type == "financial") or (co.template_code in ("BANK", "NBFC", "INSURANCE")):
         try:
-            w = _financial_pl_supplement(s, co)
+            latest_year = (s.query(models.HistoricalFinancial.fiscal_year)
+                             .filter_by(company_id=co.id, statement_type="PL")
+                             .order_by(models.HistoricalFinancial.fiscal_year.desc())
+                             .first())
+            latest_year = latest_year[0] if latest_year else None
+            w = _financial_pl_supplement(s, co, latest_year)
             if w:
-                print(f"    financial P&L supplement → {w} lender line items")
+                s.commit()
+                print(f"    financial P&L supplement → {w} lender line items (FY{latest_year})")
+            else:
+                s.rollback()
         except Exception as e:
+            s.rollback()
             print(f"    financial P&L supplement failed — {e}")
 
     status = ""
     if insights:
         try:
             status = "  ·  " + _build_insight(s, co, stock, debug=dump)
+            s.commit()
         except Exception as e:
+            s.rollback()
             status = f"  ·  insight skipped ({type(e).__name__})"
 
-    s.commit()
     print(f"    price ✓ ₹{price} · {n} fiscal years · shares {co.shares_outstanding}{status}")
     return True
 
