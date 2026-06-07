@@ -358,6 +358,17 @@ def recommend(co: Dict, a: Dict) -> Dict:
                         "note": "Life insurer — value is embedded value, not book; "
                                 "RI/P-B/P-E understate it. Model not reliable here.",
                         "good": False, "bad": True})
+    elif f["roe"] is not None and 0 < f["roe"] < 0.04:
+        # Negligible current returns (early-stage / pre-profit growth names like
+        # Eternal/Zomato, Jio Financial). A DCF/RI built on near-zero earnings is
+        # meaningless — don't show a confident AVOID. (Conglomerates/incubators
+        # such as Adani Enterprises also belong here but need SOTP to detect.)
+        verdict = "LOW CONF"
+        reliable = False
+        reasons.append({"label": "Model", "score": 50,
+                        "note": "Early-stage / negligible current earnings — intrinsic "
+                                "model unreliable on near-zero ROE.",
+                        "good": False, "bad": True})
 
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
             "intrinsic": iv, "confidence": conf, "reliable": reliable,

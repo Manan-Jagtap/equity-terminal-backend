@@ -109,7 +109,12 @@ _RULES: list[tuple[str, str]] = [
     # Utilities / power
     ("electric utilit", "UTILITIES"), ("utilities", "UTILITIES"), ("power", "UTILITIES"),
     ("renewable", "UTILITIES"),
-    # Energy / oil & gas / coal
+    # Energy / oil & gas / coal. NOTE: the IndianAPI sector string is
+    # "Oil Gas & Consumable Fuels" — without an ampersand between oil and gas —
+    # so the plain "oil gas" / "consumable fuels" keys are what actually match
+    # ONGC, Coal India, BPCL etc. (they were silently falling through to
+    # MANUFACTURING, which gave them rich multiples and absurd +100% upside).
+    ("oil gas", "ENERGY"), ("consumable fuels", "ENERGY"),
     ("oil & gas", "ENERGY"), ("oil and gas", "ENERGY"), ("petroleum", "ENERGY"),
     ("refiner", "ENERGY"), ("gas distribut", "ENERGY"), ("coal", "ENERGY"), ("energy", "ENERGY"),
     # Metals / mining
