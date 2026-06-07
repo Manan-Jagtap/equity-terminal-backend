@@ -84,13 +84,21 @@ def _compute_one(company_id, retries=3):
 
 
 def run():
-    # Make sure the target table exists before we compute (the scheduler's DB
-    # role may not have been able to create it; try explicitly and report).
+    # The `valuations` table is a DISPOSABLE cache. Drop & recreate it so its
+    # schema always matches the current model. (create_all/checkfirst only
+    # CREATES missing tables — it never ALTERs an existing one to add new
+    # columns, which is exactly the "column valuations.X does not exist" failure
+    # that occurs when the model gains a column after the table was first made.)
     try:
-        models.Valuation.__table__.create(bind=engine, checkfirst=True)
+        models.Valuation.__table__.drop(bind=engine, checkfirst=True)
+        print("  dropped stale 'valuations' table")
     except Exception as e:
-        print(f"  ! could not ensure 'valuations' table exists: {type(e).__name__}: {e}")
-        print("    (the web service creates it on boot — deploy the API service, then re-run.)")
+        print(f"  (could not drop 'valuations' — continuing: {type(e).__name__}: {e})")
+    try:
+        models.Valuation.__table__.create(bind=engine)
+        print("  recreated 'valuations' table with current schema")
+    except Exception as e:
+        print(f"  ! could not (re)create 'valuations': {type(e).__name__}: {e}")
 
     db = SessionLocal()
     try:
