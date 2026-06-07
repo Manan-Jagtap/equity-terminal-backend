@@ -18,7 +18,7 @@ Run:
 import os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from sqlalchemy.exc import InterfaceError, OperationalError, DBAPIError
+from sqlalchemy.exc import InterfaceError, OperationalError, ProgrammingError
 from app.database import SessionLocal, engine, Base
 from app import models, engines
 from app.assemble import build_company, effective_assumptions
@@ -26,7 +26,10 @@ from app.consensus import analyst_consensus
 
 Base.metadata.create_all(bind=engine)
 
-_TRANSIENT = (InterfaceError, OperationalError, DBAPIError, ConnectionError, BrokenPipeError)
+# Only genuinely transient (network) errors get retried. A ProgrammingError
+# (e.g. missing table / bad SQL) is persistent — retrying it just wastes time,
+# so we surface its real message instead.
+_TRANSIENT = (InterfaceError, OperationalError, ConnectionError, BrokenPipeError)
 
 
 def _payload(co, data, rec, insight_data):
@@ -81,6 +84,14 @@ def _compute_one(company_id, retries=3):
 
 
 def run():
+    # Make sure the target table exists before we compute (the scheduler's DB
+    # role may not have been able to create it; try explicitly and report).
+    try:
+        models.Valuation.__table__.create(bind=engine, checkfirst=True)
+    except Exception as e:
+        print(f"  ! could not ensure 'valuations' table exists: {type(e).__name__}: {e}")
+        print("    (the web service creates it on boot — deploy the API service, then re-run.)")
+
     db = SessionLocal()
     try:
         # Only companies that actually have market data (skip un-ingested seeds).

@@ -116,6 +116,16 @@ if _flag("RUN_BOOTSTRAP_NOW"):
         log.info("Bootstrap done. Remove RUN_BOOTSTRAP_NOW from Variables now.")
     except Exception as e:
         log.error(f"Bootstrap failed: {e}")
+elif _flag("RUN_COMPUTE_NOW"):
+    # Recompute valuations ONLY — pure local computation, no IndianAPI calls, no
+    # quota. Use this after the API service has deployed (which creates the
+    # `valuations` table) to populate the precomputed cache server-side.
+    log.info("RUN_COMPUTE_NOW set — recomputing valuations only (no API calls)…")
+    try:
+        run_compute()
+        log.info("Compute done. Remove RUN_COMPUTE_NOW from Variables now.")
+    except Exception as e:
+        log.error(f"Compute failed: {e}")
 elif _flag("RUN_FULL_NOW"):
     log.info("RUN_FULL_NOW set — running a one-off FULL refresh now (server-side)…")
     try:

@@ -99,7 +99,14 @@ def list_companies(db: Session = Depends(get_db)):
     rows = []
     insights_by_cid = {r.company_id: r.data for r in db.query(models.CompanyInsight).all() if r.data}
     # Prefer precomputed independent valuations (instant); fall back to live.
-    val_by_cid = {v.company_id: v for v in db.query(models.Valuation).all()}
+    # Resilient: if the `valuations` table doesn't exist yet (fresh deploy before
+    # the first precompute), don't 500 — just compute live for every row.
+    val_by_cid = {}
+    try:
+        val_by_cid = {v.company_id: v for v in db.query(models.Valuation).all()}
+    except Exception:
+        db.rollback()   # clear the aborted transaction so live queries still work
+        val_by_cid = {}
 
     companies = db.query(models.Company).join(models.MarketSnapshot).all()
     for co in companies:
