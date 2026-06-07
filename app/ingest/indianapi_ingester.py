@@ -306,22 +306,30 @@ def _growth(ticker):
 
 
 def _parse_hist_series(r):
-    """Pull [{date, value}, …] from the common IndianAPI/Screener historical
-    shapes (datasets→values pairs, or a flat {date: value} map)."""
+    """Pull [{date, value}, …] from the IndianAPI/Screener historical shapes.
+
+    The P/E response bundles SEVERAL datasets (the price-derived P/E line, an EPS
+    line, a flat median marker). They must NOT be merged — that contaminated the
+    band (EPS pushed the max to absurd levels). We pick the SINGLE dataset with
+    the most points: the actual P/E line is daily/weekly (hundreds of points)
+    while EPS/median are quarterly or 2-point lines."""
     if not r:
         return None
     if isinstance(r, dict):
         ds = r.get("datasets") or (r.get("body") or {}).get("datasets")
-        if isinstance(ds, list):
-            vals = []
+        if isinstance(ds, list) and ds:
+            best = None
             for d in ds:
+                vals = []
                 for pair in (d.get("values") or []):
                     if isinstance(pair, (list, tuple)) and len(pair) >= 2:
                         v = _num(pair[1])
-                        if v is not None:
+                        if v is not None and 0 < v < 300:   # drop loss-year / junk multiples
                             vals.append({"date": str(pair[0]), "value": v})
-            if vals:
-                return vals
+                if vals and (best is None or len(vals) > len(best)):
+                    best = vals
+            if best:
+                return best
         body = r.get("body") if isinstance(r.get("body"), dict) else r
         vals = [{"date": str(k), "value": _num(v)} for k, v in body.items() if _num(v) is not None]
         if vals:
