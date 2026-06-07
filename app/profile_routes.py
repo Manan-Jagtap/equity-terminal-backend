@@ -143,39 +143,18 @@ def _key_facts(stock):
     }
 
 
-def _resolve_summary(val):
-    """IndianAPI returns the concall 'ai summary' as a PATH (e.g.
-    /concalls/summary/12345/), not text. Resolve it to the actual summary text,
-    handling whatever response shape it returns. Best-effort — returns None on
-    any failure so the UI degrades gracefully."""
-    if not isinstance(val, str) or not val.strip():
-        return None
-    if not val.startswith("/"):
-        return val.strip() if len(val.strip()) > 40 else None
-    try:
-        data = _get(val, {})
-    except Exception:
-        return None
-    if isinstance(data, str):
-        return data.strip() or None
-    if isinstance(data, dict):
-        for k in ("summary", "ai_summary", "ai summary", "text", "content", "data"):
-            v = data.get(k)
-            if isinstance(v, str) and v.strip():
-                return v.strip()
-    if isinstance(data, list) and data and all(isinstance(x, str) for x in data):
-        return " ".join(data).strip() or None
-    return None
-
-
 def _concalls(name):
     out = []
-    for i, c in enumerate(_as_list(_get("/concalls", {"stock_name": name}))[:8]):
+    for c in _as_list(_get("/concalls", {"stock_name": name}))[:8]:
         if not isinstance(c, dict):
             continue
-        # Resolve the AI summary text for the latest 3 calls only (each is an
-        # extra upstream call; older calls keep just their links).
-        summ = _resolve_summary(c.get("ai summary")) if i < 3 else None
+        # IndianAPI returns the 'ai summary' as a PATH, not text. Resolving it
+        # required extra synchronous upstream calls that made /profile hang and
+        # burned quota — so we DON'T fetch it here. Pass text through only if it
+        # already is text; drop bare paths (the frontend hides them anyway).
+        summ = c.get("ai summary")
+        if isinstance(summ, str) and summ.startswith("/"):
+            summ = None
         out.append({"date": c.get("date"), "transcript": c.get("transcript"),
                     "ppt": c.get("ppt"), "rec": c.get("rec"),
                     "ai_summary": summ})
