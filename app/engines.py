@@ -3,6 +3,7 @@ Valuation, fundamentals, technical and recommendation engines.
 Fixed: handles None values for NBFC metrics on bulk-ingested companies.
 """
 from typing import Dict, List
+from . import sector_params as SP
 
 
 def safe(val, default=0.0):
@@ -89,6 +90,97 @@ def valuate(co: Dict, a: Dict) -> Dict:
                 "pv_explicit": None, "tv_pv": None}
 
 
+# ── Relative-method cross-checks (for the blended fair value) ───────────────
+# These triangulate the intrinsic model. They use SECTOR-MEDIAN multiples from
+# sector_params (not the stock's own spot multiple), so they are a sector-normal
+# cross-check rather than a circular "what the market pays for this stock today".
+
+def _vsector(a: Dict) -> str:
+    return a.get("_valuation_sector") or SP.DEFAULT_SECTOR
+
+
+def exit_multiple_value(co: Dict, a: Dict):
+    """EV/EBITDA exit-multiple value per share (non-financials). None if N/M."""
+    p = SP.params(_vsector(a))
+    mult = p.get("exit_ev_ebitda")
+    rev, shares = co.get("revenue"), co.get("shares")
+    if mult is None or rev is None or not shares or shares <= 0:
+        return None
+    margin = a.get("ebit_margin") or 0.12
+    ebitda = rev * (margin + 0.03)   # EBIT margin + ~3pp D&A add-back → EBITDA proxy
+    if ebitda <= 0:
+        return None
+    ev = ebitda * mult
+    net_debt = co.get("net_debt") or 0
+    val = (ev - net_debt) / shares
+    return val if val > 0 else None
+
+
+def pe_value(co: Dict, a: Dict):
+    """Sector-median P/E value per share. None if loss-making / no data."""
+    p = SP.params(_vsector(a))
+    pe = p.get("exit_pe")
+    pat, shares = co.get("net_profit"), co.get("shares")
+    if pe is None or pat is None or pat <= 0 or not shares or shares <= 0:
+        return None
+    return (pat * pe) / shares
+
+
+def gordon_pb_value(co: Dict, a: Dict, v: Dict):
+    """Justified P/B × BVPS (financials), using terminal ROE & growth.
+    P/B* = (ROE_term − g) / (Ke − g), sanity-clamped."""
+    ke = v.get("ke"); bvps0 = v.get("bvps0")
+    term_roe = a.get("terminal_roe"); g = a.get("terminal_growth") or 0.05
+    if not (ke and bvps0 and term_roe) or ke <= g:
+        return None
+    pb = (term_roe - g) / (ke - g)
+    pb = max(0.4, min(pb, 12))
+    val = bvps0 * pb
+    return val if val > 0 else None
+
+
+# Triangulation weights. Non-financials lead with the DCF; financials with RI.
+_BLEND_WEIGHTS = {
+    "fin":    [("Residual Income", 0.65), ("Gordon Growth P/B", 0.20), ("P/E (sector)", 0.15)],
+    "nonfin": [("FCFF DCF",        0.55), ("Exit Multiple",     0.30), ("P/E (sector)", 0.15)],
+}
+
+
+def blended(co: Dict, a: Dict) -> Dict:
+    """Triangulate the primary intrinsic model with two relative cross-checks and
+    return a weighted blended fair value PLUS the per-method breakdown.
+
+    Re-weights over only the methods that actually compute (so a missing P/E
+    doesn't drag the blend to zero). Returns blended=None when even the primary
+    model can't be valued, so callers show '—' rather than a fabricated number."""
+    v = valuate(co, a)
+    primary = v.get("intrinsic")
+    is_fin = co.get("type") == "financial"
+
+    if is_fin:
+        vals = {"Residual Income": primary,
+                "Gordon Growth P/B": gordon_pb_value(co, a, v),
+                "P/E (sector)": pe_value(co, a)}
+        spec = _BLEND_WEIGHTS["fin"]
+    else:
+        vals = {"FCFF DCF": primary,
+                "Exit Multiple": exit_multiple_value(co, a),
+                "P/E (sector)": pe_value(co, a)}
+        spec = _BLEND_WEIGHTS["nonfin"]
+
+    components = [{"method": name, "value": vals.get(name), "weight": w} for name, w in spec]
+
+    if primary is None or primary <= 0:
+        return {"blended": None, "components": components,
+                "primary": primary, "primary_method": v.get("method"), "valuation": v}
+
+    avail = [c for c in components if c["value"] is not None and c["value"] > 0]
+    wsum = sum(c["weight"] for c in avail) or 1.0
+    blend = sum(c["value"] * (c["weight"] / wsum) for c in avail)
+    return {"blended": blend, "components": components,
+            "primary": primary, "primary_method": v.get("method"), "valuation": v}
+
+
 def sensitivity(co: Dict, a: Dict) -> Dict:
     rate_deltas = [-0.01, -0.005, 0, 0.005, 0.01]
     g_deltas = [-0.01, -0.005, 0, 0.005, 0.01]
@@ -158,12 +250,16 @@ def _clamp(x, lo, hi):
 
 def recommend(co: Dict, a: Dict) -> Dict:
     from .data_quality import data_quality
-    v = valuate(co, a)
+    # The headline is the BLENDED fair value (intrinsic model + relative cross-
+    # checks), so the verdict/MoS and the screener all agree on one number. The
+    # primary model `v` is kept for the projection schedule / TV% display.
+    b = blended(co, a)
+    v = b["valuation"]
     f = fundamentals(co)
     t = technicals(co)
     conf = data_quality(co)
 
-    iv = v.get("intrinsic")
+    iv = b.get("blended")
     iv = iv if (iv is not None and iv > 0) else None
     mos = (iv - co["price"]) / co["price"] if (iv is not None and co["price"]) else None
     reliable = iv is not None and conf["score"] >= 0.5
@@ -242,4 +338,8 @@ def recommend(co: Dict, a: Dict) -> Dict:
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
             "intrinsic": iv, "confidence": conf, "reliable": reliable,
             "reasons": reasons, "composite": composite, "verdict": verdict,
+            # Blended fair value breakdown — the per-method values + weights the
+            # Valuation tab renders, plus the pure intrinsic-model value as one input.
+            "blended": iv, "components": b.get("components"),
+            "dcf_value": b.get("primary"), "primary_method": b.get("primary_method"),
             "drivers": a.get("_drivers"), "valuation_sector": a.get("_valuation_sector")}

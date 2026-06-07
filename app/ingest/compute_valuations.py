@@ -36,10 +36,14 @@ def _payload(co, data, rec, insight_data):
     v = rec["valuation"]; f = rec["fundamentals"]
     cons = analyst_consensus(insight_data, data.get("price")) or {}
     return dict(
-        intrinsic=v.get("intrinsic"), mos=rec.get("mos"), verdict=rec.get("verdict"),
+        # rec["intrinsic"] is the BLENDED fair value (intrinsic model + relative
+        # cross-checks). Store THAT so the screener shows the blend and its
+        # MoS/verdict stay internally consistent. v["intrinsic"] is just the
+        # primary model — one input to the blend, not the headline.
+        intrinsic=rec.get("intrinsic"), mos=rec.get("mos"), verdict=rec.get("verdict"),
         composite=rec.get("composite"), reliable=1 if rec.get("reliable") else 0,
         confidence=(rec.get("confidence") or {}).get("level"),
-        method=v.get("method"), valuation_sector=rec.get("valuation_sector"),
+        method="Blended", valuation_sector=rec.get("valuation_sector"),
         roe=f.get("roe"), pb=f.get("pb"), pe=f.get("pe"),
         analyst_target=cons.get("target"), analyst_low=cons.get("low"),
         analyst_high=cons.get("high"), analyst_rating=cons.get("rating"),
