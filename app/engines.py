@@ -42,9 +42,11 @@ def fcff_dcf(co: Dict, a: Dict) -> Dict:
     ew = 1 - a["debt_weight"]
     wacc = ew * ke + a["debt_weight"] * a["cost_debt"] * (1 - a["tax_rate"])
     N = max(3, round(a["fade_years"]))
+    g_t = a["terminal_growth"]
     rev, pv, rows = co["revenue"], 0.0, []
+    nopat = 0.0
     for t in range(1, N + 1):
-        g = a["rev_growth"] + (a["terminal_growth"] - a["rev_growth"]) * (t / N)
+        g = a["rev_growth"] + (g_t - a["rev_growth"]) * (t / N)
         rev = rev * (1 + g)
         ebit = rev * a["ebit_margin"]
         nopat = ebit * (1 - a["tax_rate"])
@@ -52,8 +54,16 @@ def fcff_dcf(co: Dict, a: Dict) -> Dict:
         disc = (1 + wacc) ** t
         pv += fcff / disc
         rows.append({"t": t, "rev": rev, "fcff": fcff, "pv": fcff / disc})
-    fcff_next = rows[N - 1]["fcff"] * (1 + a["terminal_growth"])
-    tv = fcff_next / (wacc - a["terminal_growth"]) if a["terminal_growth"] < wacc else 0.0
+    # Terminal value must use the STEADY-STATE reinvestment rate (terminal_growth
+    # / mature ROIC), NOT the explicit-period rate. A high-growth company can
+    # reinvest 60–80% during the forecast, but in perpetuity at ~4–6% growth it
+    # only needs g/ROIC (~30%). Reusing the explicit rate forever understated the
+    # terminal FCFF by 2–3×, which was the dominant reason intrinsics came out
+    # far below market price. (This matches the client DCF, which already does it.)
+    mature_roic = SP.params(a.get("_valuation_sector")).get("mature_roic") or 0.12
+    term_rr = max(0.0, min(g_t / mature_roic, 0.75)) if mature_roic else a["reinvest_rate"]
+    fcff_terminal = nopat * (1 + g_t) * (1 - term_rr)
+    tv = fcff_terminal / (wacc - g_t) if g_t < wacc else 0.0
     tv_pv = tv / ((1 + wacc) ** N)
     ev = pv + tv_pv
     equity_val = ev - co["net_debt"]
