@@ -14,6 +14,24 @@ from app import models
 router = APIRouter(prefix="/api/companies")
 
 
+def _pe_band(pe_history):
+    """Valuation-band stats from a multi-year P/E series: where the CURRENT P/E
+    sits within its own historical range (min / 25th / median / 75th / max +
+    percentile rank). Returns None if too few points to be meaningful."""
+    pts = [p for p in (pe_history or []) if isinstance(p, dict) and p.get("value") and p["value"] > 0]
+    if len(pts) < 8:
+        return None
+    pts.sort(key=lambda p: str(p.get("date") or ""))
+    cur = pts[-1]["value"]
+    vals = sorted(p["value"] for p in pts)
+    def q(f):
+        return round(vals[min(len(vals) - 1, int(f * len(vals)))], 1)
+    rank = sum(1 for v in vals if v <= cur) / len(vals)
+    return {"current": round(cur, 1), "min": round(vals[0], 1), "p25": q(0.25),
+            "median": q(0.5), "p75": q(0.75), "max": round(vals[-1], 1),
+            "percentile": round(rank * 100), "n": len(vals)}
+
+
 def _latest_facts(db: Session, company_id: int) -> dict:
     """Most recent value per concept from financial_facts."""
     rows = db.query(models.FinancialFact).filter_by(company_id=company_id).all()
@@ -133,6 +151,7 @@ def company_insights(ticker: str, db: Session = Depends(get_db)):
         "price": price,
         "ticker_id": row.ticker_id,
         "self_metrics": self_metrics,
+        "pe_band": _pe_band(data.get("pe_history")),
         "forward_eps": fwd_eps,
         "forward_eps_year": fwd_eps_year,
         "forward_pe": fwd_pe,

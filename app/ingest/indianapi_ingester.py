@@ -305,6 +305,46 @@ def _growth(ticker):
     return r if isinstance(r, dict) and r else None
 
 
+def _parse_hist_series(r):
+    """Pull [{date, value}, …] from the common IndianAPI/Screener historical
+    shapes (datasets→values pairs, or a flat {date: value} map)."""
+    if not r:
+        return None
+    if isinstance(r, dict):
+        ds = r.get("datasets") or (r.get("body") or {}).get("datasets")
+        if isinstance(ds, list):
+            vals = []
+            for d in ds:
+                for pair in (d.get("values") or []):
+                    if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                        v = _num(pair[1])
+                        if v is not None:
+                            vals.append({"date": str(pair[0]), "value": v})
+            if vals:
+                return vals
+        body = r.get("body") if isinstance(r.get("body"), dict) else r
+        vals = [{"date": str(k), "value": _num(v)} for k, v in body.items() if _num(v) is not None]
+        if vals:
+            return vals
+    return None
+
+
+def _pe_history(ticker, debug=False):
+    """Multi-year P/E series for a valuation band ('cheap/expensive vs its own
+    history'). IndianAPI's /historical_data with filter=pe mirrors Screener's
+    P/E chart, so no price×EPS reconstruction is needed."""
+    for params in ({"stock_name": ticker, "period": "10yr", "filter": "pe"},
+                   {"stock_name": ticker, "period": "max", "filter": "pe"}):
+        r = _get_safe("/historical_data", params)
+        if debug:
+            import json as _j
+            print(f"    [pe_history probe] {params} -> {_j.dumps(r)[:300] if r else r}")
+        series = _parse_hist_series(r)
+        if series:
+            return series
+    return None
+
+
 def _latest_quarter(ticker):
     """Latest quarter + TTM snapshot (sales, net profit, EPS, OPM…)."""
     out = {}
@@ -380,6 +420,8 @@ def _build_insight(s, co, stock, debug=False):
     try: data["target"]   = _target(ticker)
     except Exception: pass
     try: data["forecasts"]= _forecasts(ticker)
+    except Exception: pass
+    try: data["pe_history"] = _pe_history(ticker, debug=debug)
     except Exception: pass
     data = {k: v for k, v in data.items() if v}
 
