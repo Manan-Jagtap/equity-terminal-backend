@@ -81,6 +81,13 @@ def _derive_nonfinancial(statements, vs):
     networth = _series(statements, "BS", "net_worth") or _series(statements, "BS", "equity")
     interest = _series(statements, "PL", "interest_expense")
 
+    # Commodity cyclicals (metals, oil & gas, coal) trade off MID-CYCLE earnings,
+    # not the trailing peak. Capitalising peak margins/growth into perpetuity is
+    # exactly why a DCF over-values them (ONGC/Coal India looked +100%). For these
+    # sectors we (a) normalise the margin over a longer 5y window and (b) cap
+    # forward growth near long-run nominal GDP rather than the cycle's recent CAGR.
+    cyclical = vs in ("METAL", "ENERGY")
+
     # Near-term revenue growth: blend 3–4yr CAGR with the latest YoY, then cap.
     cagr = _cagr(rev, max_n=4)
     yoy = None
@@ -91,15 +98,19 @@ def _derive_nonfinancial(statements, vs):
         rev_growth = sum(cand) / len(cand)
     else:
         rev_growth = p["terminal_growth"] + 0.03
-    rev_growth = _clamp(rev_growth, 0.02, 0.18)
-    drivers["rev_growth"] = f"blend(CAGR={_pct(cagr)}, YoY={_pct(yoy)}) capped"
+    growth_hi = 0.08 if cyclical else 0.18   # commodities: no secular high growth
+    rev_growth = _clamp(rev_growth, 0.02, growth_hi)
+    drivers["rev_growth"] = (f"blend(CAGR={_pct(cagr)}, YoY={_pct(yoy)}) "
+                             f"capped{' (cyclical)' if cyclical else ''}")
 
-    # EBIT margin: median of last 3yr; fall back to EBITDA-derived if EBIT absent.
-    ebit_margin = _ratio_median(ebit, rev, lo=0.02, hi=0.45, n=3)
+    # EBIT margin: median over 5y for cyclicals (through-cycle), 3y otherwise.
+    margin_n = 5 if cyclical else 3
+    ebit_margin = _ratio_median(ebit, rev, lo=0.02, hi=0.45, n=margin_n)
     if ebit_margin is None:
-        em = _ratio_median(ebitda, rev, lo=0.04, hi=0.55, n=3)
+        em = _ratio_median(ebitda, rev, lo=0.04, hi=0.55, n=margin_n)
         ebit_margin = (em * 0.8) if em else 0.14
-    drivers["ebit_margin"] = "median(EBIT/Rev, 3y)" if ebit else "0.8×median(EBITDA/Rev)"
+    drivers["ebit_margin"] = (f"median(EBIT/Rev, {margin_n}y)" if ebit
+                              else f"0.8×median(EBITDA/Rev, {margin_n}y)")
 
     # Effective tax rate from PBT (clamp to India statutory band).
     tax_rate = _ratio_median(tax, pbt, lo=0.12, hi=0.32, n=3) or 0.25
@@ -159,10 +170,12 @@ def _derive_financial(statements, vs):
         forecast_roe = p["mature_roe"]
     drivers["forecast_roe"] = "median(PAT/NetWorth, 5y)"
 
-    # Fade realized ROE toward the sector's mature ROE (weighted to mature so a
-    # quality franchise isn't penalised for a temporarily depressed year).
-    terminal_roe = _clamp(0.4 * forecast_roe + 0.6 * p["mature_roe"], 0.10, 0.22)
-    drivers["terminal_roe"] = "0.4×realized + 0.6×sector mature ROE"
+    # Fade realized ROE toward the sector's mature ROE, but weight the franchise's
+    # OWN realized return more (0.55) — India's best private banks/NBFCs sustain
+    # structurally high ROE, and over-fading them to a generic sector mean made
+    # the model too bearish on quality financials (ICICI/Axis looked ~20-25% rich).
+    terminal_roe = _clamp(0.55 * forecast_roe + 0.45 * p["mature_roe"], 0.10, 0.22)
+    drivers["terminal_roe"] = "0.55×realized + 0.45×sector mature ROE"
 
     # Payout from dividends/PAT (dividends stored negative in CF → abs).
     payout = 0.20

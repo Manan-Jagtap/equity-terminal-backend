@@ -345,6 +345,20 @@ def recommend(co: Dict, a: Dict) -> Dict:
     elif mos >= -0.25:                          verdict = "REDUCE"
     else:                                       verdict = "AVOID"
 
+    # Life insurers can't be valued on book equity / reported earnings — their
+    # worth is EMBEDDED VALUE (future profit on in-force policies), which isn't
+    # on the balance sheet. RI / P-B / P-E all structurally understate them (they
+    # legitimately trade at 7–13x book). Rather than show a confident AVOID, mark
+    # the model unreliable here so the verdict reads LOW CONF. A proper fix needs
+    # P/EV data we don't ingest.
+    if a.get("_valuation_sector") == "INSURANCE":
+        verdict = "LOW CONF"
+        reliable = False
+        reasons.append({"label": "Model", "score": 50,
+                        "note": "Life insurer — value is embedded value, not book; "
+                                "RI/P-B/P-E understate it. Model not reliable here.",
+                        "good": False, "bad": True})
+
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
             "intrinsic": iv, "confidence": conf, "reliable": reliable,
             "reasons": reasons, "composite": composite, "verdict": verdict,

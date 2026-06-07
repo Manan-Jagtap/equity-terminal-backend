@@ -104,14 +104,22 @@ def _live_recommend(db, co):
 
 
 @app.get("/api/companies")
-def list_companies(db: Session = Depends(get_db)):
+def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
     """Screener rows. The headline intrinsic/MoS/verdict are the INDEPENDENT
     model's own view (DCF/RI from history-derived drivers). The analyst
     consensus is returned in a SEPARATE `analyst` block — never blended into the
-    intrinsic — so the screener can show both columns honestly."""
+    intrinsic — so the screener can show both columns honestly.
+
+    ?nifty50=true returns ONLY the Nifty 50 (the universe we actively cover), so
+    the whole response fits in a single payload."""
+    from app.ingest.indianapi_ingester import NIFTY_50
     import time as _t
+
+    def _scope(rows):
+        return [r for r in rows if r.get("ticker") in NIFTY_50] if nifty50 else rows
+
     if _COMPANIES_CACHE["data"] is not None and (_t.time() - _COMPANIES_CACHE["ts"]) < 300:
-        return _COMPANIES_CACHE["data"]
+        return _scope(_COMPANIES_CACHE["data"])
 
     rows = []
     insights_by_cid = {r.company_id: r.data for r in db.query(models.CompanyInsight).all() if r.data}
@@ -178,9 +186,8 @@ def list_companies(db: Session = Depends(get_db)):
         _VERDICT_RANK.get(r["verdict"], 0),
         r["mos"] if r.get("mos") is not None else -9,
     ), reverse=True)
-    import time as _t
     _COMPANIES_CACHE["ts"], _COMPANIES_CACHE["data"] = _t.time(), rows
-    return rows
+    return _scope(rows)
 
 
 _PEER_UNIV_CACHE = {"ts": 0.0, "data": None}
