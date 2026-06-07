@@ -325,6 +325,18 @@ def _target(ticker):
     mean = _num(pt.get("Mean")) or _num(pt.get("UnverifiedMean")) or _num(pt.get("PreliminaryMean"))
     if mean is None:
         return None
+    # Consensus target as it stood at earlier points in time (Age = OneWeekAgo,
+    # OneMonthAgo, …) — lets the Analyst tab show how the Street's target has
+    # trended. This is still AGGREGATE consensus; IndianAPI does not expose
+    # individual broker names/targets.
+    snaps = []
+    for sn in ((r.get("priceTargetSnapshots") or {}).get("PriceTargetSnapshot") or []):
+        m = _num(sn.get("Mean"))
+        if m is None:
+            continue
+        snaps.append({"age": sn.get("Age"), "mean": m,
+                      "high": _num(sn.get("High")), "low": _num(sn.get("Low")),
+                      "n_estimates": _num(sn.get("NumberOfEstimates"))})
     return {
         "mean": mean,
         "median": _num(pt.get("Median")),
@@ -333,6 +345,7 @@ def _target(ticker):
         "n_estimates": _num(pt.get("NumberOfEstimates")),
         "std": _num(pt.get("StandardDeviation")),
         "currency": pt.get("CurrencyCode") or "INR",
+        "snapshots": snaps,
     }
 
 
