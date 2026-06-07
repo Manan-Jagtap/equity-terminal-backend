@@ -59,6 +59,99 @@ def _latest_facts(db, company_id):
 
 _COMPANIES_CACHE = {"ts": 0.0, "data": None}
 
+# India sector P/E medians — mirrors the frontend SECTOR_PE so the screener's
+# consensus-anchored fair value matches the company DCF/Verdict pages.
+_SCREENER_SECTOR_PE = {
+    "IT_SERVICES": 25, "MANUFACTURING": 20, "CONSUMER": 36, "PHARMA": 30,
+    "ENERGY": 12, "AUTO": 24, "METAL": 10, "TELECOM": 24, "CEMENT": 26,
+    "UTILITIES": 15, "NBFC": 18, "BANK": 14, "INSURANCE": 26,
+}
+
+
+def _sector_template(sector):
+    s = (sector or "").lower()
+    for kw, tmpl in (
+        ("information technology", "IT_SERVICES"), ("software", "IT_SERVICES"), ("technology", "IT_SERVICES"),
+        ("bank", "BANK"), ("insurance", "INSURANCE"),
+        ("fast moving", "CONSUMER"), ("fmcg", "CONSUMER"), ("consumer", "CONSUMER"), ("retail", "CONSUMER"),
+        ("pharma", "PHARMA"), ("health", "PHARMA"),
+        ("auto", "AUTO"), ("power", "UTILITIES"), ("utilit", "UTILITIES"),
+        ("oil", "ENERGY"), ("gas", "ENERGY"), ("petroleum", "ENERGY"), ("energy", "ENERGY"),
+        ("telecom", "TELECOM"), ("communication", "TELECOM"),
+        ("metal", "METAL"), ("mining", "METAL"),
+        ("construction material", "CEMENT"), ("cement", "CEMENT"),
+        ("financ", "NBFC"),
+    ):
+        if kw in s:
+            return tmpl
+    return "MANUFACTURING"
+
+
+def _consensus_overlay(price, backend_iv, sector, template_code, idata):
+    """Blend the bottom-up intrinsic with the analyst consensus target + a
+    forward-P/E value, then clamp into the analyst target range — identical to
+    the frontend blendedValuation overlay. Returns (fv, target, rating) or
+    (None, None, None) when there's no analyst target to anchor to."""
+    if not idata or not price or price <= 0:
+        return None, None, None
+
+    def _f(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    tgt = idata.get("target") or {}
+    target = _f(tgt.get("mean"))
+    if not target or target <= 0:
+        return None, None, None
+    low, high = _f(tgt.get("low")), _f(tgt.get("high"))
+    tmpl = template_code if template_code in _SCREENER_SECTOR_PE else _sector_template(sector)
+    sector_pe = _SCREENER_SECTOR_PE.get(tmpl, 18)
+
+    fwd_pe_val = None
+    try:
+        from app.history_routes import _eps_estimates
+        ests = _eps_estimates(idata.get("forecasts")) or []
+        if ests:
+            fe = _f(ests[0].get("mean"))
+            if fe and fe > 0:
+                fwd_pe_val = fe * sector_pe
+    except Exception:
+        pass
+
+    parts = [(target, 0.60)]
+    if fwd_pe_val and fwd_pe_val > 0:
+        parts.append((fwd_pe_val, 0.20))
+    if backend_iv and backend_iv > 0:
+        parts.append((backend_iv, 0.20))
+    wsum = sum(w for _, w in parts)
+    fv = sum(v * w for v, w in parts) / wsum
+    if low and low > 0 and fv < low * 0.95:
+        fv = low * 0.95
+    if high and high > 0 and fv > high * 1.05:
+        fv = high * 1.05
+    rating = (idata.get("analyst") or {}).get("rating")
+    return fv, target, rating
+
+
+def _screener_verdict(exp_ret, rating):
+    if exp_ret is None:
+        return None
+    bull = bool(rating) and ("buy" in str(rating).lower())
+    if exp_ret >= 0.15 and bull:
+        return "BUY"
+    if exp_ret >= 0.06:
+        return "ACCUMULATE"
+    if exp_ret >= -0.07:
+        return "HOLD"
+    if exp_ret >= -0.20:
+        return "REDUCE"
+    return "AVOID"
+
+
+_VERDICT_RANK = {"BUY": 5, "ACCUMULATE": 4, "HOLD": 3, "REDUCE": 2, "AVOID": 1}
+
 
 @app.get("/api/companies")
 def list_companies(db: Session = Depends(get_db)):
@@ -67,6 +160,13 @@ def list_companies(db: Session = Depends(get_db)):
         return _COMPANIES_CACHE["data"]
 
     rows = []
+    # Analyst insights (target + forecasts + rating) keyed by company — loaded
+    # once so the consensus overlay below doesn't query per row.
+    insights_by_cid = {}
+    for r in db.query(models.CompanyInsight).all():
+        if r.data:
+            insights_by_cid[r.company_id] = r.data
+
     # Only companies that actually have ingested market data — skips the ~450
     # un-ingested seed names, so the loop stays small and fast (and can't time out).
     companies = db.query(models.Company).join(models.MarketSnapshot).all()
@@ -81,6 +181,21 @@ def list_companies(db: Session = Depends(get_db)):
 
         f = rec["fundamentals"]
         facts = _latest_facts(db, co.id)
+
+        # Consensus overlay → intrinsic / MoS / verdict that match the company
+        # pages (analyst target + forward P/E + bottom-up DCF, clamped to range).
+        intrinsic, mos, verdict = rec.get("intrinsic"), rec["mos"], rec["verdict"]
+        price = data["price"]
+        fv, target, rating = _consensus_overlay(
+            price, rec.get("intrinsic"), co.sector, co.template_code, insights_by_cid.get(co.id))
+        if fv and price:
+            intrinsic = round(fv, 2)
+            mos = (fv - price) / price
+            analyst_up = (target - price) / price if target else mos
+            exp_ret = (mos + analyst_up) / 2
+            v = _screener_verdict(exp_ret, rating)
+            if v:
+                verdict = v
 
         row = {
             # Identity
@@ -107,24 +222,28 @@ def list_companies(db: Session = Depends(get_db)):
             # Market
             "price":       data["price"],
 
-            # Computed screener metrics (intrinsic/mos may be null when not
-            # cleanly computable; pe/pb null → "N/M" in the UI)
-            "intrinsic":   rec.get("intrinsic"),
-            "mos":         rec["mos"],
+            # Consensus-anchored screener metrics (match the company pages)
+            "intrinsic":   intrinsic,
+            "mos":         mos,
             "roe":         f["roe"],
             "pb":          f["pb"],
             "pe":          f["pe"],
             "composite":   rec["composite"],
-            "verdict":     rec["verdict"],
+            "verdict":     verdict,
             "confidence":  rec["confidence"]["level"],
             "confidence_score": rec["confidence"]["score"],
             "reliable":    rec["reliable"],
         }
         rows.append(row)
 
-    # Sort by composite, but always rank confidently-valued names above
-    # NO-DATA / LOW-CONF rows so the top of the screener is trustworthy.
-    rows.sort(key=lambda r: (r["reliable"], r["composite"]), reverse=True)
+    # Rank: reliable names first, then by verdict (BUY → AVOID), then by upside,
+    # so the top of the screener surfaces the most attractive consensus-aligned
+    # opportunities instead of an undifferentiated wall of AVOID.
+    rows.sort(key=lambda r: (
+        r["reliable"],
+        _VERDICT_RANK.get(r["verdict"], 0),
+        r["mos"] if r.get("mos") is not None else -9,
+    ), reverse=True)
     import time as _t
     _COMPANIES_CACHE["ts"], _COMPANIES_CACHE["data"] = _t.time(), rows
     return rows
