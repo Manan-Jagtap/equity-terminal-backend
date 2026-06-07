@@ -120,11 +120,23 @@ def _consensus_overlay(price, backend_iv, sector, template_code, idata):
     except Exception:
         pass
 
+    # Clamp each fundamental component into the analyst target band so a wrong
+    # sector multiple / over-conservative DCF can't drag fair value below where
+    # the analyst set actually sits.
+    def _clampc(v):
+        if v is None or v <= 0:
+            return None
+        if low and low > 0 and high and high > 0:
+            return max(low, min(v, high))
+        return v
+
     parts = [(target, 0.60)]
-    if fwd_pe_val and fwd_pe_val > 0:
-        parts.append((fwd_pe_val, 0.20))
-    if backend_iv and backend_iv > 0:
-        parts.append((backend_iv, 0.20))
+    fpv = _clampc(fwd_pe_val)
+    if fpv:
+        parts.append((fpv, 0.20))
+    biv = _clampc(backend_iv)
+    if biv:
+        parts.append((biv, 0.20))
     wsum = sum(w for _, w in parts)
     fv = sum(v * w for v, w in parts) / wsum
     if low and low > 0 and fv < low * 0.95:
