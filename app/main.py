@@ -142,25 +142,30 @@ def peer_universe(db: Session = Depends(get_db)):
     import time as _t
     if _PEER_UNIV_CACHE["data"] is not None and (_t.time() - _PEER_UNIV_CACHE["ts"]) < 1800:
         return _PEER_UNIV_CACHE["data"]
-    from app.history_routes import _peer_metrics_map
-    pm = _peer_metrics_map(db)
     out = []
-    for r in db.query(models.CompanyInsight).all():
-        if not r.ticker_id:
-            continue
-        m = pm.get(r.ticker_id)
-        if not m:
-            continue
-        co = db.query(models.Company).get(r.company_id)
-        if not co:
-            continue
-        out.append({
-            "ticker": co.ticker, "name": co.name, "sector": co.sector,
-            "pe": m.get("pe"), "pb": m.get("pb"), "roe_ttm": m.get("roe_ttm"),
-            "npm_ttm": m.get("npm_ttm"), "div_yield": m.get("div_yield"),
-            "price": m.get("price"), "rating": m.get("rating"),
-        })
-    out.sort(key=lambda r: r["name"] or "")
+    try:
+        from app.history_routes import _peer_metrics_map
+        pm = _peer_metrics_map(db) or {}
+        # Build company-by-id once (avoid deprecated/per-row Query.get()).
+        companies = {c.id: c for c in db.query(models.Company).all()}
+        for r in db.query(models.CompanyInsight).all():
+            tid = getattr(r, "ticker_id", None)
+            if not tid:
+                continue
+            m = pm.get(tid)
+            co = companies.get(r.company_id)
+            if not m or not co:
+                continue
+            out.append({
+                "ticker": co.ticker, "name": co.name, "sector": co.sector,
+                "pe": m.get("pe"), "pb": m.get("pb"), "roe_ttm": m.get("roe_ttm"),
+                "npm_ttm": m.get("npm_ttm"), "div_yield": m.get("div_yield"),
+                "price": m.get("price"), "rating": m.get("rating"),
+            })
+        out.sort(key=lambda x: x.get("name") or "")
+    except Exception:
+        # Never 500 — the Peer Universe tab degrades to curated IndianAPI peers.
+        return _PEER_UNIV_CACHE["data"] or []
     _PEER_UNIV_CACHE["ts"], _PEER_UNIV_CACHE["data"] = _t.time(), out
     return out
 
