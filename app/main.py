@@ -125,7 +125,10 @@ def list_companies(db: Session = Depends(get_db)):
                 continue
 
         verdict = _NORMALIZE_VERDICT.get(m["verdict"], m["verdict"])
-        cons = analyst_consensus(insights_by_cid.get(co.id), price)
+        try:
+            cons = analyst_consensus(insights_by_cid.get(co.id), price)
+        except Exception:
+            cons = None
 
         rows.append({
             "ticker": co.ticker, "name": co.name, "sector": co.sector, "type": co.type,
@@ -236,16 +239,25 @@ def _consensus_block(db, co, price):
 
 @app.get("/api/companies/{ticker}")
 def company_detail(ticker: str, db: Session = Depends(get_db)):
+    from fastapi.responses import JSONResponse
+    import traceback
     co = _get_or_404(db, ticker)
-    data = build_company(db, co)
-    # Same INDEPENDENT assumptions the screener uses → company page and screener
-    # now agree exactly. Analyst consensus is returned separately, never blended.
-    a = effective_assumptions(db, co, data)
-    rec = engines.recommend(data, a)
-    sens = engines.sensitivity(data, a)
-    return {"company": _public(data), "assumptions": a,
-            "recommendation": rec, "sensitivity": sens,
-            "analyst": _consensus_block(db, co, data.get("price"))}
+    try:
+        data = build_company(db, co)
+        # Same INDEPENDENT assumptions the screener uses → company page and screener
+        # now agree exactly. Analyst consensus is returned separately, never blended.
+        a = effective_assumptions(db, co, data)
+        rec = engines.recommend(data, a)
+        sens = engines.sensitivity(data, a)
+        try:
+            analyst = _consensus_block(db, co, data.get("price"))
+        except Exception:
+            analyst = None
+        return {"company": _public(data), "assumptions": a,
+                "recommendation": rec, "sensitivity": sens, "analyst": analyst}
+    except Exception as e:
+        return JSONResponse({"error": str(e), "trace": traceback.format_exc()[-1200:]},
+                            status_code=500)
 
 
 @app.post("/api/companies/{ticker}/valuation")
