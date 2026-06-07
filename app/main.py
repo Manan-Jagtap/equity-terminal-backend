@@ -87,12 +87,19 @@ def _sector_template(sector):
     return "MANUFACTURING"
 
 
-def _consensus_overlay(price, backend_iv, sector, template_code, idata):
-    """Blend the bottom-up intrinsic with the analyst consensus target + a
-    forward-P/E value, then clamp into the analyst target range — identical to
-    the frontend blendedValuation overlay. Returns (fv, target, rating) or
-    (None, None, None) when there's no analyst target to anchor to."""
-    if not idata or not price or price <= 0:
+# Sector P/B medians for financials (where EPS-based valuation breaks: banks,
+# NBFCs, and especially insurers that trade on embedded value, not earnings).
+_SCREENER_SECTOR_PB = {"BANK": 2.2, "NBFC": 3.0, "INSURANCE": 8.0}
+
+
+def _consensus_overlay(price, backend_iv, sector, template_code, idata, eps=None, bvps=None):
+    """Fair value for the screener.
+    WITH an analyst target → blend (consensus 60% + forward-P/E 20% + DCF 20%),
+    each component clamped into the analyst target range.
+    WITHOUT a target → a sector-multiple relative value (P/B for financials,
+    P/E for everyone else), sanity-bounded to ±2× CMP so no company can ever
+    show an absurd gap. Returns (fv, target, rating)."""
+    if not price or price <= 0:
         return None, None, None
 
     def _f(x):
@@ -101,13 +108,26 @@ def _consensus_overlay(price, backend_iv, sector, template_code, idata):
         except (TypeError, ValueError):
             return None
 
-    tgt = idata.get("target") or {}
-    target = _f(tgt.get("mean"))
-    if not target or target <= 0:
-        return None, None, None
-    low, high = _f(tgt.get("low")), _f(tgt.get("high"))
     tmpl = template_code if template_code in _SCREENER_SECTOR_PE else _sector_template(sector)
     sector_pe = _SCREENER_SECTOR_PE.get(tmpl, 18)
+
+    def _fallback_fv():
+        fv = None
+        if tmpl in _SCREENER_SECTOR_PB and bvps and bvps > 0:
+            fv = bvps * _SCREENER_SECTOR_PB[tmpl]            # financials → P/B
+        elif eps and eps > 0:
+            fv = eps * sector_pe                              # others → P/E
+        elif backend_iv and backend_iv > 0:
+            fv = backend_iv
+        if fv:
+            fv = max(0.6 * price, min(fv, 1.7 * price))       # sanity band vs CMP (≤40% downside)
+        return fv
+
+    tgt = (idata or {}).get("target") or {}
+    target = _f(tgt.get("mean"))
+    if not target or target <= 0:
+        return _fallback_fv(), None, None                    # no analyst target
+    low, high = _f(tgt.get("low")), _f(tgt.get("high"))
 
     fwd_pe_val = None
     try:
@@ -195,11 +215,16 @@ def list_companies(db: Session = Depends(get_db)):
         facts = _latest_facts(db, co.id)
 
         # Consensus overlay → intrinsic / MoS / verdict that match the company
-        # pages (analyst target + forward P/E + bottom-up DCF, clamped to range).
+        # pages. Falls back to a sector-multiple value when a name has no analyst
+        # target, so EVERY company gets a sane number (no stray "TRIM" rows).
         intrinsic, mos, verdict = rec.get("intrinsic"), rec["mos"], rec["verdict"]
         price = data["price"]
+        sh = co.shares_outstanding
+        eps  = (facts.get(K.NET_PROFIT) / sh) if (facts.get(K.NET_PROFIT) and sh) else None
+        bvps = (facts.get(K.NET_WORTH) / sh) if (facts.get(K.NET_WORTH) and sh) else None
         fv, target, rating = _consensus_overlay(
-            price, rec.get("intrinsic"), co.sector, co.template_code, insights_by_cid.get(co.id))
+            price, rec.get("intrinsic"), co.sector, co.template_code,
+            insights_by_cid.get(co.id), eps=eps, bvps=bvps)
         if fv and price:
             intrinsic = round(fv, 2)
             mos = (fv - price) / price
@@ -208,6 +233,8 @@ def list_companies(db: Session = Depends(get_db)):
             v = _screener_verdict(exp_ret, rating)
             if v:
                 verdict = v
+        # Normalise any legacy verdict from the old engine into the new scheme.
+        verdict = {"TRIM": "REDUCE", "ACCUMULATE": "ACCUMULATE"}.get(verdict, verdict)
 
         row = {
             # Identity
