@@ -20,20 +20,40 @@ git commit -m "Stop tracking backups, probe dumps, local DBs, .DS_Store"
 git push
 ```
 
-## 2. Migrate + repopulate the live DB (Railway)
-The new `valuations` table is created automatically on boot (`Base.metadata.create_all`).
-Then, ONCE, run these against the live Postgres so the data is correct:
-Run these one at a time (no inline comments). Order matters: a → b → c.
-```bash
-railway run python -m app.ingest.reclassify
-railway run python -m app.ingest.indianapi_ingester --nifty50
-railway run python -m app.ingest.compute_valuations
-```
-- (a) `reclassify` fixes templates (HDFC Bank → BANK, etc.).
-- (b) `indianapi_ingester --nifty50` re-pulls statements so the bank/NBFC P&L gets NII / interest / provisions (uses your INDIANAPI_KEY already on Railway).
-- (c) `compute_valuations` precomputes the independent valuations so /api/companies is instant.
+## 2. Migrate + repopulate the live DB — SERVER-SIDE on Railway (no laptop)
+The new `valuations` table is created automatically on boot. The full migration
+(reclassify → ingest → precompute) now runs entirely on Railway via the
+**scheduler service** — `railway run …` would execute on your laptop, which we
+don't want.
 
-Re-run (c) after any price refresh; the weekly scheduler already refreshes (a/b) data, and you can add (c) to it later.
+One-time bootstrap:
+1. Make sure the scheduler-service code is up to date: commit + push `scheduler.py`
+   (it deploys from the same repo):
+   ```bash
+   cd ~/Downloads/backend
+   git add scheduler.py DEPLOY_NOTES.md
+   git commit -m "Scheduler: server-side bootstrap (reclassify+ingest+compute) + auto-recompute"
+   git push origin main
+   ```
+2. In Railway → **equity-terminal-scheduler** service → **Variables**, add:
+   ```
+   RUN_BOOTSTRAP_NOW = true
+   ```
+   then **Redeploy** the service.
+3. Watch the service **Logs**. You'll see, server-side:
+   `BOOTSTRAP step 1/3 reclassify` → `2/3 full ingest` → `3/3 compute` → `BOOTSTRAP complete.`
+4. **Remove** the `RUN_BOOTSTRAP_NOW` variable so it doesn't re-run on every restart.
+
+After this, nothing manual is needed: the scheduler **auto-recomputes valuations**
+on every daily price refresh and weekly full refresh.
+
+> Prereqs on the scheduler service Variables: `INDIANAPI_KEY` and `DATABASE_URL`
+> (the same Postgres the web service uses). It already has these if the weekly
+> refresh was working before.
+>
+> No scheduler service yet? Create one in the Railway project from the same repo
+> with start command `python scheduler.py`, give it `INDIANAPI_KEY` +
+> `DATABASE_URL`, then do steps 2–4.
 
 ## 3. Verify
 ```bash

@@ -27,12 +27,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
 
 from app.ingest.indianapi_ingester import run as indianapi_run, KEY
+from app.ingest.compute_valuations import run as compute_valuations
+from app.ingest.reclassify import run as reclassify
+
+
+def run_compute():
+    """Recompute the INDEPENDENT valuations (no external API — pure local
+    computation from the data already in the DB). Cheap; safe to run after every
+    refresh so the screener's intrinsic/MoS/verdict always reflect fresh prices."""
+    log.info("Recomputing independent valuations…")
+    try:
+        compute_valuations()
+        log.info("Valuation recompute complete.")
+    except Exception as e:
+        log.error(f"Valuation recompute failed: {e}")
 
 
 def run_prices():
     log.info("IndianAPI daily price refresh (Nifty 50)…")
     try:
         indianapi_run(price_only=True, nifty50=True)
+        run_compute()          # refresh MoS/verdict against the new prices
         log.info("Price refresh complete.")
     except Exception as e:
         log.error(f"Price refresh failed: {e}")
@@ -42,9 +57,31 @@ def run_full():
     log.info("IndianAPI weekly full refresh (statements + facts + insights)…")
     try:
         indianapi_run(nifty50=True, insights=True)
+        run_compute()          # rebuild valuations from the fresh statements
         log.info("Weekly full refresh complete.")
     except Exception as e:
         log.error(f"Weekly full refresh failed: {e}")
+
+
+def run_bootstrap():
+    """One-off, fully server-side bootstrap of the independent-DCF pipeline:
+       1. reclassify   — fix templates (HDFC Bank → BANK, etc.)
+       2. full ingest  — Nifty 50 statements + facts + insights (+ bank P&L)
+       3. compute      — precompute independent valuations
+    Triggered by RUN_BOOTSTRAP_NOW=true on the scheduler service."""
+    log.info("BOOTSTRAP step 1/3 — reclassify companies…")
+    try:
+        reclassify()
+    except Exception as e:
+        log.error(f"reclassify failed: {e}")
+    log.info("BOOTSTRAP step 2/3 — full Nifty 50 ingest…")
+    try:
+        indianapi_run(nifty50=True, insights=True)
+    except Exception as e:
+        log.error(f"ingest failed: {e}")
+    log.info("BOOTSTRAP step 3/3 — compute independent valuations…")
+    run_compute()
+    log.info("BOOTSTRAP complete.")
 
 
 if not KEY:
@@ -62,11 +99,24 @@ log.info("Scheduler v3 (IndianAPI) started.")
 log.info("Daily prices: 3:45pm IST Mon-Fri (10:15 UTC)")
 log.info("Weekly full refresh: 6:00am IST Sunday (00:30 UTC)")
 
-# ── One-off on-boot refresh (manual trigger from Railway) ────────────────────
-# Set RUN_FULL_NOW=true on the scheduler service's Variables and redeploy to
-# run a full refresh immediately ON RAILWAY (no laptop needed). Remove the
-# variable afterwards so it doesn't re-run on every future restart.
-if os.getenv("RUN_FULL_NOW", "").strip().lower() in ("1", "true", "yes"):
+# ── One-off on-boot jobs (manual trigger from Railway, NO laptop) ────────────
+# Set ONE of these to true on the scheduler service's Variables and redeploy.
+# Remove the variable afterwards so it doesn't re-run on every restart.
+#
+#   RUN_BOOTSTRAP_NOW=true  → reclassify + full ingest + compute  (use this for
+#                             the independent-DCF migration; the all-in-one)
+#   RUN_FULL_NOW=true       → full ingest + compute only
+#
+_flag = lambda k: os.getenv(k, "").strip().lower() in ("1", "true", "yes")
+
+if _flag("RUN_BOOTSTRAP_NOW"):
+    log.info("RUN_BOOTSTRAP_NOW set — running the full server-side bootstrap now…")
+    try:
+        run_bootstrap()
+        log.info("Bootstrap done. Remove RUN_BOOTSTRAP_NOW from Variables now.")
+    except Exception as e:
+        log.error(f"Bootstrap failed: {e}")
+elif _flag("RUN_FULL_NOW"):
     log.info("RUN_FULL_NOW set — running a one-off FULL refresh now (server-side)…")
     try:
         run_full()
