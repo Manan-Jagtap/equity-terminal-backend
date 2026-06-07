@@ -85,6 +85,31 @@ def _shareholding(stock):
     return out
 
 
+def _shareholding_trend(stock):
+    """Quarterly shareholding by category (Promoter / FII / DII / Public …) over
+    the last ~6 quarters, so the Ownership tab can show how holdings are moving."""
+    cats = _as_list((stock or {}).get("shareholding"))
+    date_order, seen, series = [], set(), {}
+    for cat in cats:
+        if not isinstance(cat, dict):
+            continue
+        name = cat.get("displayName") or cat.get("categoryName")
+        if not name:
+            continue
+        for entry in _as_list(cat.get("categories")):
+            if not isinstance(entry, dict):
+                continue
+            d, p = entry.get("holdingDate"), _num(entry.get("percentage"))
+            if not d or p is None:
+                continue
+            if d not in seen:
+                seen.add(d); date_order.append(d)
+            series.setdefault(name, {})[d] = p
+    periods = date_order[-6:]
+    rows = [{"name": n, "values": [series[n].get(d) for d in periods]} for n in series]
+    return {"periods": periods, "rows": rows}
+
+
 def _corporate_actions(stock):
     ca = (stock or {}).get("stockCorporateActionData") or {}
     out = []
@@ -272,6 +297,7 @@ def company_profile(ticker: str, db: Session = Depends(get_db)):
         "key_facts": _key_facts(stock),
         "leadership": _leadership(stock),
         "shareholding": _shareholding(stock),
+        "shareholding_trend": _shareholding_trend(stock),
         "corporate_actions": _corporate_actions(stock),
         "concalls": _concalls(name),
         "annual_reports": _annual_reports(name),

@@ -146,25 +146,49 @@ def peer_universe(db: Session = Depends(get_db)):
     try:
         from app.history_routes import _peer_metrics_map
         pm = _peer_metrics_map(db) or {}
-        # Build company-by-id once (avoid deprecated/per-row Query.get()).
-        companies = {c.id: c for c in db.query(models.Company).all()}
+        # company_id → its own IndianAPI ticker_id (to look up self-metrics)
+        tid_by_cid = {}
         for r in db.query(models.CompanyInsight).all():
-            tid = getattr(r, "ticker_id", None)
-            if not tid:
+            if getattr(r, "ticker_id", None):
+                tid_by_cid[r.company_id] = r.ticker_id
+
+        def _r(x, n=2):
+            try:
+                return round(float(x), n)
+            except (TypeError, ValueError):
+                return None
+
+        # Build from EVERY ingested company (has a MarketSnapshot). Multiples are
+        # computed from the DB; we OVERLAY IndianAPI self-metrics when present so
+        # the numbers match the rest of the terminal where coverage exists.
+        for co in db.query(models.Company).join(models.MarketSnapshot).all():
+            try:
+                price = co.market.price if co.market else None
+                facts = _latest_facts(db, co.id)
+                nw, npf, rev = facts.get(K.NET_WORTH), facts.get(K.NET_PROFIT), facts.get(K.REVENUE)
+                sh = co.shares_outstanding
+                eps  = (npf / sh) if (npf and sh) else None
+                bvps = (nw / sh) if (nw and sh) else None
+                pe  = (price / eps) if (price and eps and eps > 0) else None
+                pb  = (price / bvps) if (price and bvps and bvps > 0) else None
+                roe = (npf / nw * 100) if (npf and nw and nw > 0) else None
+                npm = (npf / rev * 100) if (npf and rev and rev > 0) else None
+                m = pm.get(tid_by_cid.get(co.id)) or {}
+                pick = lambda k, fb: (m.get(k) if m.get(k) is not None else fb)
+                out.append({
+                    "ticker": co.ticker, "name": co.name, "sector": co.sector,
+                    "price":    pick("price", _r(price)),
+                    "pe":       pick("pe", _r(pe)),
+                    "pb":       pick("pb", _r(pb)),
+                    "roe_ttm":  pick("roe_ttm", _r(roe, 1)),
+                    "npm_ttm":  pick("npm_ttm", _r(npm, 1)),
+                    "div_yield": m.get("div_yield"),
+                    "rating":   m.get("rating"),
+                })
+            except Exception:
                 continue
-            m = pm.get(tid)
-            co = companies.get(r.company_id)
-            if not m or not co:
-                continue
-            out.append({
-                "ticker": co.ticker, "name": co.name, "sector": co.sector,
-                "pe": m.get("pe"), "pb": m.get("pb"), "roe_ttm": m.get("roe_ttm"),
-                "npm_ttm": m.get("npm_ttm"), "div_yield": m.get("div_yield"),
-                "price": m.get("price"), "rating": m.get("rating"),
-            })
         out.sort(key=lambda x: x.get("name") or "")
     except Exception:
-        # Never 500 — the Peer Universe tab degrades to curated IndianAPI peers.
         return _PEER_UNIV_CACHE["data"] or []
     _PEER_UNIV_CACHE["ts"], _PEER_UNIV_CACHE["data"] = _t.time(), out
     return out
