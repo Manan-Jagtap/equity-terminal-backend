@@ -57,6 +57,22 @@ def _latest_facts(db, company_id):
     return {k: v[1] for k, v in best.items()}
 
 
+def _all_latest_facts(db):
+    """Latest value per (company, concept) for EVERY company in ONE query —
+    replaces the per-company _latest_facts call in the list endpoint (which was
+    ~500 round-trips through the DB pooler and timed the screener out cold)."""
+    best = {}  # (cid, concept) -> (year, value)
+    for r in db.query(models.FinancialFact).all():
+        k = (r.company_id, r.concept)
+        cur = best.get(k)
+        if cur is None or r.fiscal_year > cur[0]:
+            best[k] = (r.fiscal_year, r.value)
+    out = {}
+    for (cid, concept), (yr, val) in best.items():
+        out.setdefault(cid, {})[concept] = val
+    return out
+
+
 _COMPANIES_CACHE = {"ts": 0.0, "data": None}
 
 _VERDICT_RANK = {"BUY": 5, "ACCUMULATE": 4, "HOLD": 3, "REDUCE": 2, "AVOID": 1}
@@ -108,10 +124,15 @@ def list_companies(db: Session = Depends(get_db)):
         db.rollback()   # clear the aborted transaction so live queries still work
         val_by_cid = {}
 
+    # Batch-load facts and prices ONCE (was ~1000 per-company round-trips that
+    # timed the screener out on a cold cache).
+    facts_by_cid = _all_latest_facts(db)
+    price_by_cid = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+
     companies = db.query(models.Company).join(models.MarketSnapshot).all()
     for co in companies:
-        price = co.market.price if co.market else None
-        facts = _latest_facts(db, co.id)
+        price = price_by_cid.get(co.id)
+        facts = facts_by_cid.get(co.id, {})
 
         v = val_by_cid.get(co.id)
         if v is not None and v.intrinsic is not None:
