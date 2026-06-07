@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 
 from .database import Base, engine, get_db
 from . import models, engines
-from .assemble import build_company, assumptions_dict
+from .assemble import build_company, assumptions_dict, effective_assumptions
+from .consensus import analyst_consensus
 from .schemas import AssumptionOverride
 from . import concepts as K
 
