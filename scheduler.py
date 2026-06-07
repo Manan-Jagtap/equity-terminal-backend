@@ -31,13 +31,14 @@ from app.ingest.compute_valuations import run as compute_valuations
 from app.ingest.reclassify import run as reclassify
 
 
-def run_compute():
-    """Recompute the INDEPENDENT valuations (no external API — pure local
-    computation from the data already in the DB). Cheap; safe to run after every
-    refresh so the screener's intrinsic/MoS/verdict always reflect fresh prices."""
-    log.info("Recomputing independent valuations…")
+def run_compute(nifty50=False):
+    """Recompute the blended valuations (no external API — pure local computation
+    from the data already in the DB). Cheap; safe to run after every refresh so
+    the screener's intrinsic/MoS/verdict always reflect fresh prices.
+    nifty50=True scopes it to the Nifty 50 (fast, upsert-in-place)."""
+    log.info(f"Recomputing valuations ({'Nifty 50' if nifty50 else 'all'})…")
     try:
-        compute_valuations()
+        compute_valuations(nifty50=nifty50)
         log.info("Valuation recompute complete.")
     except Exception as e:
         log.error(f"Valuation recompute failed: {e}")
@@ -103,9 +104,14 @@ log.info("Weekly full refresh: 6:00am IST Sunday (00:30 UTC)")
 # Set ONE of these to true on the scheduler service's Variables and redeploy.
 # Remove the variable afterwards so it doesn't re-run on every restart.
 #
-#   RUN_BOOTSTRAP_NOW=true  → reclassify + full ingest + compute  (use this for
-#                             the independent-DCF migration; the all-in-one)
-#   RUN_FULL_NOW=true       → full ingest + compute only
+#   RUN_BOOTSTRAP_NOW=true     → reclassify + full ingest + compute  (use this for
+#                                the independent-DCF migration; the all-in-one)
+#   RUN_FULL_NOW=true          → full ingest + compute only
+#   RUN_COMPUTE_NIFTY50=true   → recompute valuations for the Nifty 50 ONLY (fast,
+#                                upsert-in-place; no API calls). Use this to push
+#                                the blended-valuation change live for our active
+#                                universe without rebuilding the whole table.
+#   RUN_COMPUTE_NOW=true       → recompute valuations for ALL companies (full rebuild)
 #
 _flag = lambda k: os.getenv(k, "").strip().lower() in ("1", "true", "yes")
 
@@ -116,11 +122,19 @@ if _flag("RUN_BOOTSTRAP_NOW"):
         log.info("Bootstrap done. Remove RUN_BOOTSTRAP_NOW from Variables now.")
     except Exception as e:
         log.error(f"Bootstrap failed: {e}")
+elif _flag("RUN_COMPUTE_NIFTY50"):
+    # Recompute valuations for the Nifty 50 ONLY — pure local computation, no
+    # IndianAPI calls, no quota. Fast (~50 companies) and upserts in place.
+    log.info("RUN_COMPUTE_NIFTY50 set — recomputing Nifty 50 valuations only (no API calls)…")
+    try:
+        run_compute(nifty50=True)
+        log.info("Nifty 50 compute done. Remove RUN_COMPUTE_NIFTY50 from Variables now.")
+    except Exception as e:
+        log.error(f"Nifty 50 compute failed: {e}")
 elif _flag("RUN_COMPUTE_NOW"):
-    # Recompute valuations ONLY — pure local computation, no IndianAPI calls, no
-    # quota. Use this after the API service has deployed (which creates the
-    # `valuations` table) to populate the precomputed cache server-side.
-    log.info("RUN_COMPUTE_NOW set — recomputing valuations only (no API calls)…")
+    # Recompute valuations for ALL companies — pure local computation, no IndianAPI
+    # calls, no quota. Full rebuild (drop + recreate) of the precomputed cache.
+    log.info("RUN_COMPUTE_NOW set — recomputing ALL valuations (no API calls)…")
     try:
         run_compute()
         log.info("Compute done. Remove RUN_COMPUTE_NOW from Variables now.")

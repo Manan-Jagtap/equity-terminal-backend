@@ -87,33 +87,47 @@ def _compute_one(company_id, retries=3):
     return "neterr"
 
 
-def run():
-    # The `valuations` table is a DISPOSABLE cache. Drop & recreate it so its
-    # schema always matches the current model. (create_all/checkfirst only
-    # CREATES missing tables — it never ALTERs an existing one to add new
-    # columns, which is exactly the "column valuations.X does not exist" failure
-    # that occurs when the model gains a column after the table was first made.)
+def run(nifty50: bool = False):
+    """Precompute the blended valuations into the `valuations` cache.
+
+    nifty50=True → compute ONLY the Nifty 50 (fast; the universe we actively
+    work on) and UPSERT those rows in place, leaving any other rows untouched.
+    The drop+recreate is skipped in this mode so we don't wipe the rest of the
+    table — it's only needed for a full rebuild when the schema changed."""
+    from .indianapi_ingester import NIFTY_50
+
+    if not nifty50:
+        # Full rebuild: drop & recreate so the schema always matches the model.
+        # (create_all/checkfirst only CREATES missing tables — it never ALTERs an
+        # existing one, which is the "column valuations.X does not exist" failure
+        # when the model gains a column after the table was first made.)
+        try:
+            models.Valuation.__table__.drop(bind=engine, checkfirst=True)
+            print("  dropped stale 'valuations' table")
+        except Exception as e:
+            print(f"  (could not drop 'valuations' — continuing: {type(e).__name__}: {e})")
+    # Always make sure the table exists (no-op if it already does).
     try:
-        models.Valuation.__table__.drop(bind=engine, checkfirst=True)
-        print("  dropped stale 'valuations' table")
-    except Exception as e:
-        print(f"  (could not drop 'valuations' — continuing: {type(e).__name__}: {e})")
-    try:
-        models.Valuation.__table__.create(bind=engine)
-        print("  recreated 'valuations' table with current schema")
+        models.Valuation.__table__.create(bind=engine, checkfirst=True)
+        print("  ensured 'valuations' table exists with current schema")
     except Exception as e:
         print(f"  ! could not (re)create 'valuations': {type(e).__name__}: {e}")
 
     db = SessionLocal()
     try:
         # Only companies that actually have market data (skip un-ingested seeds).
-        ids = [c.id for c in db.query(models.Company).join(models.MarketSnapshot).all()]
+        q = db.query(models.Company).join(models.MarketSnapshot)
+        rows = q.all()
+        if nifty50:
+            rows = [c for c in rows if (c.ticker or "").upper() in NIFTY_50]
+        ids = [c.id for c in rows]
     finally:
         db.close()
 
     total = len(ids)
     ok = failed = 0
-    print(f"Computing INDEPENDENT valuations for {total} companies...")
+    scope = "NIFTY 50" if nifty50 else "ALL"
+    print(f"Computing blended valuations ({scope}) for {total} companies...")
     t0 = time.time()
     for i, cid in enumerate(ids, 1):
         r = _compute_one(cid)
