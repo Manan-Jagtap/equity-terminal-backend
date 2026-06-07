@@ -607,6 +607,96 @@ NIFTY_50 = {
 }
 
 
+# ── Intraday spot-price refresh (single batch call, quota-safe) ──────────────
+
+def _norm(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower()).replace("limited", "").replace("ltd", "")
+
+# Endpoints to try for an all-in-one NSE live-price batch (first that yields a
+# usable list of rows wins). The exact path/shape varies by IndianAPI plan, so
+# we probe defensively and log the raw shape on the one-off RUN_INTRADAY_NOW.
+_BATCH_PATHS = ("/nse_stock_batch_live_price", "/stock_batch_live_price",
+                "/NSE_most_active", "/trending")
+
+
+def _row_price(row):
+    for k in ("ltp", "lastPrice", "last_price", "price", "currentPrice", "nsePrice", "close"):
+        v = row.get(k)
+        if isinstance(v, dict):
+            v = v.get("NSE") or v.get("BSE")
+        n = _num(v)
+        if n:
+            return n
+    return None
+
+
+def _extract_rows(r):
+    if isinstance(r, list):
+        return [x for x in r if isinstance(x, dict)]
+    if isinstance(r, dict):
+        for k in ("data", "stocks", "results", "body", "NSE", "trending_stocks", "top_gainers"):
+            v = r.get(k)
+            if isinstance(v, list):
+                return [x for x in v if isinstance(x, dict)]
+            if isinstance(v, dict):
+                inner = _extract_rows(v)
+                if inner:
+                    return inner
+    return []
+
+
+def _batch_live_prices(debug=False):
+    import json as _json
+    for path in _BATCH_PATHS:
+        r = _get_safe(path, {})
+        rows = _extract_rows(r)
+        if debug:
+            samp = _json.dumps(rows[0])[:320] if rows else _json.dumps(r)[:200]
+            print(f"  [intraday probe] {path}: {('list of ' + str(len(rows))) if rows else 'no rows'} · {samp}")
+        if rows:
+            return rows
+    return []
+
+
+def run_intraday(debug=False):
+    """Refresh Nifty 50 spot prices from a single batch live-price call. Returns
+    the number of prices updated. Pure price update (no statements/insights), so
+    it's cheap enough to run every ~15 min during market hours."""
+    rows = _batch_live_prices(debug=debug)
+    if not rows:
+        return 0
+    s = SessionLocal()
+    try:
+        companies = s.query(models.Company).all()
+        by_id = {c.id: c for c in companies}
+        by_ticker = {(c.ticker or "").upper(): c for c in companies}
+        by_name = {_norm(c.name): c for c in companies}
+        by_tid = {}
+        for ins in s.query(models.CompanyInsight).all():
+            if ins.ticker_id and ins.company_id in by_id:
+                by_tid[str(ins.ticker_id)] = by_id[ins.company_id]
+        updated = 0
+        for row in rows:
+            price = _row_price(row)
+            if not price:
+                continue
+            co = (by_tid.get(str(row.get("tickerId") or row.get("ticker_id") or ""))
+                  or by_ticker.get(str(row.get("symbol") or row.get("ticker")
+                                       or row.get("nseScripCode") or "").upper())
+                  or by_name.get(_norm(row.get("companyName") or row.get("company") or row.get("name"))))
+            if not co:
+                continue
+            if co.market:
+                co.market.price = round(float(price), 2)
+            else:
+                s.add(models.MarketSnapshot(company_id=co.id, price=round(float(price), 2)))
+            updated += 1
+        s.commit()
+        return updated
+    finally:
+        s.close()
+
+
 def run(limit=None, ticker=None, price_only=False, nifty50=False, insights=True):
     s = SessionLocal()
     q = s.query(models.Company)

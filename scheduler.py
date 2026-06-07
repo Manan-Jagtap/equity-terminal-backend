@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
 
-from app.ingest.indianapi_ingester import run as indianapi_run, KEY
+from app.ingest.indianapi_ingester import run as indianapi_run, run_intraday, KEY
 from app.ingest.compute_valuations import run as compute_valuations
 from app.ingest.reclassify import run as reclassify
 
@@ -52,6 +52,27 @@ def run_prices():
         log.info("Price refresh complete.")
     except Exception as e:
         log.error(f"Price refresh failed: {e}")
+
+
+def run_intraday_prices():
+    """Quota-safe intraday spot-price refresh — ONE batch call updates all 50.
+    Only fires during NSE market hours (9:15-15:30 IST = 03:45-10:00 UTC, Mon-Fri),
+    so off-hours ticks cost nothing. After updating prices it recomputes the
+    valuations (pure local, no API) so the screener's MoS tracks the live price."""
+    import datetime
+    now = datetime.datetime.utcnow()
+    if now.weekday() >= 5:
+        return
+    mins = now.hour * 60 + now.minute
+    if not (3 * 60 + 45 <= mins <= 10 * 60 + 5):   # 03:45–10:05 UTC
+        return
+    try:
+        n = run_intraday()
+        if n:
+            run_compute(nifty50=True)
+        log.info(f"Intraday price refresh: {n} prices updated.")
+    except Exception as e:
+        log.error(f"Intraday price refresh failed: {e}")
 
 
 def run_full():
@@ -96,9 +117,14 @@ for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
 # Weekly full refresh — 6:00am IST Sunday = 00:30 UTC
 schedule.every().sunday.at("00:30").do(run_full)
 
+# Intraday spot prices — every 15 min; the job self-gates to NSE market hours
+# (one batch call, so ~26 calls/day → negligible quota).
+schedule.every(15).minutes.do(run_intraday_prices)
+
 log.info("Scheduler v3 (IndianAPI) started.")
 log.info("Daily prices: 3:45pm IST Mon-Fri (10:15 UTC)")
 log.info("Weekly full refresh: 6:00am IST Sunday (00:30 UTC)")
+log.info("Intraday prices: every 15 min during NSE market hours (one batch call)")
 
 # ── One-off on-boot jobs (manual trigger from Railway, NO laptop) ────────────
 # Set ONE of these to true on the scheduler service's Variables and redeploy.
@@ -156,6 +182,18 @@ elif _flag("RUN_COMPUTE_NOW"):
         log.info("Compute done. Remove RUN_COMPUTE_NOW from Variables now.")
     except Exception as e:
         log.error(f"Compute failed: {e}")
+elif _flag("RUN_INTRADAY_NOW"):
+    # One-off test/probe of the batch live-price endpoint. Logs the raw shape so
+    # we can confirm the parser, then updates prices + recomputes once.
+    log.info("RUN_INTRADAY_NOW set — probing the batch live-price endpoint…")
+    try:
+        n = run_intraday(debug=True)
+        log.info(f"Intraday probe: {n} prices updated.")
+        if n:
+            run_compute(nifty50=True)
+        log.info("Done. Remove RUN_INTRADAY_NOW from Variables now.")
+    except Exception as e:
+        log.error(f"Intraday probe failed: {e}")
 elif _flag("RUN_FULL_NOW"):
     log.info("RUN_FULL_NOW set — running a one-off FULL refresh now (server-side)…")
     try:
