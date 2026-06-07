@@ -33,6 +33,18 @@ BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 RATE_SLEEP = 1.1
 
+# Per-ticker data corrections. IndianAPI returns these names with a consistent
+# split-factor error: the per-share PRICE and EPS are deflated by `factor` (and
+# the derived share count inflated by it), while MARKET CAP is correct. We
+# multiply the stored price by `factor` and divide the derived share count by it
+# to restore correct per-share figures. (KOTAKBANK: price ₹377→₹1887, shares
+# 994.7cr→198.9cr — a clean ×5.) Add tickers here as such errors are found.
+PRICE_SHARE_SCALE = {"KOTAKBANK": 5.0}
+
+
+def _scale(ticker):
+    return PRICE_SHARE_SCALE.get((ticker or "").upper(), 1.0)
+
 
 def _get(path, params, retries=4):
     if not KEY or KEY.lower().startswith(("paste", "your")):
@@ -180,6 +192,8 @@ def _parse_financials(s, cid, co, stock):
             sh = yd["_shares_bal"]
             if sh > 1e7:        # absolute share count → crore
                 sh = sh / 1e7
+        if sh:
+            sh = sh / _scale(co.ticker)   # undo IndianAPI's split-factor inflation
         if sh and 0.1 < sh < 100000:
             co.shares_outstanding = round(sh, 2)
     return len(years)
@@ -189,7 +203,7 @@ def _price_from_stock(s, co, stock):
     cp = (stock or {}).get("currentPrice") or {}
     price = cp.get("NSE") or cp.get("BSE")
     if price:
-        price = round(float(price), 2)
+        price = round(float(price) * _scale(co.ticker), 2)  # undo split-factor deflation
         if co.market:
             co.market.price = price
         else:
