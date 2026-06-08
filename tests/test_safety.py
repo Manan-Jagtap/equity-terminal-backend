@@ -1,0 +1,101 @@
+"""
+test_safety.py — locks the defensive guards in the valuation engine so a bad
+data row can never crash recommend() or fabricate a confident verdict.
+
+Pure-compute: imports only engines / derive / data_quality (no DB), so it runs
+anywhere. Run:  pytest tests/test_safety.py   ·   python tests/test_safety.py
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app import engines
+from app.derive import derive_assumptions
+from app.data_quality import data_quality
+
+
+def _a_nonfin():
+    return derive_assumptions({}, "IT_SERVICES", False)
+
+
+def _a_fin():
+    return derive_assumptions({}, "BANK", True)
+
+
+def _co(**over):
+    co = dict(type="non-financial", ticker="TEST", name="Test", sector="IT",
+              price=100.0, shares=100.0, equity=1000.0, net_profit=120.0,
+              revenue=2000.0, net_debt=-200.0,
+              series=[{"i": i, "close": 100.0 + i} for i in range(60)],
+              synthetic_series=False, synthetic_price=False, nbfc=None)
+    co.update(over)
+    return co
+
+
+def test_zero_price_no_crash():
+    # B1: mos is None when price is 0 — verdict bands must not do None > 0.15.
+    r = engines.recommend(_co(price=0.0), _a_nonfin())
+    assert r["verdict"] in ("NO DATA", "LOW CONF")
+
+
+def test_none_price_no_crash():
+    r = engines.recommend(_co(price=None), _a_nonfin())
+    assert r["verdict"] in ("NO DATA", "LOW CONF")
+
+
+def test_nbfc_none_no_crash():
+    # B2: co["nbfc"] explicitly None must not crash the financial branch.
+    co = _co(type="financial", nbfc=None, revenue=None, net_debt=None)
+    r = engines.recommend(co, _a_fin())
+    assert "verdict" in r
+
+
+def test_empty_series_no_crash():
+    # B3: empty / missing price series must not crash technicals/_rsi/max.
+    assert engines.recommend(_co(series=[]), _a_nonfin())["verdict"]
+    assert engines.recommend(_co(series=None), _a_nonfin())["verdict"]
+    # very short series (< RSI seed window) too
+    short = [{"i": i, "close": 100.0 + i} for i in range(5)]
+    assert engines.recommend(_co(series=short), _a_nonfin())["verdict"]
+
+
+def test_synthetic_series_momentum_neutral():
+    # C8: synthetic series must not fabricate bullish momentum.
+    r = engines.recommend(_co(synthetic_series=True), _a_nonfin())
+    mom = next(x for x in r["reasons"] if x["label"] == "Momentum")
+    assert mom["score"] == 50 and not mom["good"]
+
+
+def test_synthetic_price_forces_low_conf():
+    # C9: a missing live price must drop confidence below the reliable threshold
+    # so the verdict can never read BUY off a bogus margin of safety.
+    co = _co(synthetic_price=True)
+    assert data_quality(co)["score"] < 0.5
+    assert engines.recommend(co, _a_nonfin())["verdict"] == "LOW CONF"
+
+
+def test_normal_company_sane():
+    r = engines.recommend(_co(), _a_nonfin())
+    assert r["intrinsic"] is not None and r["intrinsic"] > 0
+    assert r["mos"] is not None
+    assert r["verdict"] in ("BUY", "ACCUMULATE", "HOLD", "REDUCE", "AVOID", "LOW CONF")
+
+
+def test_negative_equity_financial_low_conf():
+    # Negative net worth → book-based valuation meaningless → not reliable.
+    co = _co(type="financial", equity=-500.0, nbfc={}, revenue=None, net_debt=None)
+    dq = data_quality(co)
+    assert dq["score"] < 0.5
+
+
+if __name__ == "__main__":
+    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    passed = 0
+    for fn in fns:
+        try:
+            fn()
+            print(f"  ✓ {fn.__name__}")
+            passed += 1
+        except Exception as e:
+            print(f"  ✗ {fn.__name__}: {type(e).__name__}: {e}")
+    print(f"\n{passed}/{len(fns)} passed.")
+    sys.exit(0 if passed == len(fns) else 1)

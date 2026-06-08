@@ -227,8 +227,8 @@ def fundamentals(co: Dict) -> Dict:
     price  = co.get("price")
     bvps = equity / shares if (equity is not None and shares) else None
     eps  = pat / shares if (pat is not None and shares) else None
-    pe = price / eps if (eps is not None and eps > 0) else None
-    pb = price / bvps if (bvps is not None and bvps > 0) else None
+    pe = price / eps if (price and eps is not None and eps > 0) else None
+    pb = price / bvps if (price and bvps is not None and bvps > 0) else None
     roe = pat / equity if (pat is not None and equity and equity > 0) else None
     return {"bvps": bvps, "eps": eps, "pb": pb, "pe": pe, "roe": roe}
 
@@ -244,6 +244,8 @@ def _sma(series: List[float], n: int):
 
 
 def _rsi(series: List[float], n: int = 14) -> float:
+    if len(series) < n + 1:        # not enough points to seed RSI → neutral
+        return 50.0
     gains = losses = 0.0
     for i in range(1, n + 1):
         ch = series[i] - series[i - 1]
@@ -259,7 +261,10 @@ def _rsi(series: List[float], n: int = 14) -> float:
 
 
 def technicals(co: Dict) -> Dict:
-    closes = [p["close"] for p in co["series"]]
+    closes = [p["close"] for p in (co.get("series") or []) if p.get("close") is not None]
+    if not closes:                 # no price history → neutral, no crash
+        return {"data": [], "rsi": 50.0, "hi": None, "lo": None, "last": None,
+                "above_sma50": False, "above_sma20": False}
     sma20 = _sma(closes, 20)
     sma50 = _sma(closes, 50)
     data = [{"i": p["i"], "close": p["close"], "sma20": sma20[k], "sma50": sma50[k]}
@@ -301,9 +306,11 @@ def recommend(co: Dict, a: Dict) -> Dict:
                     "bad":  mos is not None and mos < -0.10})
 
     if co["type"] == "financial":
-        # Use safe() so None values don't crash — default to neutral values
-        gnpa = safe(co.get("nbfc", {}).get("gnpa"), 0.03)
-        crar = safe(co.get("nbfc", {}).get("crar"), 0.18)
+        # Use safe() so None values don't crash — default to neutral values.
+        # (co.get("nbfc") may be None, not just missing — `or {}` guards that.)
+        _nbfc = co.get("nbfc") or {}
+        gnpa = safe(_nbfc.get("gnpa"), 0.03)
+        crar = safe(_nbfc.get("crar"), 0.18)
         roe_val = safe(f["roe"], 0.12)
         roe_s = _clamp((roe_val - 0.10) / 0.15 * 100, 0, 100)
         ap_s  = _clamp((0.05 - gnpa) / 0.05 * 100, 0, 100)
@@ -320,20 +327,31 @@ def recommend(co: Dict, a: Dict) -> Dict:
     reasons.append({"label": "Quality", "score": quality, "note": qnote,
                     "good": quality > 60, "bad": quality < 40})
 
-    momentum = 50
-    if t["above_sma50"]: momentum += 18
-    if t["above_sma20"]: momentum += 10
-    if t["rsi"] > 70: momentum -= 15
-    if t["rsi"] < 30: momentum += 8
-    momentum = _clamp(momentum, 0, 100)
-    reasons.append({"label": "Momentum", "score": momentum,
-                    "note": f"{'Above' if t['above_sma50'] else 'Below'} 50-DMA, RSI {t['rsi']:.0f}",
-                    "good": t["above_sma50"], "bad": not t["above_sma50"]})
+    # Momentum stays NEUTRAL when the price series is synthetic / absent — the
+    # synthetic series trends gently upward by construction, so reading momentum
+    # off it would fabricate a bullish (above-50-DMA) signal on names with no real
+    # OHLC. Only score momentum on real history.
+    if co.get("synthetic_series") or t.get("last") is None:
+        momentum = 50
+        reasons.append({"label": "Momentum", "score": momentum,
+                        "note": "Insufficient real price history — momentum neutral",
+                        "good": False, "bad": False})
+    else:
+        momentum = 50
+        if t["above_sma50"]: momentum += 18
+        if t["above_sma20"]: momentum += 10
+        if t["rsi"] > 70: momentum -= 15
+        if t["rsi"] < 30: momentum += 8
+        momentum = _clamp(momentum, 0, 100)
+        reasons.append({"label": "Momentum", "score": momentum,
+                        "note": f"{'Above' if t['above_sma50'] else 'Below'} 50-DMA, RSI {t['rsi']:.0f}",
+                        "good": t["above_sma50"], "bad": not t["above_sma50"]})
 
     risk, flags = 0, []
     if co["type"] == "financial":
-        gnpa = safe(co.get("nbfc", {}).get("gnpa"), 0.03)
-        crar = safe(co.get("nbfc", {}).get("crar"), 0.18)
+        _nbfc = co.get("nbfc") or {}
+        gnpa = safe(_nbfc.get("gnpa"), 0.03)
+        crar = safe(_nbfc.get("crar"), 0.18)
         if gnpa > 0.04: risk += 25; flags.append("Elevated GNPA")
         if crar < 0.16: risk += 20; flags.append("Thin capital adequacy")
     else:
@@ -355,6 +373,7 @@ def recommend(co: Dict, a: Dict) -> Dict:
     # view from margin of safety + composite quality — analyst consensus is
     # surfaced separately and never blended in here.
     if iv is None:                              verdict = "NO DATA"
+    elif mos is None:                           verdict = "NO DATA"   # have intrinsic but no usable price
     elif conf["score"] < 0.5:                   verdict = "LOW CONF"
     elif composite >= 68 and mos > 0.15:        verdict = "BUY"
     elif composite >= 58 and mos > 0.05:        verdict = "ACCUMULATE"

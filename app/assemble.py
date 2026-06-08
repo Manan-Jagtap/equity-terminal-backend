@@ -44,7 +44,13 @@ def assumptions_dict(asm: models.Assumptions) -> dict:
 
 def build_company(db: Session, co: models.Company) -> dict:
     facts = latest_facts(db, co.id)
-    price = co.market.price if co.market else 1.0
+    # A real, positive live price or nothing. We keep a 1.0 sentinel so charts and
+    # ratio math don't divide by None, but we FLAG it (synthetic_price) so the
+    # trust layer drops confidence — a missing price paired with a real intrinsic
+    # would otherwise fabricate a huge bogus margin of safety / "BUY".
+    real_price = co.market.price if co.market else None
+    real_price = real_price if (real_price and real_price > 0) else None
+    price = real_price if real_price is not None else 1.0
     series = [{"i": p.t, "close": p.close}
               for p in sorted(co.prices, key=lambda x: x.t)]
 
@@ -70,6 +76,7 @@ def build_company(db: Session, co: models.Company) -> dict:
         "shares": co.shares_outstanding if (co.shares_outstanding and co.shares_outstanding > 0) else None,
         "price": price, "equity": equity, "net_profit": net_profit,
         "series": series, "synthetic_series": synthetic_series,
+        "synthetic_price": real_price is None,
     }
 
     if co.type == "financial":

@@ -34,6 +34,9 @@ def data_quality(co: dict) -> dict:
     if not fin and co.get("revenue") is None:  penal(0.15, "Revenue not available")
     if not fin and co.get("net_debt") is None: penal(0.10, "Net debt not available")
     if co.get("synthetic_series"):         penal(0.10, "Price history is synthetic — momentum/52W not from real OHLC")
+    # A missing live price makes margin-of-safety meaningless — drop confidence
+    # below the reliability threshold so the verdict reads LOW CONF, never a BUY.
+    if co.get("synthetic_price"):          penal(0.60, "Live price unavailable — margin of safety vs price is not meaningful")
 
     pb = pe = roe = None
     if equity and equity > 0 and shares and shares > 0 and price:
