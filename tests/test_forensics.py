@@ -7,14 +7,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.forensics import forensic_report
 
 
-def _stmt(year, pat, cfo, ta, rev, gp, ebit, intr, ebitda, borrow, cash, nw, ltd):
-    return {year: {
-        "PL": {"pat": pat, "revenue": rev, "gross_profit": gp, "ebit": ebit,
-               "interest_expense": intr, "ebitda": ebitda},
-        "BS": {"total_assets": ta, "borrowings": borrow, "cash": cash,
-               "net_worth": nw, "lt_debt": ltd},
-        "CF": {"operating_cf": cfo},
-    }}
+def _stmt(year, pat, cfo, ta, rev, gp, ebit, intr, ebitda, borrow, cash, nw, ltd,
+          ca=None, cl=None, recv=None, ppe=None, dep=None, reserves=None, tl=None):
+    bs = {"total_assets": ta, "borrowings": borrow, "cash": cash,
+          "net_worth": nw, "lt_debt": ltd}
+    if tl is not None: bs["total_liabilities"] = tl
+    if ca is not None: bs["current_assets"] = ca
+    if cl is not None: bs["current_liabilities"] = cl
+    if recv is not None: bs["receivables"] = recv
+    if ppe is not None: bs["fixed_assets"] = ppe
+    if reserves is not None: bs["reserves"] = reserves
+    pl = {"pat": pat, "revenue": rev, "gross_profit": gp, "ebit": ebit,
+          "interest_expense": intr, "ebitda": ebitda}
+    if dep is not None: pl["depreciation"] = dep
+    return {year: {"PL": pl, "BS": bs, "CF": {"operating_cf": cfo}}}
 
 
 def _healthy(years=(2021, 2022, 2023, 2024)):
@@ -77,11 +83,44 @@ def test_financial_reduced_set():
     print("  ok financial reduced set")
 
 
-def test_pending_lists_classic_scores():
+def test_pledge_always_pending():
     r = forensic_report(_healthy(), {"type": "nonfinancial"})
+    assert any("pledge" in p.lower() for p in r["pending"]), r["pending"]
+    print("  ok pledge pending")
+
+
+def _full(years=(2022, 2023, 2024, 2025)):
+    """Statements rich enough to compute Altman Z'' and Beneish M (working
+    capital, receivables, PPE, depreciation present)."""
+    s = {}
+    for i, yr in enumerate(years):
+        g = 1 + 0.08 * i
+        s.update(_stmt(yr, pat=100*g, cfo=108*g, ta=800*g, rev=1000*g, gp=400*g*1.01,
+                       ebit=160*g, intr=10, ebitda=200*g, borrow=120, cash=180*g,
+                       nw=600*g, ltd=80*0.92**i, ca=360*g, cl=200, recv=90*g,
+                       ppe=300*g, dep=40*g, reserves=520*g, tl=(800*g - 600*g)))
+    return s
+
+
+def test_altman_beneish_compute_on_full_data():
+    r = forensic_report(_full(), {"type": "nonfinancial"})
+    assert "altman_z" in r["metrics"], r["metrics"].keys()
+    assert "beneish_m" in r["metrics"], r["metrics"].keys()
+    az = r["metrics"]["altman_z"]
+    bm = r["metrics"]["beneish_m"]
+    assert az["zone"] == "safe" and az["flag"] == "green", az      # healthy → safe
+    assert bm["value"] < -1.78 and bm["flag"] in ("green", "amber"), bm  # no manipulation
+    assert "DSRI" in bm["components"] and bm["sgai_neutral"] is True
+    # classic scores now computed → not in pending; pledge still pending
     joined = " ".join(r["pending"]).lower()
-    assert "beneish" in joined and "altman" in joined and "pledge" in joined
-    print("  ok pending classics listed")
+    assert "altman" not in joined and "beneish" not in joined and "pledge" in joined
+    print("  ok altman/beneish compute:", az["value"], bm["value"])
+
+
+def test_financials_skip_classic_scores():
+    r = forensic_report(_full(), {"type": "financial"})
+    assert "altman_z" not in r["metrics"] and "beneish_m" not in r["metrics"]
+    print("  ok financials skip altman/beneish")
 
 
 if __name__ == "__main__":

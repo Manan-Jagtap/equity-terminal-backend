@@ -283,11 +283,17 @@ def company_forensics(ticker: str, db: Session = Depends(get_db)):
               .filter_by(company_id=co.id)
               .order_by(models.HistoricalFinancial.fiscal_year)
               .all())
-    from app.financials import build_financials_response
-    fin = build_financials_response(co, rows)
+    # Forensics reads the FULL set of stored line items (receivables, current
+    # assets/liabilities, gross PPE, accumulated depreciation, …) — not the
+    # curated financials pull list — so Beneish / Altman inputs flow through.
+    statements: dict = {}
+    for r in rows:
+        if r.value is None:
+            continue
+        statements.setdefault(int(r.fiscal_year), {}).setdefault(r.statement_type, {})[r.line_item] = r.value
 
     from app.forensics import forensic_report
-    report = forensic_report(fin.get("statements", {}), {"type": co.type})
+    report = forensic_report(statements, {"type": co.type})
     report["ticker"] = co.ticker
     report["name"] = co.name
     return report

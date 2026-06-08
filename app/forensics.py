@@ -114,20 +114,127 @@ def _avg(vals):
     return sum(vals) / len(vals) if vals else None
 
 
+def _ca(bs):
+    """Total current assets — prefer the reported aggregate, else reconstruct
+    from components (last-resort; the aggregate is normally present)."""
+    bs = bs or {}
+    if bs.get("current_assets") is not None:
+        return _num(bs["current_assets"])
+    parts = [_num(bs.get(k)) for k in ("cash", "short_term_investments", "receivables",
+                                       "inventory", "prepaid_expenses", "other_current_assets")]
+    parts = [p for p in parts if p is not None]
+    return sum(parts) if parts else None
+
+
+def _cl(bs):
+    bs = bs or {}
+    if bs.get("current_liabilities") is not None:
+        return _num(bs["current_liabilities"])
+    parts = [_num(bs.get(k)) for k in ("payables", "accrued_expenses", "notes_payable_st",
+                                       "current_lt_debt", "other_current_liabilities")]
+    parts = [p for p in parts if p is not None]
+    return sum(parts) if parts else None
+
+
+def _altman_z(statements, years):
+    """Altman Z''-score (emerging-market, 4-variable form — no asset-turnover term,
+    so it applies to service firms too):
+        Z'' = 3.25 + 6.56·X1 + 3.26·X2 + 6.72·X3 + 1.05·X4
+    X1 = working capital / assets, X2 = retained earnings / assets,
+    X3 = EBIT / assets, X4 = book equity / total liabilities.
+    Zones: > 2.6 safe · 1.1–2.6 grey · < 1.1 distress."""
+    y = years[-1]
+    bs = (statements.get(y, {}) or {}).get("BS", {}) or {}
+    g = lambda s, i: _num(_v(statements, y, s, i))
+    ta = g("BS", "total_assets")
+    ca, cl = _ca(bs), _cl(bs)
+    wc = (ca - cl) if (ca is not None and cl is not None) else None
+    re = g("BS", "reserves")
+    ebit = g("PL", "ebit")
+    tl = g("BS", "total_liabilities")
+    nw = g("BS", "net_worth") or g("BS", "equity")
+    if not ta or not tl or None in (wc, re, ebit, nw):
+        return None
+    x1, x2, x3, x4 = wc / ta, re / ta, ebit / ta, nw / tl
+    z = 3.25 + 6.56 * x1 + 3.26 * x2 + 6.72 * x3 + 1.05 * x4
+    zone = "safe" if z > 2.6 else "grey" if z >= 1.1 else "distress"
+    flag = {"safe": "green", "grey": "amber", "distress": "red"}[zone]
+    return {"value": round(z, 2), "zone": zone, "flag": flag,
+            "note": f"Z''={z:.2f} — {zone} zone (EM-adjusted bankruptcy distance)"}
+
+
+def _beneish_m(statements, years):
+    """Beneish M-score — likelihood of earnings manipulation. M > −1.78 flags
+    elevated risk. SG&A isn't reported in this feed, so the minor SGAI term is
+    held neutral (=1); the other seven variables use real data."""
+    if len(years) < 2:
+        return None
+    t, p = years[-1], years[-2]
+    P = lambda yr, i: _num(_v(statements, yr, "PL", i))
+    B = lambda yr, i: _num(_v(statements, yr, "BS", i))
+    C = lambda yr, i: _num(_v(statements, yr, "CF", i))
+    salt, salp = P(t, "revenue"), P(p, "revenue")
+    tat, tap = B(t, "total_assets"), B(p, "total_assets")
+    if not salt or not salp or not tat:
+        return None
+
+    rect, recp = B(t, "receivables"), B(p, "receivables")
+    dsri = ((rect / salt) / (recp / salp)) if (rect and recp) else 1.0
+
+    gpt, gpp = P(t, "gross_profit"), P(p, "gross_profit")
+    gmt = (gpt / salt) if gpt is not None else None
+    gmp = (gpp / salp) if gpp is not None else None
+    gmi = (gmp / gmt) if (gmt and gmp) else 1.0
+
+    ppet, ppep = B(t, "fixed_assets"), B(p, "fixed_assets")
+    def _aq(ca, ppe, ta):
+        if None in (ca, ppe, ta) or not ta:
+            return None
+        return 1 - (ca + ppe) / ta
+    aq_t = _aq(_ca((statements.get(t, {}) or {}).get("BS", {})), ppet, tat)
+    aq_p = _aq(_ca((statements.get(p, {}) or {}).get("BS", {})), ppep, tap)
+    aqi = (aq_t / aq_p) if (aq_t and aq_p) else 1.0
+
+    sgi = salt / salp
+
+    dept, depp = abs(P(t, "depreciation") or 0), abs(P(p, "depreciation") or 0)
+    def _dep(dep, ppe):
+        return dep / (dep + ppe) if (ppe and (dep + ppe)) else None
+    d_t, d_p = _dep(dept, ppet), _dep(depp, ppep)
+    depi = (d_p / d_t) if (d_t and d_p) else 1.0
+
+    sgai = 1.0   # SG&A not reported → neutral
+
+    def _lev(yr, ta):
+        ltd = B(yr, "lt_debt"); cl = _cl((statements.get(yr, {}) or {}).get("BS", {}))
+        return ((ltd + cl) / ta) if (ta and ltd is not None and cl is not None) else None
+    lt, lp = _lev(t, tat), _lev(p, tap)
+    lvgi = (lt / lp) if (lt and lp) else 1.0
+
+    pat, cfo = P(t, "pat"), C(t, "operating_cf")
+    tata = ((pat - cfo) / tat) if (pat is not None and cfo is not None and tat) else 0.0
+
+    m = (-4.84 + 0.92 * dsri + 0.528 * gmi + 0.404 * aqi + 0.892 * sgi
+         + 0.115 * depi - 0.172 * sgai + 4.679 * tata - 0.327 * lvgi)
+    flag = "red" if m > -1.78 else "amber" if m > -2.22 else "green"
+    return {"value": round(m, 2), "flag": flag, "threshold": -1.78,
+            "sgai_neutral": True,
+            "components": {"DSRI": round(dsri, 2), "GMI": round(gmi, 2), "AQI": round(aqi, 2),
+                           "SGI": round(sgi, 2), "DEPI": round(depi, 2),
+                           "LVGI": round(lvgi, 2), "TATA": round(tata, 3)},
+            "note": ("M=%.2f — %s" % (m, "above −1.78: elevated manipulation risk"
+                     if m > -1.78 else "below −1.78: no manipulation signal"))}
+
+
 def forensic_report(statements: dict, co: dict) -> dict:
     statements = statements or {}
     years = sorted(int(y) for y in statements.keys())
     is_fin = (co or {}).get("type") == "financial"
 
-    pending = [
-        "Beneish M-score — needs receivables & SG&A (ingestion expansion in progress)",
-        "Altman Z″ (EM) — needs working capital (current assets − current liabilities)",
-        "Promoter pledge % — not currently ingested",
-    ]
-
     if len(years) < 2:
         return {"available": False, "composite": None, "grade": None,
-                "metrics": {}, "flags": [], "pending": pending,
+                "metrics": {}, "flags": [],
+                "pending": ["Promoter pledge % — not currently ingested"],
                 "note": "Not enough statement history for forensic analysis."}
 
     y, p3 = years[-1], years[max(0, len(years) - 4)]   # latest, ~3y ago
@@ -190,9 +297,11 @@ def forensic_report(statements: dict, co: dict) -> dict:
     if de_now is not None and de_old is not None:
         trend = de_now - de_old
         rising = trend > 0.10
+        direction = ("rising" if trend > 0.10 else "edging up" if trend > 0.02
+                     else "falling" if trend < -0.02 else "broadly stable")
         metrics["leverage_trend"] = {"value": round(trend, 3),
             "flag": "red" if rising else "green",
-            "note": f"D/E {de_old:.2f}→{de_now:.2f} over ~3y ({'rising' if rising else 'stable/falling'})"}
+            "note": f"D/E {de_old:.2f}→{de_now:.2f} over ~3y ({direction})"}
         if rising:
             flags.append({"level": "amber", "label": "Rising leverage",
                           "note": f"Debt/equity climbed {de_old:.2f}→{de_now:.2f} over ~3 years."})
@@ -204,6 +313,32 @@ def forensic_report(statements: dict, co: dict) -> dict:
         if pio["normalized"] <= 3:
             flags.append({"level": "amber", "label": "Low Piotroski score",
                           "note": f"F-score {pio['score']}/{pio['max']} — weak fundamental momentum."})
+
+    # ── Classic distress / manipulation scores (non-financials — neither the
+    #    Altman manufacturing model nor Beneish maps to a lender's balance sheet).
+    altman = None if is_fin else _altman_z(statements, years)
+    if altman:
+        metrics["altman_z"] = altman
+        if altman["flag"] == "red":
+            flags.append({"level": "red", "label": "Altman distress zone",
+                          "note": f"Z''={altman['value']} sits in the distress zone (<1.1)."})
+        elif altman["flag"] == "amber":
+            flags.append({"level": "amber", "label": "Altman grey zone",
+                          "note": f"Z''={altman['value']} is in the grey zone (1.1–2.6) — monitor solvency."})
+
+    beneish = None if is_fin else _beneish_m(statements, years)
+    if beneish:
+        metrics["beneish_m"] = beneish
+        if beneish["flag"] == "red":
+            flags.append({"level": "red", "label": "Beneish manipulation signal",
+                          "note": f"M-score {beneish['value']} exceeds −1.78 — screen earnings quality closely."})
+
+    # Pending = whatever still couldn't be computed (pledge is never ingested yet).
+    pending = ["Promoter pledge % — not currently ingested (governance signal)"]
+    if not is_fin and not altman:
+        pending.insert(0, "Altman Z″ — insufficient balance-sheet detail for this name")
+    if not is_fin and not beneish:
+        pending.insert(0, "Beneish M-score — insufficient year-over-year detail for this name")
 
     # ── Composite (0-100), reweighted over what computed.
     comp_parts = []

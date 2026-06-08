@@ -96,6 +96,20 @@ BAL_MAP = {
     "totalinventory": "inventory",
     "accountspayable": "payables", "payableaccrued": "payables",
     "totalnoncurrentassets": "noncurrent_assets",
+    # Beneish DEPI (depreciation index) + AQI (asset quality) inputs, and the
+    # current-asset/liability COMPONENTS — confirmed present via FORENSIC_DEBUG_KEYS
+    # — so working capital can be reconstructed if the aggregate is ever missing.
+    "accumulateddepreciationtotal": "accumulated_depreciation",
+    "propertyplantequipmenttotalgross": "ppe_gross",
+    "cashequivalents": "cash_equivalents",
+    "shortterminvestments": "short_term_investments",
+    "othercurrentassetstotal": "other_current_assets",
+    "prepaidexpenses": "prepaid_expenses",
+    "accruedexpenses": "accrued_expenses",
+    "othercurrentliabilitiestotal": "other_current_liabilities",
+    "notespayableshorttermdebt": "notes_payable_st",
+    "currentportofltdebtcapitalleases": "current_lt_debt",
+    "goodwillnet": "goodwill", "intangiblesnet": "intangibles",
 }
 CAS_MAP = {
     "cashfromoperatingactivities": "operating_cf",
@@ -109,7 +123,10 @@ SECTIONS = {"INC": ("PL", INC_MAP), "BAL": ("BS", BAL_MAP), "CAS": ("CF", CAS_MA
 
 PL_ITEMS = {"revenue", "gross_profit", "ebitda", "ebit", "depreciation", "interest_expense", "pbt", "tax", "pat", "sga"}
 BS_ITEMS = {"net_worth", "equity", "reserves", "total_assets", "borrowings", "lt_debt", "cash", "total_liabilities", "fixed_assets", "investments",
-            "current_assets", "current_liabilities", "receivables", "inventory", "payables", "noncurrent_assets"}
+            "current_assets", "current_liabilities", "receivables", "inventory", "payables", "noncurrent_assets",
+            "accumulated_depreciation", "ppe_gross", "cash_equivalents", "short_term_investments", "other_current_assets",
+            "prepaid_expenses", "accrued_expenses", "other_current_liabilities", "notes_payable_st", "current_lt_debt",
+            "goodwill", "intangibles"}
 CF_ITEMS = {"operating_cf", "investing_cf", "financing_cf", "capex", "dividends", "net_change_cash"}
 
 
