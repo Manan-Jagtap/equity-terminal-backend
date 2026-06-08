@@ -72,6 +72,9 @@ INC_MAP = {
     "interestincexpnetnonoptotal": "interest_expense",
     "dilutednormalizedeps": "_eps", "dilutedepsexcludingextraorditems": "_eps",
     "dilutedweightedaverageshares": "_shares",
+    # Forensic inputs (Beneish SGAI; Reuters "Selling/General/Admin. Expenses, Total").
+    "sellinggeneraladminexpensestotal": "sga",
+    "sellinggenadminexpensestotal": "sga", "sgaexpensetotal": "sga",
 }
 BAL_MAP = {
     "totalequity": "net_worth",
@@ -85,6 +88,14 @@ BAL_MAP = {
     "propertyplantequipmenttotalnet": "fixed_assets",
     "longterminvestments": "investments",
     "totalcommonsharesoutstanding": "_shares_bal",
+    # Forensic inputs: working capital (Altman X1) + receivables (Beneish DSRI).
+    "totalcurrentassets": "current_assets",
+    "totalcurrentliabilities": "current_liabilities",
+    "totalreceivablesnet": "receivables",
+    "accountsreceivabletradenet": "receivables",
+    "totalinventory": "inventory",
+    "accountspayable": "payables", "payableaccrued": "payables",
+    "totalnoncurrentassets": "noncurrent_assets",
 }
 CAS_MAP = {
     "cashfromoperatingactivities": "operating_cf",
@@ -96,8 +107,9 @@ CAS_MAP = {
 }
 SECTIONS = {"INC": ("PL", INC_MAP), "BAL": ("BS", BAL_MAP), "CAS": ("CF", CAS_MAP)}
 
-PL_ITEMS = {"revenue", "gross_profit", "ebitda", "ebit", "depreciation", "interest_expense", "pbt", "tax", "pat"}
-BS_ITEMS = {"net_worth", "equity", "reserves", "total_assets", "borrowings", "lt_debt", "cash", "total_liabilities", "fixed_assets", "investments"}
+PL_ITEMS = {"revenue", "gross_profit", "ebitda", "ebit", "depreciation", "interest_expense", "pbt", "tax", "pat", "sga"}
+BS_ITEMS = {"net_worth", "equity", "reserves", "total_assets", "borrowings", "lt_debt", "cash", "total_liabilities", "fixed_assets", "investments",
+            "current_assets", "current_liabilities", "receivables", "inventory", "payables", "noncurrent_assets"}
 CF_ITEMS = {"operating_cf", "investing_cf", "financing_cf", "capex", "dividends", "net_change_cash"}
 
 
@@ -126,6 +138,8 @@ def _parse_financials(s, cid, co, stock):
     HistoricalFinancial + latest-year FinancialFact + corrected share count."""
     fin = stock.get("financials") or stock.get("stockFinancialData") or []
     by_year = {}
+    debug_keys = os.environ.get("FORENSIC_DEBUG_KEYS")   # set to log unmapped line items
+    unmapped = {"INC": {}, "BAL": {}, "CAS": {}}          # section -> {normName: rawDisplayName}
     for entry in fin:
         if entry.get("Type") != "Annual":
             continue
@@ -137,13 +151,22 @@ def _parse_financials(s, cid, co, stock):
         yd = by_year.setdefault(year, {})
         for sec, (stmt, keymap) in SECTIONS.items():
             for it in (smap.get(sec) or []):
-                canon = keymap.get(_norm(it.get("displayName")))
+                norm = _norm(it.get("displayName"))
+                canon = keymap.get(norm)
                 if not canon:
+                    if debug_keys and norm:
+                        unmapped[sec].setdefault(norm, it.get("displayName"))
                     continue
                 try:
                     yd[canon] = float(it.get("value"))
                 except (TypeError, ValueError):
                     continue
+    if debug_keys:
+        for sec in ("INC", "BAL", "CAS"):
+            if unmapped[sec]:
+                print(f"  [forensic-debug] {co.ticker} {sec} UNMAPPED line items "
+                      f"(normName → displayName): " +
+                      ", ".join(f"{k}={v!r}" for k, v in sorted(unmapped[sec].items())))
 
     for year, yd in by_year.items():
         # EBITDA (Operating Profit) = EBIT + Depreciation

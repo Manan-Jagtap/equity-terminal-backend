@@ -267,6 +267,32 @@ def _safe_f(v):
         return None
 
 
+@router.get("/{ticker}/forensics")
+def company_forensics(ticker: str, db: Session = Depends(get_db)):
+    """Accounting-quality / forensic red-flags computed from the company's own
+    stored statements: adapted Piotroski F, Sloan accrual ratio, cash conversion,
+    interest coverage, net-debt/EBITDA and leverage trend, with a 0-100 composite
+    + red/amber/green flags. Classic Beneish M / Altman Z'' are listed under
+    `pending` until the ingester captures receivables / working capital / SG&A.
+    Never 404s on thin data — returns available=False with a reason instead."""
+    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
+    if not co:
+        raise HTTPException(404, f"Unknown ticker {ticker}")
+
+    rows = (db.query(models.HistoricalFinancial)
+              .filter_by(company_id=co.id)
+              .order_by(models.HistoricalFinancial.fiscal_year)
+              .all())
+    from app.financials import build_financials_response
+    fin = build_financials_response(co, rows)
+
+    from app.forensics import forensic_report
+    report = forensic_report(fin.get("statements", {}), {"type": co.type})
+    report["ticker"] = co.ticker
+    report["name"] = co.name
+    return report
+
+
 @router.get("/{ticker}/metrics")
 def company_metrics(ticker: str, category: str | None = None,
                     db: Session = Depends(get_db)):
