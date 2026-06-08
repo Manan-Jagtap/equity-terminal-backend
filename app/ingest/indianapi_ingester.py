@@ -697,26 +697,35 @@ def _yf_live_prices(tickers, debug=False):
 
 
 def run_intraday(debug=False):
-    """Refresh Nifty 50 spot prices from a single batched Yahoo call. Pure price
-    update — no statements/insights — so it's cheap to run every ~15 min during
-    market hours. Returns the number of prices updated."""
-    prices = _yf_live_prices(sorted(NIFTY_50), debug=debug)
-    if not prices:
-        return 0
+    """Refresh Nifty 50 spot prices via IndianAPI (one /stock call per name).
+
+    NOTE: this used to use a single batched Yahoo/yfinance call, but Yahoo blocks
+    datacenter IPs — from Railway every request comes back empty
+    (JSONDecodeError on all 50), so the batch path is dead in production. IndianAPI
+    is the only source that works server-side (it's what the daily EOD refresh
+    already uses successfully). The trade-off: ~50 IndianAPI calls per run instead
+    of one free Yahoo call, so the scheduler runs this every 90 min during market
+    hours (not every 15 min) to stay inside the monthly quota.
+
+    Pure price update — no statements/insights. Returns the number of prices
+    updated. refresh_price() commits and handles its own rollback per name."""
     s = SessionLocal()
     try:
-        by_ticker = {(c.ticker or "").upper(): c for c in s.query(models.Company).all()}
+        companies = [c for c in s.query(models.Company).all()
+                     if (c.ticker or "").upper() in NIFTY_50]
         updated = 0
-        for tk, price in prices.items():
-            co = by_ticker.get(tk.upper())
-            if not co or not price:
-                continue
-            if co.market:
-                co.market.price = price
-            else:
-                s.add(models.MarketSnapshot(company_id=co.id, price=price))
-            updated += 1
-        s.commit()
+        for co in companies:
+            try:
+                if refresh_price(s, co):
+                    updated += 1
+            except Exception as e:
+                try: s.rollback()
+                except Exception: pass
+                if debug:
+                    print(f"  [intraday] {co.ticker}: {type(e).__name__}: {e}")
+            time.sleep(RATE_SLEEP)
+        if debug:
+            print(f"  [intraday] IndianAPI updated {updated}/{len(companies)} prices")
         return updated
     finally:
         s.close()

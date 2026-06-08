@@ -11,12 +11,16 @@ Schedule (IST = UTC + 5:30):
   - Weekly full refresh            : Sunday 6:00am IST (00:30 UTC)
         → Nifty 50 statements + facts + insights  (~400 calls)
 
-  Monthly budget ≈ 50×22 + 400×4 ≈ 2,700 calls — well within the 10,000/mo plan.
+  - Intraday spot prices         : every 90 min during NSE market hours
+        → Nifty 50 prices via IndianAPI  (~50 calls/run, ~4 runs/market-day)
 
-  (The 15-minute intraday refresh is intentionally deferred until the
-   /nse_stock_batch_live_price endpoint is wired in Phase 2 — that refreshes all
-   50 in ONE call, so intraday becomes quota-safe. Per-company intraday polling
-   would blow the monthly quota, so we don't do it.)
+  Monthly budget ≈ 50×22 (EOD) + 200×22 (intraday) + 400×4 (weekly full)
+                 ≈ 7,100 calls — within the 10,000/mo plan.
+
+  (Intraday originally used a single batched Yahoo/yfinance call, but Yahoo
+   blocks datacenter IPs — from Railway it returned 0/50 every run. IndianAPI is
+   the only source that works server-side, so intraday now polls it every 90 min
+   rather than every 15 min to stay quota-safe.)
 
 Requires env var INDIANAPI_KEY on this service.
 """
@@ -55,10 +59,13 @@ def run_prices():
 
 
 def run_intraday_prices():
-    """Intraday spot-price refresh — ONE batched Yahoo call updates all 50, then
-    a CHEAP mos/verdict refresh (no DCF re-run — intrinsic doesn't move with
-    price). Only fires during NSE market hours (9:15-15:30 IST = 03:45-10:00 UTC,
-    Mon-Fri), so off-hours ticks cost nothing."""
+    """Intraday spot-price refresh via IndianAPI (the yfinance batch path was
+    abandoned — Yahoo blocks Railway's datacenter IP, so it returned 0/50 every
+    run). IndianAPI works server-side but costs ~50 calls per run, so this fires
+    at most every 90 min and only during NSE market hours (9:15-15:35 IST =
+    03:45-10:05 UTC, Mon-Fri) to stay inside the monthly quota. After the price
+    update, a CHEAP mos/verdict refresh (no DCF re-run — intrinsic doesn't move
+    with price)."""
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     if now.weekday() >= 5:
@@ -70,7 +77,7 @@ def run_intraday_prices():
         n = run_intraday()
         if n:
             refresh_mos()                          # cheap: mos/verdict only
-        log.info(f"Intraday price refresh: {n} prices updated (yfinance).")
+        log.info(f"Intraday price refresh: {n} prices updated (IndianAPI).")
     except Exception as e:
         log.error(f"Intraday price refresh failed: {e}")
 
@@ -117,14 +124,15 @@ for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
 # Weekly full refresh — 6:00am IST Sunday = 00:30 UTC
 schedule.every().sunday.at("00:30").do(run_full)
 
-# Intraday spot prices — every 15 min; the job self-gates to NSE market hours
-# (one batch call, so ~26 calls/day → negligible quota).
-schedule.every(15).minutes.do(run_intraday_prices)
+# Intraday spot prices — every 90 min; the job self-gates to NSE market hours.
+# IndianAPI (~50 calls/run) since Yahoo blocks datacenter IPs: ~4 runs/market-day
+# × 50 ≈ 200 calls/day → quota-safe alongside the daily EOD + weekly full.
+schedule.every(90).minutes.do(run_intraday_prices)
 
 log.info("Scheduler v3 (IndianAPI) started.")
 log.info("Daily prices: 3:45pm IST Mon-Fri (10:15 UTC)")
 log.info("Weekly full refresh: 6:00am IST Sunday (00:30 UTC)")
-log.info("Intraday prices: every 15 min during NSE market hours (one batch call)")
+log.info("Intraday prices: every 90 min during NSE market hours (IndianAPI, ~50 calls/run)")
 
 # ── One-off on-boot jobs (manual trigger from Railway, NO laptop) ────────────
 # Set ONE of these to true on the scheduler service's Variables and redeploy.
@@ -183,9 +191,9 @@ elif _flag("RUN_COMPUTE_NOW"):
     except Exception as e:
         log.error(f"Compute failed: {e}")
 elif _flag("RUN_INTRADAY_NOW"):
-    # One-off test of the yfinance live-price path: fetch all 50, update prices,
+    # One-off test of the IndianAPI live-price path: fetch all 50, update prices,
     # cheap mos/verdict refresh.
-    log.info("RUN_INTRADAY_NOW set — testing the yfinance live-price refresh…")
+    log.info("RUN_INTRADAY_NOW set — testing the IndianAPI live-price refresh…")
     try:
         n = run_intraday(debug=True)
         if n:
