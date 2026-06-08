@@ -87,6 +87,32 @@ def test_negative_equity_financial_low_conf():
     assert dq["score"] < 0.5
 
 
+def _stmts(rev0, margin, nw, borrow, n=5, g=0.08):
+    s = {}
+    for k in range(n):
+        yr = 2020 + k
+        rev = rev0 * (1 + g) ** k
+        ebit = rev * margin
+        s[yr] = {"PL": {"revenue": rev, "ebit": ebit, "ebitda": ebit * 1.15,
+                        "pat": ebit * 0.74, "tax": ebit * 0.26, "pbt": ebit},
+                 "BS": {"net_worth": nw * (1 + g) ** k, "borrowings": borrow}, "CF": {}}
+    return s
+
+
+def test_company_roic_lifts_high_roic_only():
+    # Capital-light, no debt → very high realised ROIC → LOWER reinvestment
+    # (more free cash) than the flat sector rate.
+    hi = derive_assumptions(_stmts(23000, 0.22, 5157, 0), "CONSUMER", False)
+    # Heavy capital base, thin margin → ROIC below sector → reinvestment must
+    # NOT be lifted (clamp floors at sector, so it equals the sector rate).
+    mid = derive_assumptions(_stmts(50000, 0.15, 60000, 40000), "MANUFACTURING", False)
+    import app.sector_params as SP
+    sector_consumer = min(max(hi["rev_growth"] / SP.params("CONSUMER")["mature_roic"], 0.10), 0.80)
+    sector_manu = min(max(mid["rev_growth"] / SP.params("MANUFACTURING")["mature_roic"], 0.10), 0.80)
+    assert hi["reinvest_rate"] < sector_consumer - 0.05   # genuinely lifted
+    assert abs(mid["reinvest_rate"] - sector_manu) < 1e-3  # unchanged for sub-sector ROIC (4dp rounding)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0

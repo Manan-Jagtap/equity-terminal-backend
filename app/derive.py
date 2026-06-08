@@ -66,6 +66,24 @@ def _ratio_median(num_series, den_series, lo=None, hi=None, n=3):
     return m
 
 
+def _company_roic(ebit_series, networth_series, borrowings_series, tax_rate):
+    """Realised ROIC = NOPAT / invested capital, median over the overlapping
+    recent years. Invested capital = net worth + borrowings (capital employed).
+    Returns None when the inputs aren't available — caller falls back to sector.
+
+    NOTE: this is deliberately conservative — net-cash firms (no borrowings) use
+    net worth alone as the capital base, so a genuinely capital-light franchise
+    reads a very high ROIC, which is then blended/capped by the caller."""
+    nw = dict(networth_series)
+    bw = dict(borrowings_series or [])
+    vals = []
+    for yr, ebit in ebit_series[-3:]:
+        ic = (nw.get(yr) or 0) + (bw.get(yr) or 0)
+        if ebit is not None and ic and ic > 0:
+            vals.append(ebit * (1 - tax_rate) / ic)
+    return median(vals) if vals else None
+
+
 # ── Non-financial driver derivation (FCFF) ─────────────────────────────────
 def _derive_nonfinancial(statements, vs):
     p = SP.params(vs)
@@ -116,11 +134,28 @@ def _derive_nonfinancial(statements, vs):
     tax_rate = _ratio_median(tax, pbt, lo=0.12, hi=0.32, n=3) or 0.25
     drivers["tax_rate"] = "median(Tax/PBT, 3y)"
 
-    # Reinvestment tied to growth and steady-state ROIC (Damodaran identity):
+    # Reinvestment tied to growth and ROIC (Damodaran identity):
     #   reinvestment_rate = g / ROIC. Keeps FCFF internally consistent.
-    roic = p["mature_roic"]
-    reinvest_rate = _clamp(rev_growth / roic, 0.10, 0.80) if roic else 0.40
-    drivers["reinvest_rate"] = f"g/ROIC (g={_pct(rev_growth)}, ROIC={_pct(roic)})"
+    #
+    # CRITICAL: use the company's OWN realised ROIC for the EXPLICIT period, not
+    # the flat sector ROIC. Capital-light compounders (Nestlé, Asian Paints,
+    # Titan, Bajaj Auto) earn 40–100%+ ROIC, so they fund mid-single-digit growth
+    # out of a SMALL slice of profit — most of NOPAT is free cash. Using the
+    # sector's ~22% ROIC forced them to "reinvest" ~40% of profit they don't
+    # actually need to, understating their FCFF (and fair value) by ~30% and
+    # printing a false AVOID on the whole quality cohort. We blend the firm's
+    # ROIC toward the sector (don't fully trust a single spot read) and clamp to
+    # [sector_ROIC, 0.50] so the fix only LIFTS genuine high-return franchises and
+    # never fabricates cash for ordinary or sub-par ones. The TERMINAL value still
+    # fades to the sector mature ROIC in engines.py — high returns now, competed
+    # away in perpetuity.
+    company_roic = _company_roic(ebit, networth, borrowings, tax_rate)
+    base_roic = company_roic if company_roic else p["mature_roic"]
+    roic_used = _clamp(0.6 * base_roic + 0.4 * p["mature_roic"], p["mature_roic"], 0.50)
+    reinvest_rate = _clamp(rev_growth / roic_used, 0.10, 0.80) if roic_used else 0.40
+    drivers["reinvest_rate"] = (f"g/ROIC (g={_pct(rev_growth)}, "
+                                f"ROIC={_pct(roic_used)} — own {_pct(company_roic)} "
+                                f"blended to sector {_pct(p['mature_roic'])})")
 
     # Capital structure from the latest balance sheet.
     debt_weight = 0.15
