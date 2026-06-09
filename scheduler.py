@@ -170,7 +170,7 @@ elif _flag("RUN_PROBE_ENDPOINTS"):
     # compact response shapes to the logs; writes nothing. Remove the flag after.
     log.info("RUN_PROBE_ENDPOINTS set — probing unused IndianAPI endpoints…")
     try:
-        from app.ingest.probe_new import run as probe_new
+        from app.ingest.endpoint_probe import run as probe_new
         probe_new()
         log.info("Endpoint probe done. Remove RUN_PROBE_ENDPOINTS from Variables now.")
     except Exception as e:
