@@ -31,6 +31,8 @@ from app.market_routes import router as market_router
 app.include_router(market_router)
 from app.profile_routes import router as profile_router
 app.include_router(profile_router)
+from app.watchlist_routes import router as watchlist_router
+app.include_router(watchlist_router)
 from app.onepager import build_onepager
 
 origins = os.getenv("FRONTEND_ORIGIN", "*")

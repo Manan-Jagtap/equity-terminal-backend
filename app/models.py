@@ -184,6 +184,35 @@ class Valuation(Base):
     company     = relationship("Company", backref="valuation", uselist=False)
 
 
+class WatchlistItem(Base):
+    """A watched company + its per-name valuation-alert configuration.
+
+    Scoped by `user_key` so the same table cleanly supports multiple users once
+    login lands — today everything defaults to a single 'default' owner. Carries
+    `last_verdict`/`last_price` so verdict-upgrade and move alerts can be detected
+    as transitions across reads rather than only as standing conditions."""
+    __tablename__ = "watchlist_items"
+    id          = Column(Integer, primary_key=True)
+    user_key    = Column(String(64), nullable=False, index=True, default="default")
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    added_at    = Column(DateTime, server_default=func.now())
+    # Per-name alert configuration
+    target_price   = Column(Float, nullable=True)              # entry-band / target alert
+    mos_threshold  = Column(Float, nullable=True, default=0.15)   # fire when MoS ≥ this
+    move_threshold = Column(Float, nullable=True, default=0.08)   # fire on |1-day move| ≥ this
+    alert_verdict  = Column(Integer, nullable=False, default=1)   # 1/0
+    alert_mos      = Column(Integer, nullable=False, default=1)
+    alert_target   = Column(Integer, nullable=False, default=1)
+    alert_move     = Column(Integer, nullable=False, default=1)
+    note           = Column(String, nullable=True)
+    # Transition state (updated on each enriched read)
+    last_verdict   = Column(String, nullable=True)
+    last_price     = Column(Float, nullable=True)
+    updated_at     = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    company        = relationship("Company")
+    __table_args__ = (UniqueConstraint("user_key", "company_id", name="uq_watch_user_company"),)
+
+
 class QuarterlyDocument(Base):
     __tablename__ = "quarterly_documents"
     __table_args__ = (
