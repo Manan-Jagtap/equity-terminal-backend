@@ -540,6 +540,16 @@ def _build_insight(s, co, stock, debug=False):
         from app.ownership_logic import ownership_snapshot
         data["ownership"] = ownership_snapshot(stock)   # reuses the in-hand /stock payload
     except Exception: pass
+    # Segment probe: discover whether the /stock payload carries business-segment
+    # revenue/EBIT (for a future data-driven SOTP). Off unless SEGMENT_DEBUG_KEYS set.
+    if os.environ.get("SEGMENT_DEBUG_KEYS") and isinstance(stock, dict):
+        try:
+            seg_keys = [k for k in stock.keys()
+                        if any(w in str(k).lower() for w in ("segment", "geograph", "business", "division", "product"))]
+            top = sorted(str(k) for k in stock.keys())
+            print(f"  [segment-debug] {ticker} segment-like keys={seg_keys or 'NONE'} ; all top-level keys={top}")
+        except Exception:
+            pass
     try: data["target"]   = _target(ticker)
     except Exception: pass
     try: data["forecasts"]= _forecasts(ticker)
