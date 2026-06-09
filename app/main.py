@@ -33,6 +33,8 @@ from app.profile_routes import router as profile_router
 app.include_router(profile_router)
 from app.watchlist_routes import router as watchlist_router
 app.include_router(watchlist_router)
+from app.compare_routes import router as compare_router
+app.include_router(compare_router)
 from app.onepager import build_onepager
 
 origins = os.getenv("FRONTEND_ORIGIN", "*")
