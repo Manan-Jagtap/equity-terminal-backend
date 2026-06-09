@@ -403,6 +403,75 @@ def _latest_quarter(ticker):
     return out or None
 
 
+_QMON = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+         "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+
+
+def _qkey(p):
+    parts = str(p).split()
+    if len(parts) == 2:
+        try:
+            return (int(parts[1]), _QMON.get(parts[0][:3].lower(), 0))
+        except (ValueError, TypeError):
+            return (0, 0)
+    try:
+        return (int(parts[0]), 0)
+    except (ValueError, TypeError):
+        return (0, 0)
+
+
+def _results_snapshot(ticker):
+    """Compact latest-quarter results + YoY (vs the same quarter a year ago),
+    from /historical_stats quarter_results — so the cross-company earnings
+    scoreboard reads stored data instead of 50 live calls. Sector-agnostic:
+    we name-match Sales / Net Profit / EPS / OPM rather than assume a template."""
+    r = _get_safe("/historical_stats", {"stock_name": ticker, "stats": "quarter_results"})
+    if not isinstance(r, dict) or not r:
+        return None
+    labels = set()
+    for series in r.values():
+        if isinstance(series, dict):
+            labels.update(series.keys())
+    periods = sorted(labels, key=_qkey)
+    if not periods:
+        return None
+    last = periods[-1]
+    yago = periods[-5] if len(periods) >= 5 else None
+
+    def pick(names):
+        for n in names:
+            for mname, series in r.items():
+                if isinstance(series, dict) and n in mname.lower():
+                    return mname
+        return None
+
+    def val(metric, period):
+        s = r.get(metric)
+        return _num(s.get(period)) if (isinstance(s, dict) and period) else None
+
+    def yoy(metric):
+        if not metric or not yago:
+            return None
+        a, b = val(metric, last), val(metric, yago)
+        if a is None or not b:
+            return None
+        try:
+            return a / b - 1.0
+        except ZeroDivisionError:
+            return None
+
+    sales_m = pick(["sales", "revenue", "total income", "interest earned", "income"])
+    pat_m   = pick(["net profit", "profit after tax", "pat", "profit for", "net income"])
+    eps_m   = pick(["eps"])
+    opm_m   = pick(["opm", "operating margin", "financing margin", "npm"])
+    return {
+        "quarter": last,
+        "sales": val(sales_m, last), "pat": val(pat_m, last),
+        "eps": val(eps_m, last), "opm": val(opm_m, last),
+        "sales_yoy": yoy(sales_m), "pat_yoy": yoy(pat_m),
+    }
+
+
 def _target(ticker):
     """Analyst consensus target price. NB: /stock_target_price's `stock_id`
     param actually wants the TICKER NAME (confirmed), not the S00xxxxx id."""
@@ -464,6 +533,8 @@ def _build_insight(s, co, stock, debug=False):
     try: data["growth"]   = _growth(ticker)
     except Exception: pass
     try: data["latest_q"] = _latest_quarter(ticker)
+    except Exception: pass
+    try: data["results"]  = _results_snapshot(ticker)
     except Exception: pass
     try: data["target"]   = _target(ticker)
     except Exception: pass
