@@ -37,6 +37,8 @@ from app.compare_routes import router as compare_router
 app.include_router(compare_router)
 from app.results_routes import router as results_router
 app.include_router(results_router)
+from app.ownership_routes import router as ownership_router
+app.include_router(ownership_router)
 from app.onepager import build_onepager
 
 origins = os.getenv("FRONTEND_ORIGIN", "*")

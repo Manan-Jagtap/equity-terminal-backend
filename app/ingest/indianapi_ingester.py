@@ -536,6 +536,10 @@ def _build_insight(s, co, stock, debug=False):
     except Exception: pass
     try: data["results"]  = _results_snapshot(ticker)
     except Exception: pass
+    try:
+        from app.ownership_logic import ownership_snapshot
+        data["ownership"] = ownership_snapshot(stock)   # reuses the in-hand /stock payload
+    except Exception: pass
     try: data["target"]   = _target(ticker)
     except Exception: pass
     try: data["forecasts"]= _forecasts(ticker)
