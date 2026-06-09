@@ -41,6 +41,8 @@ from app.ownership_routes import router as ownership_router
 app.include_router(ownership_router)
 from app.operations_routes import router as operations_router
 app.include_router(operations_router)
+from app.logo_routes import router as logo_router
+app.include_router(logo_router)
 from app.onepager import build_onepager
 
 origins = os.getenv("FRONTEND_ORIGIN", "*")

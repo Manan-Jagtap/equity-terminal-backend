@@ -165,6 +165,16 @@ if _reingest:
             log.error(f"  re-ingest {t} failed: {e}")
     run_compute(nifty50=True)
     log.info("Re-ingest + recompute done. Remove RUN_REINGEST_TICKERS from Variables now.")
+elif _flag("RUN_PROBE_ENDPOINTS"):
+    # One-off shape probe for the not-yet-leveraged IndianAPI endpoints. Prints
+    # compact response shapes to the logs; writes nothing. Remove the flag after.
+    log.info("RUN_PROBE_ENDPOINTS set — probing unused IndianAPI endpoints…")
+    try:
+        from app.ingest.probe_new import run as probe_new
+        probe_new()
+        log.info("Endpoint probe done. Remove RUN_PROBE_ENDPOINTS from Variables now.")
+    except Exception as e:
+        log.error(f"Endpoint probe failed: {e}")
 elif _flag("RUN_BOOTSTRAP_NOW"):
     log.info("RUN_BOOTSTRAP_NOW set — running the full server-side bootstrap now…")
     try:
