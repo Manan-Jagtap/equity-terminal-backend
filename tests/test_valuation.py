@@ -126,8 +126,11 @@ def test_tcs_independent_intrinsic_reasonable(db):
     iv, price = rec["intrinsic"], data["price"]
     assert rec["valuation"]["method"] == "FCFF DCF"
     assert a["_valuation_sector"] == "IT_SERVICES"
-    # independent DCF should land within a sane band of the market (not 21% low)
-    assert 0.70 * price <= iv <= 1.35 * price, f"TCS iv={iv} price={price}"
+    # independent DCF should land within a sane band of the market (not 21% low).
+    # Band widened to 1.50 after the CAP upgrade: TCS earns an extended
+    # competitive-advantage horizon (ROIC ~2x sector), which legitimately lifts
+    # the model ~10% above the old flat-8y fade.
+    assert 0.70 * price <= iv <= 1.50 * price, f"TCS iv={iv} price={price}"
 
 
 def test_bank_uses_residual_income_and_real_roe(db):

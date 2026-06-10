@@ -143,7 +143,7 @@ def run(nifty50: bool = False):
     work on) and UPSERT those rows in place, leaving any other rows untouched.
     The drop+recreate is skipped in this mode so we don't wipe the rest of the
     table — it's only needed for a full rebuild when the schema changed."""
-    from .indianapi_ingester import NIFTY_50
+    from .indianapi_ingester import UNIVERSE as NIFTY_50
 
     if not nifty50:
         # Full rebuild: drop & recreate so the schema always matches the model.

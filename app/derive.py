@@ -121,6 +121,12 @@ def _derive_nonfinancial(statements, vs):
     # sectors we (a) normalise the margin over a longer 5y window and (b) cap
     # forward growth near long-run nominal GDP rather than the cycle's recent CAGR.
     cyclical = vs in ("METAL", "ENERGY")
+    # Semi-cyclicals (autos, cement) aren't commodity businesses, but their
+    # recent growth IS the cycle: an auto OEM printing 18% off an up-cycle
+    # cannot compound that for years (capitalising M&M's SUV boom produced a
+    # +114% MoS — an obvious peak-cycle artifact). Normalise them to a
+    # mid-cycle cap between the commodity cap and the secular-growth cap.
+    semi_cyclical = vs in ("AUTO", "CEMENT")
 
     # Near-term revenue growth: blend 3–4yr CAGR with the latest YoY, then cap.
     cagr = _cagr(rev, max_n=4)
@@ -132,10 +138,11 @@ def _derive_nonfinancial(statements, vs):
         rev_growth = sum(cand) / len(cand)
     else:
         rev_growth = p["terminal_growth"] + 0.03
-    growth_hi = 0.08 if cyclical else 0.18   # commodities: no secular high growth
+    # commodities: no secular high growth; semi-cyclicals: mid-cycle only
+    growth_hi = 0.08 if cyclical else 0.12 if semi_cyclical else 0.18
     rev_growth = _clamp(rev_growth, 0.02, growth_hi)
     drivers["rev_growth"] = (f"blend(CAGR={_pct(cagr)}, YoY={_pct(yoy)}) "
-                             f"capped{' (cyclical)' if cyclical else ''}")
+                             f"capped{' (cyclical)' if cyclical else ' (mid-cycle)' if semi_cyclical else ''}")
 
     # EBIT margin: median over 5y for cyclicals (through-cycle), 3y otherwise.
     margin_n = 5 if cyclical else 3
@@ -188,6 +195,25 @@ def _derive_nonfinancial(statements, vs):
         if cd:
             cost_debt = cd
 
+    # ── Competitive-advantage period (CAP) — quality-dependent fade horizon ──
+    # A flat 8-year horizon priced Nestlé and Tata Steel as if their excess
+    # returns die at the same speed. They don't: empirically, high-ROIC moats
+    # (brands, distribution, switching costs) defend excess returns for well
+    # over a decade, which is precisely what justifies their premium multiples.
+    # So the horizon itself is earned from the data: businesses with durable,
+    # well-above-sector ROIC and real growth get more franchise years; ordinary
+    # businesses keep 8; commodity cyclicals NEVER get an extended runway (their
+    # "moat" is the cycle).
+    fade_years = 8
+    if not cyclical:
+        roic_q = roic_used / p["mature_roic"] if p.get("mature_roic") else 1.0
+        if roic_q >= 1.5 and rev_growth >= 0.08:
+            fade_years = 14
+        elif roic_q >= 1.2 or rev_growth >= 0.12:
+            fade_years = 11
+    drivers["fade_years"] = (f"CAP {fade_years}y (ROIC {_pct(roic_used)} vs sector "
+                             f"{_pct(p['mature_roic'])}{', cyclical-capped' if cyclical else ''})")
+
     return {
         "beta": p["beta"], "risk_free": SP.RISK_FREE, "erp": SP.ERP,
         "rev_growth": round(rev_growth, 4),
@@ -196,7 +222,7 @@ def _derive_nonfinancial(statements, vs):
         "reinvest_rate": round(reinvest_rate, 4),
         "debt_weight": round(debt_weight, 4),
         "cost_debt": round(cost_debt, 4),
-        "fade_years": 8,
+        "fade_years": fade_years,
         "terminal_growth": p["terminal_growth"],
         # RI fields unused for non-financials but kept for a uniform dict:
         "forecast_roe": 0.15, "terminal_roe": p["mature_roe"], "payout": 0.25,
@@ -244,12 +270,26 @@ def _derive_financial(statements, vs):
             payout = _clamp(median(vals), 0.0, 0.70)
     drivers["payout"] = "median(|Dividends|/PAT, 3y)"
 
+    # ── Competitive-advantage period for financials ──────────────────────────
+    # A compounding franchise (high ROE retained and redeployed at high ROE —
+    # Bajaj Finance, the best private banks) defends excess returns far longer
+    # than 8 years; a sub-Ke lender does not deserve extra years (and with
+    # ROE < Ke a longer runway would rightly SUBTRACT value, so the quality
+    # gate keeps the extension one-sided).
+    fade_years = 8
+    if forecast_roe >= 0.15 and payout <= 0.35:
+        fade_years = 12
+    elif forecast_roe >= 0.13:
+        fade_years = 10
+    drivers["fade_years"] = (f"CAP {fade_years}y (ROE {_pct(forecast_roe)}, "
+                             f"payout {_pct(payout)})")
+
     return {
         "beta": p["beta"], "risk_free": SP.RISK_FREE, "erp": SP.ERP,
         "forecast_roe": round(forecast_roe, 4),
         "terminal_roe": round(terminal_roe, 4),
         "payout": round(payout, 4),
-        "fade_years": 8,
+        "fade_years": fade_years,
         "terminal_growth": p["terminal_growth"],
         # FCFF fields unused for financials but kept for a uniform dict:
         "rev_growth": 0.10, "ebit_margin": 0.12, "tax_rate": 0.25,

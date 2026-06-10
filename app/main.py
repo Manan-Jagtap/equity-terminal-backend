@@ -124,11 +124,11 @@ def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
 
     ?nifty50=true returns ONLY the Nifty 50 (the universe we actively cover), so
     the whole response fits in a single payload."""
-    from app.ingest.indianapi_ingester import NIFTY_50
+    from app.ingest.indianapi_ingester import UNIVERSE
     import time as _t
 
     def _scope(rows):
-        return [r for r in rows if r.get("ticker") in NIFTY_50] if nifty50 else rows
+        return [r for r in rows if r.get("ticker") in UNIVERSE] if nifty50 else rows
 
     if _COMPANIES_CACHE["data"] is not None and (_t.time() - _COMPANIES_CACHE["ts"]) < 300:
         return _scope(_COMPANIES_CACHE["data"])

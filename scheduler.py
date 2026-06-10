@@ -220,6 +220,44 @@ elif _flag("RUN_FULL_NOW"):
     except Exception as e:
         log.error(f"One-off full refresh failed: {e}")
 else:
+    # ── Auto-onboard missing universe members on every deploy ────────────────
+    # Adding a ticker to EXTRA_TICKERS (indianapi_ingester.py) is the ONLY step
+    # needed to cover a new name: on boot we create its Company row if missing
+    # and ingest statements+facts+price for any universe member that has no
+    # market snapshot yet. Each onboarding costs a handful of IndianAPI calls,
+    # and only ever runs for genuinely missing names (idempotent).
+    def _ensure_universe():
+        from app.ingest.indianapi_ingester import UNIVERSE, ingest_company
+        from app.database import SessionLocal
+        from app import models
+        s = SessionLocal()
+        try:
+            by_ticker = {(c.ticker or "").upper(): c for c in s.query(models.Company).all()}
+            missing = sorted(UNIVERSE - set(by_ticker))
+            for t in missing:           # create the row so ingest can fill it
+                log.info(f"Universe: creating missing company row {t}…")
+                co = models.Company(ticker=t, name=t.title(), type="financial" if t == "FEDFINA" else "nonfinancial",
+                                    sector="Diversified NBFC" if t == "FEDFINA" else None)
+                s.add(co); s.commit()
+                by_ticker[t] = co
+            snap_ids = {m.company_id for m in s.query(models.MarketSnapshot).all()}
+            for t in sorted(UNIVERSE):
+                co = by_ticker.get(t)
+                if co is not None and co.id not in snap_ids:
+                    log.info(f"Universe: ingesting {t} (no market data yet)…")
+                    try:
+                        ingest_company(s, co, insights=True)
+                        log.info(f"  {t} ingested.")
+                    except Exception as e:
+                        log.error(f"  {t} ingest failed: {type(e).__name__}: {e}")
+        finally:
+            s.close()
+
+    try:
+        _ensure_universe()
+    except Exception as e:
+        log.error(f"Universe check failed: {type(e).__name__}: {e}")
+
     # ── Auto-recompute on every deploy ───────────────────────────────────────
     # The valuations cache is a pure local computation from data already in the
     # DB (no API calls, no quota). Recomputing it on boot means every engine /

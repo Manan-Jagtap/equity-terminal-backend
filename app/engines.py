@@ -55,15 +55,30 @@ def residual_income(co: Dict, a: Dict) -> Dict:
 
 
 def fcff_dcf(co: Dict, a: Dict) -> Dict:
+    """Two-stage FCFF DCF, mirroring the RI design.
+
+    Stage 1 (franchise phase, ~half the horizon): revenue grows at the FULL
+    derived near-term rate. Fading from year 1 — the old behaviour — silently
+    cut year-1 growth by 1/N and priced even durable compounders as if their
+    growth advantage started dying immediately, which is the main reason the
+    model printed AVOID across India's quality cohort.
+
+    Stage 2: linear fade from the stage-1 rate to terminal growth, landing
+    exactly on g_t in year N. The horizon N itself is quality-dependent
+    (derive.py sets fade_years from ROIC durability — the competitive-
+    advantage period), so moats get more years of franchise growth, not a
+    fudged multiple."""
     ke = cost_of_equity(a)
     ew = 1 - a["debt_weight"]
     wacc = ew * ke + a["debt_weight"] * a["cost_debt"] * (1 - a["tax_rate"])
     N = max(3, round(a["fade_years"]))
+    N1 = max(1, N // 2)                     # franchise (hold) phase length
     g_t = a["terminal_growth"]
+    g1 = a["rev_growth"]
     rev, pv, rows = co["revenue"], 0.0, []
     nopat = 0.0
     for t in range(1, N + 1):
-        g = a["rev_growth"] + (g_t - a["rev_growth"]) * (t / N)
+        g = g1 if t <= N1 else g1 + (g_t - g1) * ((t - N1) / (N - N1))
         rev = rev * (1 + g)
         ebit = rev * a["ebit_margin"]
         nopat = ebit * (1 - a["tax_rate"])

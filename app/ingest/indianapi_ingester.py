@@ -781,6 +781,13 @@ NIFTY_50 = {
     "SHRIRAMFIN","CIPLA","DRREDDY","EICHERMOT","BRITANNIA","APOLLOHOSP","TATACONSUM","HEROMOTOCO","ETERNAL","TATAMOTORS",
 }
 
+# Names we actively cover BEYOND the Nifty 50. Every refresh path (intraday,
+# daily EOD, weekly full, valuation precompute, screener scope) uses UNIVERSE,
+# not bare NIFTY_50 — so adding a ticker here is the only step needed to
+# onboard it (the scheduler auto-creates + ingests missing members on boot).
+EXTRA_TICKERS = {"FEDFINA"}
+UNIVERSE = NIFTY_50 | EXTRA_TICKERS
+
 
 # ── Intraday spot-price refresh (yfinance — all 50 in ONE batched call) ──────
 # IndianAPI has no all-50 batch live-price endpoint (confirmed: only the top-10
@@ -837,7 +844,7 @@ def run_intraday(debug=False):
     s = SessionLocal()
     try:
         companies = [c for c in s.query(models.Company).all()
-                     if (c.ticker or "").upper() in NIFTY_50]
+                     if (c.ticker or "").upper() in UNIVERSE]
         updated = 0
         for co in companies:
             try:
@@ -863,7 +870,7 @@ def run(limit=None, ticker=None, price_only=False, nifty50=False, insights=True)
         q = q.filter(models.Company.ticker == ticker.upper())
     companies = q.all()
     if nifty50:
-        companies = [c for c in companies if (c.ticker or "").upper() in NIFTY_50]
+        companies = [c for c in companies if (c.ticker or "").upper() in UNIVERSE]
     if limit:
         companies = companies[:limit]
     mode = ("prices only" if price_only

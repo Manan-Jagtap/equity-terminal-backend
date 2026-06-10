@@ -66,11 +66,15 @@ def test_synthetic_series_momentum_neutral():
 
 
 def test_synthetic_price_forces_low_conf():
-    # C9: a missing live price must drop confidence below the reliable threshold
-    # so the verdict can never read BUY off a bogus margin of safety.
+    # C9: a missing live price must never produce a BUY off a bogus margin of
+    # safety. The engine now goes further than LOW CONF: a synthetic sentinel
+    # price yields mos=None → verdict NO DATA (the honest state), and the
+    # confidence score still drops below the reliable threshold.
     co = _co(synthetic_price=True)
     assert data_quality(co)["score"] < 0.5
-    assert engines.recommend(co, _a_nonfin())["verdict"] == "LOW CONF"
+    rec = engines.recommend(co, _a_nonfin())
+    assert rec["verdict"] == "NO DATA"
+    assert rec["mos"] is None
 
 
 def test_normal_company_sane():
