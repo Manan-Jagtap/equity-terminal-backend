@@ -416,7 +416,7 @@ def _qkey(p):
             return (0, 0)
     try:
         return (int(parts[0]), 0)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, IndexError):
         return (0, 0)
 
 

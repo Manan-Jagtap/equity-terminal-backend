@@ -330,7 +330,7 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
         co = _get_or_404(db, ticker)
         price = 0
         try: price = co.market.price or 0
-        except: pass
+        except Exception: pass
         market = {"price": price, "chgPct": 0, "mcapCr": price * co.shares_outstanding}
         hist_rows = (db.query(models.HistoricalFinancial)
                      .filter_by(company_id=co.id)
@@ -343,7 +343,7 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
         try:
             from app.metrics import compute_metrics
             metrics = compute_metrics(co, facts, {}, price, template)
-        except: pass
+        except Exception: pass
         # Use the SAME independent engine as the rest of the terminal (no more
         # divorced inline DCF).
         intrinsic = None

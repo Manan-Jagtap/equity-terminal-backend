@@ -261,14 +261,18 @@ def _rsi(series: List[float], n: int = 14) -> float:
 
 
 def technicals(co: Dict) -> Dict:
-    closes = [p["close"] for p in (co.get("series") or []) if p.get("close") is not None]
+    pts = [p for p in (co.get("series") or []) if p.get("close") is not None]
+    closes = [p["close"] for p in pts]
     if not closes:                 # no price history → neutral, no crash
         return {"data": [], "rsi": 50.0, "hi": None, "lo": None, "last": None,
                 "above_sma50": False, "above_sma20": False}
     sma20 = _sma(closes, 20)
     sma50 = _sma(closes, 50)
+    # Index SMAs against the FILTERED points — enumerating the raw series while
+    # the SMAs were computed on the filtered closes was an IndexError waiting to
+    # happen the moment any stored close is NULL.
     data = [{"i": p["i"], "close": p["close"], "sma20": sma20[k], "sma50": sma50[k]}
-            for k, p in enumerate(co["series"])]
+            for k, p in enumerate(pts)]
     last = closes[-1]
     above50 = sma50[-1] is not None and last > sma50[-1]
     above20 = sma20[-1] is not None and last > sma20[-1]
@@ -293,7 +297,11 @@ def recommend(co: Dict, a: Dict) -> Dict:
 
     iv = b.get("blended")
     iv = iv if (iv is not None and iv > 0) else None
-    mos = (iv - co["price"]) / co["price"] if (iv is not None and co["price"]) else None
+    # A synthetic (sentinel) price must never produce a margin of safety — the
+    # ₹1.0 placeholder would fabricate an absurd +N×10⁴% MoS. No real price →
+    # mos None → verdict NO DATA, which is the honest state.
+    has_real_price = bool(co.get("price")) and not co.get("synthetic_price")
+    mos = (iv - co["price"]) / co["price"] if (iv is not None and has_real_price) else None
     reliable = iv is not None and conf["score"] >= 0.5
     reasons = []
 

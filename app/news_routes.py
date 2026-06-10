@@ -221,7 +221,7 @@ def _market_news_for(ticker: str, name: str) -> tuple[list[dict], str | None]:
     except Exception as e:
         return [], str(e)[:80]
     arts = data if isinstance(data, list) else (data.get("news") or data.get("data") or [])
-    terms = [t.lower() for t in [ticker, (name or "").split()[0] if name else ""] if len(t) > 2]
+    terms = [t.lower() for t in [ticker, ((name or "").split() or [""])[0]] if len(t) > 2]
     matched = [a for a in arts if isinstance(a, dict)
                and any(t in (str(a.get("title", "")) + " " + str(a.get("summary", ""))).lower() for t in terms)]
     items = _parse_news_items(matched)
@@ -240,7 +240,7 @@ def _merge(lists):
     def sk(x):
         if x.get("_ts"): return x["_ts"]
         try: return datetime.strptime((x.get("published") or "")[:19],"%Y-%m-%dT%H:%M:%S").timestamp()
-        except: return 0
+        except Exception: return 0
     merged.sort(key=sk, reverse=True)
     for item in merged:
         item.pop("_ts", None)

@@ -66,6 +66,22 @@ def _ratio_median(num_series, den_series, lo=None, hi=None, n=3):
     return m
 
 
+def _networth_series(statements):
+    """Net worth by year. Prefer the reported net_worth line; otherwise rebuild
+    it as share capital + reserves. NEVER fall back to the bare `equity` line
+    alone — that is face-value SHARE CAPITAL (₹100–500cr for a large company vs
+    lakhs of crores of net worth), and using it silently inflated ROIC/ROE and
+    deflated debt weights by 20–50×."""
+    nw = _series(statements, "BS", "net_worth")
+    if nw:
+        return nw
+    eq = dict(_series(statements, "BS", "equity"))
+    rs = dict(_series(statements, "BS", "reserves"))
+    out = [(y, (eq.get(y) or 0.0) + (rs.get(y) or 0.0))
+           for y in sorted(set(eq) | set(rs))]
+    return [(y, v) for y, v in out if v > 0]
+
+
 def _company_roic(ebit_series, networth_series, borrowings_series, tax_rate):
     """Realised ROIC = NOPAT / invested capital, median over the overlapping
     recent years. Invested capital = net worth + borrowings (capital employed).
@@ -96,7 +112,7 @@ def _derive_nonfinancial(statements, vs):
     tax = _series(statements, "PL", "tax")
     pbt = _series(statements, "PL", "pbt")
     borrowings = _series(statements, "BS", "borrowings")
-    networth = _series(statements, "BS", "net_worth") or _series(statements, "BS", "equity")
+    networth = _networth_series(statements)
     interest = _series(statements, "PL", "interest_expense")
 
     # Commodity cyclicals (metals, oil & gas, coal) trade off MID-CYCLE earnings,
@@ -194,8 +210,9 @@ def _derive_financial(statements, vs):
     drivers = {}
 
     pat = _series(statements, "PL", "pat")
-    # CRITICAL: ROE must use NET WORTH, never share capital.
-    networth = _series(statements, "BS", "net_worth") or _series(statements, "BS", "reserves")
+    # CRITICAL: ROE must use NET WORTH, never share capital. Fall back to
+    # share capital + reserves (≈ net worth), not reserves alone.
+    networth = _networth_series(statements)
     dividends = _series(statements, "CF", "dividends")
 
     # 3-year median ROE — the franchise's RECENT, post-cleanup earning power.

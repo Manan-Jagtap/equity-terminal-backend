@@ -131,14 +131,23 @@ def build_context(company, facts: dict, hist: dict, price: float,
     years = sorted(hist.keys())
     latest_yr = years[-1] if years else None
     prev_yr   = years[-2] if len(years) >= 2 else None
-    yr_3ago   = years[-4] if len(years) >= 4 else years[0] if years else None
+    # Only expose a "3 years ago" datapoint when the history really spans 3+
+    # years; the _cagr metrics divide by a fixed n=3, so feeding them a 1-2 year
+    # old value silently understated/overstated every "3Y CAGR".
+    yr_3ago   = years[-4] if len(years) >= 4 else None
 
     def pl(yr, k):  return _get(hist, yr, "PL", k) if yr else None
     def bs(yr, k):  return _get(hist, yr, "BS", k) if yr else None
     def cf(yr, k):  return _get(hist, yr, "CF", k) if yr else None
 
     shares = company.shares_outstanding
-    equity = facts.get("NET_WORTH") or bs(latest_yr, "equity") or bs(latest_yr, "net_worth")
+    # Prefer NET WORTH (shareholders' funds). The BS "equity" line is face-value
+    # share capital (~₹500cr for a large bank vs ~₹2.5L cr net worth); using it
+    # first inflated ROE/BVPS-derived metrics ~20-50x. Mirrors financials.py.
+    equity = (facts.get("NET_WORTH")
+              or bs(latest_yr, "net_worth")
+              or (((bs(latest_yr, "equity") or 0) + (bs(latest_yr, "reserves") or 0)) or None)
+              or bs(latest_yr, "equity"))
 
     # Latest-year line items
     pat_l   = pl(latest_yr, "pat")   or facts.get("NET_PROFIT")

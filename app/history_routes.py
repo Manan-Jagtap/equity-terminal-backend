@@ -207,11 +207,13 @@ def _rev_estimates(forecasts):
         if mean <= 0:
             continue
         year = (p.get("FiscalPeriod") or {}).get("Year")
+        hi = _safe_f(inner.get("High"))
+        lo = _safe_f(inner.get("Low"))
         out.append({
             "year": year, "n_rel": num,
             "mean_cr": round(mean / 10.0),           # ₹ million → ₹ crore
-            "high_cr": round(_safe_f(inner.get("High")) / 10.0) if _safe_f(inner.get("High")) else None,
-            "low_cr": round(_safe_f(inner.get("Low")) / 10.0) if _safe_f(inner.get("Low")) else None,
+            "high_cr": round(hi / 10.0) if hi else None,
+            "low_cr": round(lo / 10.0) if lo else None,
         })
     out.sort(key=lambda e: e["n_rel"])
     return out or None

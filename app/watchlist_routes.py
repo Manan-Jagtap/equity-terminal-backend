@@ -76,8 +76,13 @@ def _enrich(db: Session, item: models.WatchlistItem):
     alerts = compute_alerts(cfg, cur)
 
     # Persist transition state so the next read can detect verdict/price changes.
-    item.last_verdict = verdict
-    item.last_price = price
+    # Only overwrite with REAL values — a transient missing Valuation row or
+    # price snapshot must not wipe the stored state (that silently disabled the
+    # next verdict-upgrade/downgrade alert).
+    if verdict is not None:
+        item.last_verdict = verdict
+    if price is not None:
+        item.last_price = price
 
     return {
         "ticker": co.ticker, "name": co.name, "sector": co.sector, "type": co.type,
