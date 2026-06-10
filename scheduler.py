@@ -219,6 +219,16 @@ elif _flag("RUN_FULL_NOW"):
                  "Remove RUN_FULL_NOW from Variables to avoid re-running on restart.")
     except Exception as e:
         log.error(f"One-off full refresh failed: {e}")
+else:
+    # ── Auto-recompute on every deploy ───────────────────────────────────────
+    # The valuations cache is a pure local computation from data already in the
+    # DB (no API calls, no quota). Recomputing it on boot means every engine /
+    # sector-param change goes live the moment the scheduler redeploys — no
+    # dashboard flags, no manual steps. Disable with COMPUTE_ON_BOOT=false.
+    if os.getenv("COMPUTE_ON_BOOT", "true").strip().lower() not in ("0", "false", "no"):
+        log.info("Deploy boot — recomputing valuations so the cache matches the current engine…")
+        run_compute()
+        log.info("Boot recompute complete.")
 
 while True:
     schedule.run_pending()
