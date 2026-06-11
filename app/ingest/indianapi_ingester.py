@@ -519,6 +519,96 @@ def _forecasts(ticker):
     return out or None
 
 
+def _pick_key(d, *names):
+    """Case/punctuation-insensitive key lookup: _pick_key(r, 'annual_reports')
+    matches 'Annual_Reports', 'annualReports', 'Annual Reports', …"""
+    if not isinstance(d, dict):
+        return None
+    wanted = {_norm(n) for n in names}
+    for k, v in d.items():
+        if _norm(k) in wanted:
+            return v
+    return None
+
+
+def _entry_field(e, *names):
+    """First matching field of a raw entry dict (case-insensitive), else None."""
+    if not isinstance(e, dict):
+        return None
+    v = _pick_key(e, *names)
+    if v is None:
+        return None
+    v = str(v).strip()
+    return v or None
+
+
+def _documents(ticker):
+    """Company documents from /documents, normalised to a stable shape:
+      {"concalls":       [{date, transcript, ppt, summary}],   ≤ 12
+       "annual_reports": [{year, url}],                        ≤ 10
+       "credit_ratings": [{date, title, url, source}],         ≤ 6
+       "announcements":  [{title, date, url}]}                 ≤ 5
+    Tolerates missing keys / case variants (raw shape uses keys like Concalls,
+    Annual_Reports, Credit_Ratings, Recent_Announcements). Returns None when
+    nothing useful came back, so the insight blob stays clean."""
+    r = _get_safe("/documents", {"stock_name": ticker})
+    if isinstance(r, list) and r and isinstance(r[0], dict):
+        r = r[0]
+    if not isinstance(r, dict):
+        return None
+    body = _pick_key(r, "data", "body")
+    if isinstance(body, dict):
+        r = {**r, **body}
+
+    def _list(*names):
+        v = _pick_key(r, *names)
+        return v if isinstance(v, list) else []
+
+    out = {}
+    concalls = []
+    for e in _list("concalls", "con_calls", "earnings_calls")[:12]:
+        concalls.append({
+            "date":       _entry_field(e, "date", "concall_date", "time"),
+            "transcript": _entry_field(e, "transcript", "transcript_link", "transcript_url"),
+            "ppt":        _entry_field(e, "ppt", "ppt_link", "presentation", "presentation_link"),
+            "summary":    _entry_field(e, "summary", "summary_link", "notes"),
+        })
+    if concalls:
+        out["concalls"] = concalls
+
+    reports = []
+    for e in _list("annual_reports", "annualreport", "annual_report")[:10]:
+        reports.append({
+            "year": _entry_field(e, "year", "financial_year", "fy", "date"),
+            "url":  _entry_field(e, "url", "link", "report_link", "pdf"),
+        })
+    if reports:
+        out["annual_reports"] = reports
+
+    ratings = []
+    for e in _list("credit_ratings", "creditrating", "ratings")[:6]:
+        ratings.append({
+            "date":   _entry_field(e, "date", "rating_date"),
+            "title":  _entry_field(e, "title", "rating", "name", "description"),
+            "url":    _entry_field(e, "url", "link", "report_link"),
+            "source": _entry_field(e, "source", "agency", "rating_agency"),
+        })
+    if ratings:
+        out["credit_ratings"] = ratings
+
+    anns = []
+    for e in _list("recent_announcements", "announcements", "recent_announcement")[:5]:
+        anns.append({
+            "title": _entry_field(e, "title", "subject", "headline", "description"),
+            "date":  _entry_field(e, "date", "announcement_date", "time"),
+            "url":   _entry_field(e, "url", "link", "attachment"),
+        })
+    if anns:
+        out["announcements"] = anns
+
+    return out or None
+
+
 def _build_insight(s, co, stock, debug=False):
     """Assemble + upsert a CompanyInsight row. Returns a short status string."""
     ticker = (co.ticker or "").upper()
@@ -556,6 +646,8 @@ def _build_insight(s, co, stock, debug=False):
     except Exception: pass
     try: data["pe_history"] = _pe_history(ticker, debug=debug)
     except Exception: pass
+    try: data["documents"] = _documents(ticker)
+    except Exception: pass
     data = {k: v for k, v in data.items() if v}
 
     if debug and data.get("forecasts"):
@@ -578,6 +670,7 @@ def _build_insight(s, co, stock, debug=False):
     if data.get("latest_q"):  tags.append("Q")
     if data.get("target", {}).get("mean"): tags.append("target")
     if data.get("forecasts"): tags.append("fwd")
+    if data.get("documents"): tags.append("docs")
     return "id=" + (tid or "?") + " · " + (", ".join(tags) if tags else "no extras")
 
 

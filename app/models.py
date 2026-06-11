@@ -234,6 +234,23 @@ class WatchlistItem(Base):
     __table_args__ = (UniqueConstraint("user_key", "company_id", name="uq_watch_user_company"),)
 
 
+class PortfolioHolding(Base):
+    """A portfolio position (quantity + average cost) per company.
+
+    Scoped by `user_key` exactly like WatchlistItem — everything defaults to a
+    single 'default' owner until login lands. P&L / weights are computed at
+    read time from MarketSnapshot + Valuation, never stored."""
+    __tablename__ = "portfolio_holdings"
+    id         = Column(Integer, primary_key=True)
+    user_key   = Column(String(64), nullable=False, index=True, default="default")
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    qty        = Column(Float, nullable=False)
+    avg_cost   = Column(Float, nullable=False)
+    added_at   = Column(DateTime, server_default=func.now())
+    company    = relationship("Company")
+    __table_args__ = (UniqueConstraint("user_key", "company_id", name="uq_portfolio_user_company"),)
+
+
 class QuarterlyDocument(Base):
     __tablename__ = "quarterly_documents"
     __table_args__ = (

@@ -45,6 +45,14 @@ from app.logo_routes import router as logo_router
 app.include_router(logo_router)
 from app.backtest_routes import router as backtest_router
 app.include_router(backtest_router)
+from app.export_routes import router as export_router
+app.include_router(export_router)
+from app.portfolio_routes import router as portfolio_router
+app.include_router(portfolio_router)
+from app.documents_routes import router as documents_router
+app.include_router(documents_router)
+from app.thesis_routes import router as thesis_router
+app.include_router(thesis_router)
 from app.onepager import build_onepager
 
 origins = os.getenv("FRONTEND_ORIGIN", "*")
