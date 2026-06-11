@@ -184,6 +184,27 @@ class Valuation(Base):
     company     = relationship("Company", backref="valuation", uselist=False)
 
 
+class VerdictSnapshot(Base):
+    """Daily record of the model's verdict + price per company — the raw ledger
+    behind the Track Record (backtest) page. One row per (company, date);
+    written by the scheduler after every EOD price refresh and boot recompute.
+    Consecutive same-verdict rows are compressed into 'calls' at read time, so
+    daily sampling never oversamples a single standing recommendation."""
+    __tablename__ = "verdict_snapshots"
+    id          = Column(Integer, primary_key=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    ticker      = Column(String(24), nullable=False, index=True)
+    date        = Column(String(10), nullable=False, index=True)   # "YYYY-MM-DD"
+    price       = Column(Float, nullable=False)
+    intrinsic   = Column(Float, nullable=True)
+    mos         = Column(Float, nullable=True)
+    verdict     = Column(String, nullable=False)
+    composite   = Column(Float, nullable=True)
+    confidence  = Column(String, nullable=True)
+    valuation_sector = Column(String, nullable=True)
+    __table_args__ = (UniqueConstraint("company_id", "date", name="uq_snapshot_company_date"),)
+
+
 class WatchlistItem(Base):
     """A watched company + its per-name valuation-alert configuration.
 

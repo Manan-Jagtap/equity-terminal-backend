@@ -35,6 +35,24 @@ from app.ingest.compute_valuations import run as compute_valuations, refresh_mos
 from app.ingest.reclassify import run as reclassify
 
 
+def snapshot_verdicts():
+    """Append today's (verdict, price) row per company to the track-record
+    ledger. Pure local write — no API calls. Idempotent per (company, date)."""
+    try:
+        from app.backtest import take_snapshots
+        from app.database import SessionLocal, engine
+        from app import models
+        models.VerdictSnapshot.__table__.create(bind=engine, checkfirst=True)
+        s = SessionLocal()
+        try:
+            n = take_snapshots(s)
+            log.info(f"Track record: snapshotted {n} verdicts.")
+        finally:
+            s.close()
+    except Exception as e:
+        log.error(f"Verdict snapshot failed: {type(e).__name__}: {e}")
+
+
 def run_compute(nifty50=False):
     """Recompute the blended valuations (no external API — pure local computation
     from the data already in the DB). Cheap; safe to run after every refresh so
@@ -53,6 +71,7 @@ def run_prices():
     try:
         indianapi_run(price_only=True, nifty50=True)
         run_compute()          # refresh MoS/verdict against the new prices
+        snapshot_verdicts()    # append today's calls to the track record
         log.info("Price refresh complete.")
     except Exception as e:
         log.error(f"Price refresh failed: {e}")
@@ -267,6 +286,7 @@ else:
         log.info("Deploy boot — recomputing valuations so the cache matches the current engine…")
         run_compute()
         log.info("Boot recompute complete.")
+        snapshot_verdicts()    # day-0 (and post-deploy) track-record entries
 
 while True:
     schedule.run_pending()

@@ -43,6 +43,8 @@ from app.operations_routes import router as operations_router
 app.include_router(operations_router)
 from app.logo_routes import router as logo_router
 app.include_router(logo_router)
+from app.backtest_routes import router as backtest_router
+app.include_router(backtest_router)
 from app.onepager import build_onepager
 
 origins = os.getenv("FRONTEND_ORIGIN", "*")
