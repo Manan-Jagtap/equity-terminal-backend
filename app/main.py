@@ -6,8 +6,14 @@ revenue, net_debt so the frontend can build accurate DCF models instead
 of back-calculating from ratios.
 """
 import os
-from fastapi import FastAPI, Depends, HTTPException
+import threading
+import time
+from collections import defaultdict, deque
+
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.orm import Session
 
 from .database import Base, engine, get_db
@@ -53,7 +59,77 @@ from app.documents_routes import router as documents_router
 app.include_router(documents_router)
 from app.thesis_routes import router as thesis_router
 app.include_router(thesis_router)
+from app.auth_routes import router as auth_router
+app.include_router(auth_router)
 from app.onepager import build_onepager
+
+
+def _debug_enabled() -> bool:
+    """Tracebacks in API error payloads only when DEBUG=1/true."""
+    return os.getenv("DEBUG", "").lower() in ("1", "true")
+
+
+# ── Security hardening middleware ────────────────────────────────────────────
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """In-memory sliding 60s window per client IP.
+
+    General routes: 240 req/min. Auth routes (/api/auth/...): 10 req/min so
+    credential stuffing / signup spam is throttled hard. Client identity is the
+    first X-Forwarded-For hop when present (we sit behind a proxy in prod),
+    else the socket peer."""
+    WINDOW = 60.0
+    GENERAL_LIMIT = int(os.getenv("RATE_LIMIT_GENERAL", "240"))
+    AUTH_LIMIT = int(os.getenv("RATE_LIMIT_AUTH", "10"))
+
+    def __init__(self, app):
+        super().__init__(app)
+        self._lock = threading.Lock()
+        self._general: dict[str, deque] = defaultdict(deque)
+        self._auth: dict[str, deque] = defaultdict(deque)
+
+    @staticmethod
+    def _client_ip(request: Request) -> str:
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            first = fwd.split(",")[0].strip()
+            if first:
+                return first
+        return request.client.host if request.client else "unknown"
+
+    def _allow(self, bucket: dict, ip: str, limit: int, now: float) -> bool:
+        q = bucket[ip]
+        cutoff = now - self.WINDOW
+        while q and q[0] <= cutoff:
+            q.popleft()
+        if len(q) >= limit:
+            return False
+        q.append(now)
+        return True
+
+    async def dispatch(self, request: Request, call_next):
+        ip = self._client_ip(request)
+        now = time.time()
+        is_auth = request.url.path.startswith("/api/auth")
+        with self._lock:
+            ok = self._allow(self._general, ip, self.GENERAL_LIMIT, now)
+            if ok and is_auth:
+                ok = self._allow(self._auth, ip, self.AUTH_LIMIT, now)
+        if not ok:
+            return JSONResponse({"error": "rate_limited"}, status_code=429)
+        return await call_next(request)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 origins = os.getenv("FRONTEND_ORIGIN", "*")
 app.add_middleware(
@@ -307,8 +383,10 @@ def company_detail(ticker: str, db: Session = Depends(get_db)):
         return {"company": _public(data), "assumptions": a,
                 "recommendation": rec, "sensitivity": sens, "analyst": analyst}
     except Exception as e:
-        return JSONResponse({"error": str(e), "trace": traceback.format_exc()[-1200:]},
-                            status_code=500)
+        body = {"error": str(e)}
+        if _debug_enabled():
+            body["trace"] = traceback.format_exc()[-1200:]
+        return JSONResponse(body, status_code=500)
 
 
 @app.post("/api/companies/{ticker}/valuation")
@@ -368,7 +446,10 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
                         headers={"Content-Disposition": f'attachment; filename="{co.ticker}_onepager.pdf"',
                                  "Content-Length": str(len(pdf_bytes))})
     except Exception as e:
-        return JSONResponse({"error": str(e), "trace": traceback.format_exc()[-800:]}, status_code=500)
+        body = {"error": str(e)}
+        if _debug_enabled():
+            body["trace"] = traceback.format_exc()[-800:]
+        return JSONResponse(body, status_code=500)
 
 
 def _public(data):

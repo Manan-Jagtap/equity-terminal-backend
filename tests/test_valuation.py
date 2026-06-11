@@ -54,6 +54,11 @@ def _bank_statements():
 
 @pytest.fixture(scope="module")
 def db():
+    # Drop pooled connections first: earlier suites (tests/test_auth.py) hit the
+    # DB through the same engine, and a pooled SQLite connection pinned to the
+    # deleted file's old inode would make every query here explode with
+    # "no such table".
+    engine.dispose()
     if os.path.exists("/tmp/_pytest_terminal.db"):
         os.remove("/tmp/_pytest_terminal.db")
     Base.metadata.create_all(bind=engine)

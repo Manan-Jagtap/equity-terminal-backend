@@ -15,6 +15,18 @@ from sqlalchemy.orm import relationship
 from .database import Base
 
 
+class User(Base):
+    """An account. Email is stored lowercased; password_hash is the
+    pbkdf2$<iter>$<salt>$<hash> string produced by app.auth.hash_password.
+    Personal rows (watchlist/portfolio) are scoped by user_key = f"u{id}"."""
+    __tablename__ = "users"
+    id            = Column(Integer, primary_key=True)
+    email         = Column(String, unique=True, index=True, nullable=False)
+    name          = Column(String, nullable=True)
+    password_hash = Column(String, nullable=False)
+    created_at    = Column(DateTime, server_default=func.now())
+
+
 class Company(Base):
     __tablename__ = "companies"
     id = Column(Integer, primary_key=True)

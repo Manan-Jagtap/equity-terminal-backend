@@ -1,8 +1,9 @@
 """
 app/portfolio_routes.py — simple holdings portfolio with live P&L.
 
-Mirrors the watchlist's `user_key` scoping (defaults to "default" until login
-lands; the frontend can pass ?user= or an X-User-Key header):
+Mirrors the watchlist's `user_key` scoping: every endpoint REQUIRES
+authentication (Authorization: Bearer <token>) and is scoped by
+user_key = f"u{user.id}" — unauthenticated requests get a 401:
 
   GET    /api/portfolio                → holdings enriched with price / value /
                                          P&L / weight / MoS / verdict + totals.
@@ -12,18 +13,15 @@ lands; the frontend can pass ?user= or an X-User-Key header):
 The totals math (value, cost, P&L, weights, value-weighted MoS) lives in
 `compute_totals` — a pure function so it's unit-testable without a DB.
 """
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
-
-
-def _user(user: str | None, x_user_key: str | None) -> str:
-    return (user or x_user_key or "default").strip() or "default"
 
 
 class HoldingUpsert(BaseModel):
@@ -91,18 +89,18 @@ def _build_items(db: Session, uk: str) -> list[dict]:
 
 
 @router.get("")
-def list_portfolio(user: str | None = Query(None), x_user_key: str | None = Header(None),
+def list_portfolio(user: models.User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
-    uk = _user(user, x_user_key)
+    uk = f"u{user.id}"
     items = _build_items(db, uk)
     totals = compute_totals(items)
     return {"items": items, "totals": totals}
 
 
 @router.post("")
-def upsert_holding(body: HoldingUpsert, user: str | None = Query(None),
-                   x_user_key: str | None = Header(None), db: Session = Depends(get_db)):
-    uk = _user(user, x_user_key)
+def upsert_holding(body: HoldingUpsert, user: models.User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    uk = f"u{user.id}"
     co = db.query(models.Company).filter_by(ticker=body.ticker.upper()).first()
     if not co:
         raise HTTPException(404, f"Unknown ticker {body.ticker}")
@@ -128,9 +126,9 @@ def upsert_holding(body: HoldingUpsert, user: str | None = Query(None),
 
 
 @router.delete("/{holding_id}")
-def delete_holding(holding_id: int, user: str | None = Query(None),
-                   x_user_key: str | None = Header(None), db: Session = Depends(get_db)):
-    uk = _user(user, x_user_key)
+def delete_holding(holding_id: int, user: models.User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    uk = f"u{user.id}"
     holding = (db.query(models.PortfolioHolding)
                  .filter_by(id=holding_id, user_key=uk).first())
     if holding:

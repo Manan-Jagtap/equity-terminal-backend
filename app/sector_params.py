@@ -80,6 +80,13 @@ SECTOR_PARAMS: dict[str, dict] = {
 # A safe default if classification ever misses.
 DEFAULT_SECTOR = "MANUFACTURING"
 
+# Ticker-level overrides for names the keyword/template classifier gets wrong.
+# FEDFINA: "Fedbank Financial Services" trips the name-based BANK template, but
+# the business is an NBFC (Federal Bank's lending subsidiary).
+TICKER_OVERRIDES: dict[str, str] = {
+    "FEDFINA": "NBFC",
+}
+
 
 def params(valuation_sector: str | None) -> dict:
     return SECTOR_PARAMS.get(valuation_sector or "", SECTOR_PARAMS[DEFAULT_SECTOR])

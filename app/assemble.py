@@ -98,7 +98,8 @@ def build_company(db: Session, co: models.Company) -> dict:
     is_fin = T.is_financial(template_code) or co.type == "financial"
     out["template_code"] = template_code
     out["is_financial_template"] = is_fin
-    out["valuation_sector"] = SP.classify_valuation_sector(co.sector, template_code)
+    out["valuation_sector"] = (SP.TICKER_OVERRIDES.get((co.ticker or "").upper())
+                               or SP.classify_valuation_sector(co.sector, template_code))
 
     hist_rows = (db.query(models.HistoricalFinancial)
                    .filter_by(company_id=co.id).all())

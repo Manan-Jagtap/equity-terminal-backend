@@ -1,8 +1,8 @@
 """
 app/watchlist_routes.py — saved-names watchlist + valuation alerts.
 
-Endpoints (all scoped by a `user` key — defaults to "default" until login lands;
-the frontend will pass the real key as ?user= or an X-User-Key header):
+Endpoints all REQUIRE authentication (Authorization: Bearer <token>) and are
+scoped by user_key = f"u{user.id}" — unauthenticated requests get a 401:
 
   GET    /api/watchlist            → watched names enriched with live verdict /
                                       intrinsic / MoS / price / 1-day move, plus
@@ -12,11 +12,12 @@ the frontend will pass the real key as ?user= or an X-User-Key header):
 
 Alert logic lives in app.watchlist_alerts (DB-free, unit-tested).
 """
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
+from app.auth import get_current_user
 from app.watchlist_alerts import compute_alerts
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
@@ -24,10 +25,6 @@ router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 _NORMALIZE_VERDICT = {"ACCUMULATE": "ACCUMULATE", "BUY": "BUY", "HOLD": "HOLD",
                       "REDUCE": "REDUCE", "AVOID": "AVOID", "LOW CONF": "LOW CONF",
                       "NO DATA": "NO DATA"}
-
-
-def _user(user: str | None, x_user_key: str | None) -> str:
-    return (user or x_user_key or "default").strip() or "default"
 
 
 class WatchUpsert(BaseModel):
@@ -104,9 +101,9 @@ def _enrich(db: Session, item: models.WatchlistItem):
 
 
 @router.get("")
-def list_watchlist(user: str | None = Query(None), x_user_key: str | None = Header(None),
+def list_watchlist(user: models.User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
-    uk = _user(user, x_user_key)
+    uk = f"u{user.id}"
     items = (db.query(models.WatchlistItem)
                .filter_by(user_key=uk)
                .join(models.Company).order_by(models.Company.ticker).all())
@@ -119,9 +116,9 @@ def list_watchlist(user: str | None = Query(None), x_user_key: str | None = Head
 
 
 @router.post("")
-def upsert_watchlist(body: WatchUpsert, user: str | None = Query(None),
-                     x_user_key: str | None = Header(None), db: Session = Depends(get_db)):
-    uk = _user(user, x_user_key)
+def upsert_watchlist(body: WatchUpsert, user: models.User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    uk = f"u{user.id}"
     co = db.query(models.Company).filter_by(ticker=body.ticker.upper()).first()
     if not co:
         raise HTTPException(404, f"Unknown ticker {body.ticker}")
@@ -147,9 +144,9 @@ def upsert_watchlist(body: WatchUpsert, user: str | None = Query(None),
 
 
 @router.delete("/{ticker}")
-def delete_watchlist(ticker: str, user: str | None = Query(None),
-                     x_user_key: str | None = Header(None), db: Session = Depends(get_db)):
-    uk = _user(user, x_user_key)
+def delete_watchlist(ticker: str, user: models.User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    uk = f"u{user.id}"
     co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
     if not co:
         raise HTTPException(404, f"Unknown ticker {ticker}")
