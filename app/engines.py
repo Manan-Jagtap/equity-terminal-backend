@@ -312,6 +312,19 @@ def recommend(co: Dict, a: Dict) -> Dict:
 
     iv = b.get("blended")
     iv = iv if (iv is not None and iv > 0) else None
+
+    # Dedicated models for names the single-engine blend can't value (conglomerate
+    # Sum-of-the-Parts, life-insurer P/EV). They live OUTSIDE the parity-tested
+    # core (blended/valuate ↔ engine.js), so they OVERRIDE the intrinsic here
+    # without any JS mirror. Illustrative inputs → capped at MEDIUM confidence below.
+    from .alt_models import alternative_intrinsic
+    alt = alternative_intrinsic(co, a)
+    if alt and alt.get("intrinsic") and alt["intrinsic"] > 0:
+        iv = alt["intrinsic"]
+    else:
+        alt = None
+    method = alt["method"] if alt else b.get("primary_method")
+
     # A synthetic (sentinel) price must never produce a margin of safety — the
     # ₹1.0 placeholder would fabricate an absurd +N×10⁴% MoS. No real price →
     # mos None → verdict NO DATA, which is the honest state.
@@ -404,13 +417,23 @@ def recommend(co: Dict, a: Dict) -> Dict:
     elif mos >= -0.25:                          verdict = "REDUCE"
     else:                                       verdict = "AVOID"
 
-    # Life insurers can't be valued on book equity / reported earnings — their
-    # worth is EMBEDDED VALUE (future profit on in-force policies), which isn't
-    # on the balance sheet. RI / P-B / P-E all structurally understate them (they
-    # legitimately trade at 7–13x book). Rather than show a confident AVOID, mark
-    # the model unreliable here so the verdict reads LOW CONF. A proper fix needs
-    # P/EV data we don't ingest.
-    if a.get("_valuation_sector") == "INSURANCE":
+    # A dedicated model (SOTP for conglomerates, P/EV for insurers) replaced the
+    # single-engine intrinsic above → keep the computed verdict, but CAP confidence
+    # at MEDIUM (the inputs are illustrative) and surface the method + caveat, so
+    # it is never presented as a precise, high-confidence call.
+    if alt:
+        if conf.get("level") == "high":
+            conf = {**conf, "level": "medium"}
+            if conf["score"] > 0.79:
+                conf = {**conf, "score": 0.79}
+        reasons.append({"label": "Model", "score": 60, "note": alt["note"],
+                        "good": False, "bad": False})
+    # Life insurers WITHOUT seeded EV can't be valued on book equity / reported
+    # earnings — their worth is EMBEDDED VALUE (future profit on in-force policies),
+    # which isn't on the balance sheet. RI / P-B / P-E all structurally understate
+    # them (they legitimately trade at 7–13x book). Rather than show a confident
+    # AVOID, mark the model unreliable so the verdict reads LOW CONF.
+    elif a.get("_valuation_sector") == "INSURANCE":
         verdict = "LOW CONF"
         reliable = False
         reasons.append({"label": "Model", "score": 50,
@@ -445,6 +468,7 @@ def recommend(co: Dict, a: Dict) -> Dict:
             "reasons": reasons, "composite": composite, "verdict": verdict,
             # Blended fair value breakdown — the per-method values + weights the
             # Valuation tab renders, plus the pure intrinsic-model value as one input.
-            "blended": iv, "components": b.get("components"),
+            "blended": iv, "components": (alt["components"] if alt else b.get("components")),
             "dcf_value": b.get("primary"), "primary_method": b.get("primary_method"),
+            "method": method, "alt_method": (alt["method"] if alt else None),
             "drivers": a.get("_drivers"), "valuation_sector": a.get("_valuation_sector")}

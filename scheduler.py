@@ -53,25 +53,28 @@ def snapshot_verdicts():
         log.error(f"Verdict snapshot failed: {type(e).__name__}: {e}")
 
 
-def run_compute(nifty50=False):
+def run_compute(nifty50=False, visible=False):
     """Recompute the blended valuations (no external API — pure local computation
     from the data already in the DB). Cheap; safe to run after every refresh so
     the screener's intrinsic/MoS/verdict always reflect fresh prices.
-    nifty50=True scopes it to the Nifty 50 (fast, upsert-in-place)."""
-    log.info(f"Recomputing valuations ({'Nifty 50' if nifty50 else 'all'})…")
+    nifty50=True → Nifty 50; visible=True → the Nifty 100 the terminal exposes."""
+    scope = "Nifty 100" if visible else "Nifty 50" if nifty50 else "all"
+    log.info(f"Recomputing valuations ({scope})…")
     try:
-        compute_valuations(nifty50=nifty50)
+        compute_valuations(nifty50=nifty50, visible=visible)
         log.info("Valuation recompute complete.")
     except Exception as e:
         log.error(f"Valuation recompute failed: {e}")
 
 
 def run_prices():
-    log.info("IndianAPI daily price refresh (Nifty 50)…")
+    # Daily EOD prices for the FULL visible set (Nifty 100) so every shown name is
+    # marked to today's close; intraday + weekly full stay Nifty-50 tight for quota.
+    log.info("IndianAPI daily price refresh (Nifty 100)…")
     try:
-        indianapi_run(price_only=True, nifty50=True)
-        run_compute()          # refresh MoS/verdict against the new prices
-        snapshot_verdicts()    # append today's calls to the track record
+        indianapi_run(price_only=True, visible=True)
+        run_compute(visible=True)   # refresh MoS/verdict against the new prices
+        snapshot_verdicts()         # append today's calls to the track record
         log.info("Price refresh complete.")
     except Exception as e:
         log.error(f"Price refresh failed: {e}")
@@ -246,7 +249,10 @@ else:
     # market snapshot yet. Each onboarding costs a handful of IndianAPI calls,
     # and only ever runs for genuinely missing names (idempotent).
     def _ensure_universe():
-        from app.ingest.indianapi_ingester import UNIVERSE, ingest_company
+        # Ensure every VISIBLE (Nifty 100) member has a row + market data. They are
+        # already ingested today, so this is a no-op unless a new name is added to
+        # NIFTY_NEXT_50 — in which case onboarding backfills its real sector/class.
+        from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE as UNIVERSE, ingest_company
         from app.database import SessionLocal
         from app import models
         s = SessionLocal()
@@ -255,8 +261,17 @@ else:
             missing = sorted(UNIVERSE - set(by_ticker))
             for t in missing:           # create the row so ingest can fill it
                 log.info(f"Universe: creating missing company row {t}…")
-                co = models.Company(ticker=t, name=t.title(), type="financial" if t == "FEDFINA" else "nonfinancial",
-                                    sector="Diversified NBFC" if t == "FEDFINA" else None)
+                # NON-NULL placeholders: companies.sector and shares_outstanding are
+                # NOT NULL on Postgres, so `sector=None` would raise on insert. The
+                # "Unknown" sentinel is what ingest_company._resolve_onboarding keys
+                # off to backfill the real name/sector/template on first ingest.
+                co = models.Company(
+                    ticker=t,
+                    name=t.title(),
+                    type="financial" if t == "FEDFINA" else "nonfinancial",
+                    sector="Diversified NBFC" if t == "FEDFINA" else "Unknown",
+                    shares_outstanding=0.0,
+                )
                 s.add(co); s.commit()
                 by_ticker[t] = co
             snap_ids = {m.company_id for m in s.query(models.MarketSnapshot).all()}

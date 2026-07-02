@@ -43,7 +43,7 @@ def _payload(co, data, rec, insight_data):
         intrinsic=rec.get("intrinsic"), mos=rec.get("mos"), verdict=rec.get("verdict"),
         composite=rec.get("composite"), reliable=1 if rec.get("reliable") else 0,
         confidence=(rec.get("confidence") or {}).get("level"),
-        method="Blended", valuation_sector=rec.get("valuation_sector"),
+        method=rec.get("method") or "Blended", valuation_sector=rec.get("valuation_sector"),
         roe=f.get("roe"), pb=f.get("pb"), pe=f.get("pe"),
         analyst_target=cons.get("target"), analyst_low=cons.get("low"),
         analyst_high=cons.get("high"), analyst_rating=cons.get("rating"),
@@ -136,16 +136,18 @@ def refresh_mos():
         db.close()
 
 
-def run(nifty50: bool = False):
+def run(nifty50: bool = False, visible: bool = False):
     """Precompute the blended valuations into the `valuations` cache.
 
-    nifty50=True → compute ONLY the Nifty 50 (fast; the universe we actively
-    work on) and UPSERT those rows in place, leaving any other rows untouched.
-    The drop+recreate is skipped in this mode so we don't wipe the rest of the
-    table — it's only needed for a full rebuild when the schema changed."""
-    from .indianapi_ingester import UNIVERSE as NIFTY_50
+    nifty50=True → compute ONLY the Nifty 50 (fast; the tight core universe).
+    visible=True → compute the Nifty 100 (VISIBLE_UNIVERSE — everything the
+    terminal exposes), so a daily EOD recompute keeps all shown names fresh.
+    Both upsert in place (the drop+recreate full rebuild only runs when neither
+    scope is set), so we never wipe the rest of the table."""
+    from .indianapi_ingester import UNIVERSE, VISIBLE_UNIVERSE
+    scope_set = VISIBLE_UNIVERSE if visible else UNIVERSE
 
-    if not nifty50:
+    if not (nifty50 or visible):
         # Full rebuild: drop & recreate so the schema always matches the model.
         # (create_all/checkfirst only CREATES missing tables — it never ALTERs an
         # existing one, which is the "column valuations.X does not exist" failure
@@ -167,15 +169,15 @@ def run(nifty50: bool = False):
         # Only companies that actually have market data (skip un-ingested seeds).
         q = db.query(models.Company).join(models.MarketSnapshot)
         rows = q.all()
-        if nifty50:
-            rows = [c for c in rows if (c.ticker or "").upper() in NIFTY_50]
+        if nifty50 or visible:
+            rows = [c for c in rows if (c.ticker or "").upper() in scope_set]
         ids = [c.id for c in rows]
     finally:
         db.close()
 
     total = len(ids)
     ok = failed = 0
-    scope = "NIFTY 50" if nifty50 else "ALL"
+    scope = "NIFTY 100 (visible)" if visible else "NIFTY 50" if nifty50 else "ALL"
     print(f"Computing blended valuations ({scope}) for {total} companies...")
     t0 = time.time()
     for i, cid in enumerate(ids, 1):

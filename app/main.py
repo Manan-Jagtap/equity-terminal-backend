@@ -201,6 +201,22 @@ def _live_recommend(db, co):
     }
 
 
+@app.get("/api/universe")
+def api_universe():
+    """Tickers the terminal currently EXPOSES (Nifty 100) — the SINGLE source of
+    truth for the frontend's visibility whitelist, so backend and frontend can no
+    longer drift. Edit NIFTY_NEXT_50 in one place (indianapi_ingester.py) to
+    change what's shown."""
+    from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE, NIFTY_50, NIFTY_NEXT_50
+    return {
+        "tier": "nifty100",
+        "count": len(VISIBLE_UNIVERSE),
+        "tickers": sorted(VISIBLE_UNIVERSE),
+        "core": sorted(NIFTY_50 | {"FEDFINA"}),
+        "next": sorted(NIFTY_NEXT_50),
+    }
+
+
 @app.get("/api/companies")
 def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
     """Screener rows. The headline intrinsic/MoS/verdict are the INDEPENDENT

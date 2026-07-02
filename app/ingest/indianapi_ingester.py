@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 import requests
 from app.database import SessionLocal, engine, Base
 from app import models, concepts as K
+from app import templates as T, sector_params as SP
 
 Base.metadata.create_all(bind=engine)
 
@@ -33,12 +34,38 @@ BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 RATE_SLEEP = 1.1
 
+# ── API-call budget guard ────────────────────────────────────────────────────
+# IndianAPI is quota-limited (~10k calls/month on the dev plan) with NO
+# server-side meter. We count every outbound request in-process and expose the
+# tally so bulk jobs can pre-flight; the scheduler persists a durable monthly
+# total (models.ApiUsage). The in-process counter resets on restart — it guards
+# a single runaway run; the DB total guards the calendar month.
+import datetime as _dt
+MONTHLY_BUDGET = int(os.getenv("INDIANAPI_MONTHLY_BUDGET", "10000"))
+_CALL_COUNT = 0
+_CALL_MONTH = _dt.date.today().strftime("%Y-%m")
+
+
+def get_call_count() -> int:
+    """API calls this process has made in the current calendar month."""
+    return _CALL_COUNT
+
+
+def reset_call_count() -> None:
+    global _CALL_COUNT
+    _CALL_COUNT = 0
+
 
 def _get(path, params, retries=4):
     if not KEY or KEY.lower().startswith(("paste", "your")):
         raise RuntimeError("INDIANAPI_KEY is not set to your real key.")
+    global _CALL_COUNT, _CALL_MONTH
+    m = _dt.date.today().strftime("%Y-%m")
+    if m != _CALL_MONTH:                       # month rollover → fresh in-process tally
+        _CALL_MONTH, _CALL_COUNT = m, 0
     last = "unknown error"
     for attempt in range(retries):
+        _CALL_COUNT += 1                       # every attempt hits the API → counts
         try:
             r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                              params=params, timeout=90)
@@ -855,6 +882,31 @@ def _insurer_statements(s, co):
     return wrote
 
 
+def _resolve_onboarding(ticker, stock, cur_sector, cur_name):
+    """Resolve (name, sector, template_code, type, is_fallback) for a freshly
+    onboarded company row from its /stock payload.
+
+    Fixes the latent long-tail bug: an auto-created row has a placeholder name
+    and no sector/template, so WITHOUT this every new non-financial name was
+    silently valued as a generic manufacturer (rich multiples, absurd upside).
+    `is_fallback` is True when the sector could not be classified and we defaulted
+    to MANUFACTURING — the caller logs it so a wrong-multiple verdict on the long
+    tail is visible, not silent."""
+    prof = (stock or {}).get("companyProfile") or {}
+    name = (stock or {}).get("companyName") or cur_name or ticker
+    sector = (stock or {}).get("industry") or prof.get("mgIndustry") or cur_sector
+    tmpl = T.classify_company(name, sector)
+    typ = "financial" if T.is_financial(tmpl) else "nonfinancial"
+    # is_fallback keys off the VALUATION sector (which drives the multiple), not
+    # the coarser P&L template — steel legitimately uses a manufacturing-shaped
+    # statement but a METAL multiple, so that is NOT a fallback. A true fallback
+    # is when the sector string can't be classified and the multiple defaults.
+    vs = SP.TICKER_OVERRIDES.get((ticker or "").upper()) or SP.classify_valuation_sector(sector, tmpl)
+    is_fallback = (vs == SP.DEFAULT_SECTOR) and \
+                  (not sector or SP.classify_valuation_sector(sector, None) == SP.DEFAULT_SECTOR)
+    return name, sector, tmpl, typ, is_fallback
+
+
 def ingest_company(s, co, dump=False, insights=True):
     import json
     ticker = (co.ticker or "").upper()
@@ -866,6 +918,22 @@ def ingest_company(s, co, dump=False, insights=True):
         return False
 
     price = _price_from_stock(s, co, stock)
+
+    # Onboarding backfill — ONLY for freshly auto-created rows (placeholder
+    # sector). Never touches curated names that already carry a real sector, so
+    # the existing universe's classification is untouched. Sets a real
+    # name/sector/template/type from the /stock profile BEFORE _parse_financials
+    # and the lender-supplement branch (both key off co.type/template_code).
+    if (co.sector or "").strip().lower() in ("", "unknown", "none"):
+        name, sector, tmpl, typ, is_fallback = _resolve_onboarding(ticker, stock, co.sector, co.name)
+        if name:
+            co.name = name
+        if sector:
+            co.sector = sector
+        co.template_code, co.type = tmpl, typ
+        s.commit()
+        note = " ⚠ unclassified sector → MANUFACTURING default (verify multiple)" if is_fallback else ""
+        print(f"    onboarded: {co.name} · {sector} → {tmpl}/{typ}{note}")
 
     if dump:
         fin = stock.get("financials") or stock.get("stockFinancialData") or []
@@ -969,6 +1037,31 @@ NIFTY_50 = {
 EXTRA_TICKERS = {"FEDFINA"}
 UNIVERSE = NIFTY_50 | EXTRA_TICKERS
 
+# ── Nifty Next 50 — the second visibility tranche ────────────────────────────
+# Already ingested + valued (the DB holds ~500 names); exposing them is a
+# VISIBILITY decision, not an ingest. Kept here as the SINGLE source of truth —
+# the frontend reads it from /api/universe, so there is no hand-maintained
+# mirror to drift. Best-effort snapshot: the index rebalances ~half-yearly, so
+# verify membership before a serious relaunch (edit this one set to change it).
+# Deliberately EXCLUDES INDIGO: an airline has no defensible sector model yet
+# (a generic manufacturing multiple would over-value it), so we hold it back
+# rather than publish a number we don't trust.
+NIFTY_NEXT_50 = {
+    "ADANIENSOL","ADANIGREEN","ADANIPOWER","AMBUJACEM","DMART","BAJAJHLDNG","BANKBARODA",
+    "BERGEPAINT","BOSCHLTD","BPCL","CANBK","CGPOWER","CHOLAFIN","COLPAL","DABUR","DIVISLAB",
+    "DLF","GAIL","GODREJCP","HAVELLS","HAL","HDFCAMC","ICICIGI","ICICIPRULI","IOC","IRFC",
+    "JINDALSTEL","JSWENERGY","LICI","LODHA","MARICO","MOTHERSON","NAUKRI","PFC","PIDILITIND",
+    "PNB","RECLTD","SIEMENS","SRF","TATAPOWER","TORNTPHARM","TVSMOTOR","UNITDSPR","VBL",
+    "VEDL","ZYDUSLIFE","MUTHOOTFIN","INDHOTEL","MANKIND","ABB",
+}
+
+# The VISIBLE universe (Nifty 100): what the terminal exposes + keeps fresh with
+# daily EOD prices and a daily valuation recompute. Intraday (90-min) and the
+# weekly full-fundamentals refresh stay scoped to UNIVERSE (Nifty 50) to respect
+# the IndianAPI monthly quota — Next-50 prices refresh daily, fundamentals ride
+# the weekly full only for the core 50 (they change quarterly, so this is fine).
+VISIBLE_UNIVERSE = NIFTY_50 | NIFTY_NEXT_50 | EXTRA_TICKERS
+
 
 # ── Intraday spot-price refresh (yfinance — all 50 in ONE batched call) ──────
 # IndianAPI has no all-50 batch live-price endpoint (confirmed: only the top-10
@@ -1044,20 +1137,37 @@ def run_intraday(debug=False):
         s.close()
 
 
-def run(limit=None, ticker=None, price_only=False, nifty50=False, insights=True):
+def run(limit=None, ticker=None, price_only=False, nifty50=False, insights=True, visible=False):
+    from app import api_budget as B
     s = SessionLocal()
     q = s.query(models.Company)
     if ticker:
         q = q.filter(models.Company.ticker == ticker.upper())
     companies = q.all()
-    if nifty50:
-        companies = [c for c in companies if (c.ticker or "").upper() in UNIVERSE]
+    # `visible` scopes to the Nifty 100 (daily EOD prices); `nifty50` to the tight
+    # Nifty 50 (intraday + weekly full). `visible` takes precedence when both set.
+    scope = VISIBLE_UNIVERSE if visible else (UNIVERSE if nifty50 else None)
+    if scope is not None:
+        companies = [c for c in companies if (c.ticker or "").upper() in scope]
     if limit:
         companies = companies[:limit]
     mode = ("prices only" if price_only
             else "statements + facts + price + insights" if insights
             else "statements + facts + price")
     print(f"IndianAPI ingest — {len(companies)} companies ({mode})")
+
+    # Budget pre-flight: project this batch's cost and refuse to start a run that
+    # would breach INDIANAPI_MONTHLY_BUDGET (override with INDIANAPI_ALLOW_OVER=1).
+    projected = len(companies) * (1 if price_only else B.CALLS_PER_FULL_INGEST)
+    print(f"  budget: ~{projected} calls projected · {B.month_usage(s)}/{B.budget()} used this month "
+          f"· {B.remaining(s)} remaining")
+    if B.would_exceed(s, projected) and os.getenv("INDIANAPI_ALLOW_OVER", "").strip().lower() not in ("1", "true", "yes"):
+        print(f"  ⛔ projected spend would exceed the monthly budget ({B.budget()}). "
+              f"Set INDIANAPI_ALLOW_OVER=1 to override. Aborting run.")
+        s.close()
+        return
+
+    start_calls = get_call_count()
     ok = 0
     for co in companies:
         try:
@@ -1070,8 +1180,15 @@ def run(limit=None, ticker=None, price_only=False, nifty50=False, insights=True)
             s.rollback()
             print(f"  {co.ticker}: FAILED ({type(e).__name__}: {e})")
         time.sleep(RATE_SLEEP)
+
+    spent = get_call_count() - start_calls
+    try:
+        total = B.record_usage(s, spent)
+    except Exception:
+        s.rollback(); total = None
     s.close()
-    print(f"Done. {ok}/{len(companies)} processed.")
+    print(f"Done. {ok}/{len(companies)} processed. ({spent} API calls"
+          + (f"; {total}/{B.budget()} this month)" if total is not None else ")"))
 
 
 if __name__ == "__main__":

@@ -321,3 +321,16 @@ class CorporateAction(Base):
     company     = relationship("Company")
     __table_args__ = (UniqueConstraint("company_id", "action_type", "ex_date", "value",
                                        name="uq_corp_action"),)
+
+
+class ApiUsage(Base):
+    """Durable monthly IndianAPI call counter — the vendor exposes no meter and
+    the quota (~10k/mo on the dev plan) is a hard ceiling, so we count our own
+    calls and let bulk jobs pre-flight against a budget before spending it.
+    One row per calendar month ('YYYY-MM'); the scheduler records the delta after
+    each ingest run. Additive table — auto-creates via create_all."""
+    __tablename__ = "api_usage"
+    id      = Column(Integer, primary_key=True)
+    month   = Column(String(7), unique=True, nullable=False, index=True)   # "YYYY-MM"
+    calls   = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

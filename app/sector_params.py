@@ -68,6 +68,13 @@ SECTOR_PARAMS: dict[str, dict] = {
     "UTILITIES":     _P(beta=0.75, terminal_growth=0.045, mature_roic=0.11, mature_roe=0.13, exit_pe=15, exit_ev_ebitda=9,  exit_pb=None),
     "TELECOM":       _P(beta=0.90, terminal_growth=0.050, mature_roic=0.13, mature_roe=0.15, exit_pe=32, exit_ev_ebitda=9,  exit_pb=None),
     "MANUFACTURING": _P(beta=1.00, terminal_growth=0.050, mature_roic=0.15, mature_roe=0.16, exit_pe=28, exit_ev_ebitda=15, exit_pb=None),
+    # Specialty + commodity chemicals / fertilizers. Higher return + growth than
+    # generic manufacturing (specialty franchises), but cyclical input costs, so
+    # a premium-but-not-consumer exit multiple.
+    "CHEMICALS":     _P(beta=1.05, terminal_growth=0.050, mature_roic=0.16, mature_roe=0.17, exit_pe=26, exit_ev_ebitda=15, exit_pb=None),
+    # Real-estate developers: rate-sensitive, cyclical, lumpy earnings (NAV-driven).
+    # High beta, lower steady-state return, conservative exit multiple.
+    "REALTY":        _P(beta=1.25, terminal_growth=0.050, mature_roic=0.12, mature_roe=0.13, exit_pe=20, exit_ev_ebitda=14, exit_pb=None),
     # ── Financials (RI / P-B-vs-ROE) ────────────────────────────────────────
     # Betas trimmed to align Ke with observed: India's large private banks run
     # 2-5yr betas ~0.9-1.0 and sell-side Ke ~11.5%, not the 12.2% a 1.05 beta
@@ -132,6 +139,12 @@ _RULES: list[tuple[str, str]] = [
     ("metal", "METAL"), ("mining", "METAL"), ("zinc", "METAL"),
     # Cement / building materials
     ("cement", "CEMENT"), ("construction material", "CEMENT"), ("building material", "CEMENT"),
+    # Chemicals / fertilizers (specialty + commodity). Placed AFTER energy so
+    # "petroleum"/"refiner" still win for oil names; "petrochemical" → CHEMICALS.
+    ("specialty chemical", "CHEMICALS"), ("agrochemical", "CHEMICALS"),
+    ("fertiliz", "CHEMICALS"), ("fertilis", "CHEMICALS"), ("chemical", "CHEMICALS"),
+    # Real-estate developers
+    ("real estate", "REALTY"), ("realty", "REALTY"),
     # Autos
     ("automobile", "AUTO"), ("auto component", "AUTO"), ("auto part", "AUTO"),
     ("two wheeler", "AUTO"), ("two-wheeler", "AUTO"), ("auto", "AUTO"),
