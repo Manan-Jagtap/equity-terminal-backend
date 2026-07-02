@@ -26,9 +26,9 @@ def test_pev_uses_gordon_justified_multiple():
     a = {"risk_free": 0.069, "beta": 0.90, "erp": 0.05, "terminal_growth": 0.055}
     r = pev_value("SBILIFE", a)
     ke = 0.069 + 0.90 * 0.05          # 0.114
-    just = max(1.0, min(3.0, (0.175 - 0.055) / (ke - 0.055)))
+    just = max(1.0, min(3.0, (0.197 - 0.055) / (ke - 0.055)))
     assert r["method"] == "P/EV Appraisal"
-    assert abs(r["intrinsic"] - 690.0 * just) < 1e-6
+    assert abs(r["intrinsic"] - 805.40 * just) < 1e-6
 
 
 def test_pev_multiple_is_clamped():
@@ -36,11 +36,17 @@ def test_pev_multiple_is_clamped():
     a = {"risk_free": 0.069, "beta": 0.90, "erp": 0.05, "terminal_growth": 0.05}
     # temporarily exercise the clamp via a high-RoEV name isn't seeded, so verify
     # the band on the seeded ones stays within [1,3]
-    for tk in ("SBILIFE", "HDFCLIFE", "ICICIPRULI", "LICI"):
+    for tk in ("SBILIFE", "HDFCLIFE", "ICICIPRULI"):
         r = pev_value(tk, a)
         from app.alt_models import INSURER_EV
         mult = r["intrinsic"] / INSURER_EV[tk]["ev_per_share"]
         assert 1.0 <= mult <= 3.0
+
+
+def test_lici_omitted_stays_unmodelled():
+    # LIC's reported EV overstates shareholder value → intentionally not seeded,
+    # so it falls back to the insurer LOW-CONF path rather than a misleading P/EV.
+    assert pev_value("LICI", {"risk_free": 0.069, "beta": 0.9, "erp": 0.05}) is None
 
 
 def test_pev_unknown_is_none():

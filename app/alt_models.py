@@ -52,13 +52,19 @@ def sotp_value(ticker: str) -> dict | None:
 
 
 # ── Life-insurer P/EV appraisal ──────────────────────────────────────────────
-# ev_per_share = embedded value ÷ shares (₹/share); roev = return on embedded value.
-# ⚠️ ILLUSTRATIVE ~FY25 figures — VERIFY against the latest EV disclosure.
+# ev_per_share = Indian Embedded Value ÷ shares (₹/share); roev = (operating)
+# return on EV. FY26 figures (year ended 31 Mar 2026) — see CHANGES_2026-07.md
+# for sources. Re-check each year when the insurers report; EV is a point-in-time
+# actuarial number sensitive to market moves.
 INSURER_EV: dict[str, dict] = {
-    "SBILIFE":    {"ev_per_share": 690.0,  "roev": 0.175},
-    "HDFCLIFE":   {"ev_per_share": 233.0,  "roev": 0.165},
-    "ICICIPRULI": {"ev_per_share": 300.0,  "roev": 0.160},
-    "LICI":       {"ev_per_share": 1100.0, "roev": 0.110},
+    "SBILIFE":    {"ev_per_share": 805.40, "roev": 0.197},   # IEV ₹80,790cr; IEV/sh disclosed; RoEV 19.7%
+    "HDFCLIFE":   {"ev_per_share": 288.8,  "roev": 0.150},   # IEV ₹62,139cr ÷ ~215.2cr sh; operating RoEV 15%
+    "ICICIPRULI": {"ev_per_share": 366.7,  "roev": 0.119},   # IEV ₹52,989cr ÷ ~144.5cr sh; RoEV 11.9%
+    # LICI intentionally OMITTED → stays LOW CONF. Its reported IEV (~₹7.9L cr)
+    # materially overstates distributable shareholder value (90:10 participating-
+    # surplus structure — most surplus accrues to policyholders), and a FY26 bonus
+    # issue muddies per-share figures. A naive P/EV would badly mislead; LIC needs a
+    # bespoke appraisal that splits shareholder vs policyholder value.
 }
 
 # Band for the justified price-to-embedded-value multiple (Indian listed life
