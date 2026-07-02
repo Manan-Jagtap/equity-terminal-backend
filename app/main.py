@@ -173,6 +173,7 @@ def _all_latest_facts(db):
 
 
 _COMPANIES_CACHE = {"ts": 0.0, "data": None}
+_FACTORS_CACHE = {"ts": 0.0, "data": None}
 
 _VERDICT_RANK = {"BUY": 5, "ACCUMULATE": 4, "HOLD": 3, "REDUCE": 2, "AVOID": 1}
 
@@ -215,6 +216,54 @@ def api_universe():
         "core": sorted(NIFTY_50 | {"FEDFINA"}),
         "next": sorted(NIFTY_NEXT_50),
     }
+
+
+@app.get("/api/factors")
+def api_factors(db: Session = Depends(get_db)):
+    """Multi-factor Alpha Score ranking of the visible universe (Nifty 100).
+
+    A transparent value / quality / momentum / low-vol / growth composite — turns
+    the universe into a ranked idea list with a factor breakdown. A research aid,
+    NOT investment advice. Cached 5 min (same as /api/companies)."""
+    from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+    from app.factors import score_universe, FACTOR_WEIGHTS
+    if _FACTORS_CACHE["data"] is not None and (time.time() - _FACTORS_CACHE["ts"]) < 300:
+        return _FACTORS_CACHE["data"]
+
+    cos = {c.id: c for c in db.query(models.Company).all()
+           if (c.ticker or "").upper() in VISIBLE_UNIVERSE}
+    vals = {}
+    try:
+        vals = {v.company_id: v for v in db.query(models.Valuation).all()}
+    except Exception:
+        db.rollback()
+    price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    closes: dict[int, list] = {}
+    for p in (db.query(models.PricePoint)
+                .order_by(models.PricePoint.company_id, models.PricePoint.t).all()):
+        closes.setdefault(p.company_id, []).append(p.close)
+
+    rows = []
+    for cid, co in cos.items():
+        v = vals.get(cid)
+        if not v:
+            continue
+        rows.append({
+            "ticker": co.ticker, "name": co.name, "sector": co.sector,
+            "price": price_by.get(cid), "mos": v.mos, "roe": v.roe, "pe": v.pe, "pb": v.pb,
+            "verdict": v.verdict, "confidence": v.confidence,
+            "closes": closes.get(cid, []),
+            "growth": v.analyst_upside,      # forward/consensus tilt as the growth proxy
+        })
+    ranked = score_universe(rows)
+    for r in ranked:
+        r.pop("closes", None)               # drop the heavy series from the payload
+    payload = {"count": len(ranked), "weights": FACTOR_WEIGHTS,
+               "note": "Transparent multi-factor ranking (value/quality/momentum/low-vol/growth). "
+                       "A research aid, not investment advice.",
+               "ideas": ranked}
+    _FACTORS_CACHE["data"], _FACTORS_CACHE["ts"] = payload, time.time()
+    return payload
 
 
 @app.get("/api/companies")
