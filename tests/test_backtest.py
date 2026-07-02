@@ -74,4 +74,31 @@ def test_aggregate_directional_win_rates_and_spread():
 def test_empty_ledger_is_valid():
     agg = aggregate([])
     assert agg["buy_avoid_spread"] is None
+    assert agg["total_buy_avoid_spread"] is None
     assert all(v["n"] == 0 for v in agg["cohorts"].values())
+
+
+def test_total_return_includes_dividends():
+    # BUY opened at 100, marked to 110 (=+10% price), through a ₹5 dividend.
+    snaps = [_snap("2026-06-01", "BUY", 100.0), _snap("2026-06-02", "BUY", 105.0)]
+    actions = [{"action_type": "dividend", "ex_date": "2026-06-05", "value": 5.0, "ratio": None}]
+    c = compress_calls(snaps, latest_price=110.0, actions=actions)[0]
+    assert abs(c["ret"] - 0.10) < 1e-12          # price-only unchanged
+    assert abs(c["div_ret"] - 0.05) < 1e-12      # ₹5 on ₹100 entry
+    assert abs(c["total_ret"] - 0.15) < 1e-12
+
+
+def test_total_return_without_actions_equals_price_return():
+    snaps = [_snap("2026-06-01", "BUY", 100.0)]
+    c = compress_calls(snaps, latest_price=120.0)[0]     # no actions arg
+    assert c["total_ret"] == c["ret"] and c["div_ret"] == 0.0
+
+
+def test_aggregate_exposes_total_return_cohort_and_spread():
+    calls = [
+        {"verdict": "BUY",   "ret": 0.10, "total_ret": 0.15, "days": 10, "open": True},
+        {"verdict": "AVOID", "ret": -0.10, "total_ret": -0.08, "days": 10, "open": True},
+    ]
+    agg = aggregate(calls)
+    assert abs(agg["cohorts"]["BUY"]["avg_total_return"] - 0.15) < 1e-12
+    assert abs(agg["total_buy_avoid_spread"] - (0.15 - (-0.08))) < 1e-12

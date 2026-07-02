@@ -293,6 +293,82 @@ def _ticker_id(stock):
     return None
 
 
+def _bonus_ratio_factor(remarks):
+    """Bonus 'in the ratio of A:B' → PRE-event price multiplier B/(A+B).
+    A new shares issued for every B held ⇒ 1 old share → (A+B)/B shares, so an
+    old close must be multiplied by B/(A+B) to sit on the post-bonus basis.
+    Returns None when no A:B ratio can be parsed (so the event is skipped, never
+    mis-scaled)."""
+    if not remarks:
+        return None
+    m = re.search(r"ratio\s+of\s+(\d+)\s*:\s*(\d+)", remarks, re.I) \
+        or re.search(r"(\d+)\s*:\s*(\d+)", remarks)
+    if not m:
+        return None
+    a, b = int(m.group(1)), int(m.group(2))
+    if a + b <= 0:
+        return None
+    return b / (a + b)
+
+
+def _corporate_actions(stock):
+    """Normalize stockCorporateActionData into
+    [{action_type, ex_date, record_date, value, ratio, raw_remarks}].
+
+    dividend → per-share `value`, ratio None.
+    split    → ratio = newFaceValue/oldFaceValue (pre-event price multiplier).
+    bonus    → ratio parsed from `remarks` (see _bonus_ratio_factor).
+    Rows lacking an ex-date or an interpretable magnitude are dropped."""
+    ca = (stock or {}).get("stockCorporateActionData") or {}
+    out = []
+    for d in (ca.get("dividend") or []):
+        v = _num(d.get("value"))
+        ex = (d.get("xdDate") or d.get("recordDate") or "")[:10]
+        if v and v > 0 and ex:
+            out.append({"action_type": "dividend", "ex_date": ex,
+                        "record_date": (d.get("recordDate") or "")[:10] or None,
+                        "value": float(v), "ratio": None,
+                        "raw_remarks": d.get("remarks")})
+    for sp in (ca.get("splits") or []):
+        old, new = _num(sp.get("oldFaceValue")), _num(sp.get("newFaceValue"))
+        ex = (sp.get("xsDate") or sp.get("recordDate") or "")[:10]
+        if old and new and old > 0 and new > 0 and ex:
+            out.append({"action_type": "split", "ex_date": ex,
+                        "record_date": (sp.get("recordDate") or "")[:10] or None,
+                        "value": None, "ratio": float(new) / float(old),
+                        "raw_remarks": sp.get("remarks")})
+    for bo in (ca.get("bonus") or []):
+        ex = (bo.get("xbDate") or bo.get("recordDate") or "")[:10]
+        factor = _bonus_ratio_factor(bo.get("remarks"))
+        if ex and factor:
+            out.append({"action_type": "bonus", "ex_date": ex,
+                        "record_date": (bo.get("recordDate") or "")[:10] or None,
+                        "value": None, "ratio": factor,
+                        "raw_remarks": bo.get("remarks")})
+    return out
+
+
+def _save_corporate_actions(s, co, stock):
+    """Purge + re-insert this company's corporate actions (idempotent). Returns
+    the number of events written. Unparseable bonus remarks are logged so a
+    silent mis-scale can never hide."""
+    rows = _corporate_actions(stock)
+    # Surface bonus rows we could not parse — better a visible gap than a wrong factor.
+    ca = (stock or {}).get("stockCorporateActionData") or {}
+    for bo in (ca.get("bonus") or []):
+        if (bo.get("xbDate") or bo.get("recordDate")) and _bonus_ratio_factor(bo.get("remarks")) is None:
+            print(f"    ⚠ unparseable bonus ratio for {co.ticker}: {bo.get('remarks')!r}")
+    s.query(models.CorporateAction).filter_by(company_id=co.id).delete(synchronize_session=False)
+    seen = set()
+    for a in rows:
+        key = (a["action_type"], a["ex_date"], a["value"])
+        if key in seen:
+            continue
+        seen.add(key)
+        s.add(models.CorporateAction(company_id=co.id, source="indianapi", **a))
+    return len(seen)
+
+
 def _analyst(stock):
     """Consensus rating + distribution from analystView / recosBar."""
     bar = (stock or {}).get("recosBar") or {}
@@ -817,6 +893,18 @@ def ingest_company(s, co, dump=False, insights=True):
     # This way a later optional stage (lender supplement, insights) that errors
     # can be rolled back WITHOUT losing the authoritative /stock data.
     s.commit()
+
+    # Corporate actions (dividends / splits / bonuses) → total-return math and
+    # the price back-adjustment engine. Isolated commit so a parse failure never
+    # touches the core statements above.
+    try:
+        nca = _save_corporate_actions(s, co, stock)
+        s.commit()
+        if nca:
+            print(f"    corporate actions → {nca} events")
+    except Exception as e:
+        s.rollback()
+        print(f"    corporate actions failed — {type(e).__name__}: {e}")
 
     # Banks/NBFCs: supplement the lender P&L (interest income/expense, NII,
     # provisions, opex) that /stock doesn't carry. STRICTLY ADDITIVE; written to

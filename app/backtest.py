@@ -21,6 +21,7 @@ from datetime import date as _date
 from statistics import median
 
 from . import models
+from . import corporate_actions as ca
 
 # Cohorts with a directional opinion. NO DATA / LOW CONF are excluded from the
 # scorecard (the model explicitly declined to call them) but still snapshotted
@@ -62,24 +63,29 @@ def take_snapshots(db) -> int:
 
 # ── Pure call-ledger math (unit-tested) ─────────────────────────────────────
 
-def compress_calls(snaps: list[dict], latest_price: float | None) -> list[dict]:
+def compress_calls(snaps: list[dict], latest_price: float | None,
+                   actions: list[dict] | None = None) -> list[dict]:
     """Compress one company's date-ascending snapshots into discrete calls.
 
     A call opens at the FIRST snapshot of a verdict run and closes at the first
     snapshot of a DIFFERENT verdict (closing price = price at the change). The
     final run stays OPEN and is marked to `latest_price`. Returns date-ordered
-    call dicts with entry/exit, return and holding days."""
+    call dicts with entry/exit, return and holding days.
+
+    `actions` (the company's CorporateAction rows as dicts) is optional: when
+    supplied, each call also carries a split/bonus- and dividend-adjusted
+    `total_ret`. Omitting it reproduces the legacy price-only behaviour exactly."""
     calls: list[dict] = []
     run_start = None
     for s in snaps:
         if run_start is None or s["verdict"] != run_start["verdict"]:
             if run_start is not None:
-                calls.append(_close(run_start, s["date"], s["price"], open_=False))
+                calls.append(_close(run_start, s["date"], s["price"], open_=False, actions=actions))
             run_start = s
     if run_start is not None:
         calls.append(_close(run_start, None,
                             latest_price if latest_price else run_start["price"],
-                            open_=True))
+                            open_=True, actions=actions))
     return calls
 
 
@@ -89,13 +95,24 @@ def _days(d0: str, d1: str | None) -> int:
     return max(0, (b - a).days)
 
 
-def _close(start: dict, end_date: str | None, end_price: float, open_: bool) -> dict:
-    ret = (end_price / start["price"] - 1) if start["price"] else None
+def _close(start: dict, end_date: str | None, end_price: float, open_: bool,
+           actions: list[dict] | None = None) -> dict:
+    sp = start["price"]
+    ret = (end_price / sp - 1) if sp else None      # raw price return (legacy)
+    # Total return = split/bonus-adjusted price move + dividends over the window.
+    # With no actions supplied it collapses to the price return, so `total_ret`
+    # is always safe to read.
+    total_ret, div_ret = ret, (0.0 if ret is not None else None)
+    if sp and actions:
+        tr = ca.total_return(start["date"], end_date, sp, end_price, actions)
+        if tr:
+            total_ret, div_ret = tr["total"], tr["dividend"]
     return {
         "ticker": start.get("ticker"), "verdict": start["verdict"],
-        "start_date": start["date"], "start_price": start["price"],
+        "start_date": start["date"], "start_price": sp,
         "end_date": end_date, "end_price": end_price,
-        "ret": ret, "days": _days(start["date"], end_date),
+        "ret": ret, "total_ret": total_ret, "div_ret": div_ret,
+        "days": _days(start["date"], end_date),
         "open": open_,
         "mos_at_call": start.get("mos"), "intrinsic_at_call": start.get("intrinsic"),
         "sector": start.get("valuation_sector"),
@@ -111,6 +128,9 @@ def aggregate(calls: list[dict]) -> dict:
     for v in ACTIONABLE:
         rows = [c for c in calls if c["verdict"] == v and c["ret"] is not None]
         rets = [c["ret"] for c in rows]
+        # total_ret falls back to ret when a call predates the corporate-action
+        # wiring (or none applied), so the total cohort is always populated.
+        trets = [c["total_ret"] if c.get("total_ret") is not None else c["ret"] for c in rows]
         if v in ("BUY", "ACCUMULATE"):
             wins = sum(1 for r in rets if r > 0)
         elif v in ("REDUCE", "AVOID"):
@@ -122,21 +142,56 @@ def aggregate(calls: list[dict]) -> dict:
             "open": sum(1 for c in rows if c["open"]),
             "avg_return": sum(rets) / len(rets) if rets else None,
             "median_return": median(rets) if rets else None,
+            "avg_total_return": sum(trets) / len(trets) if trets else None,
+            "median_total_return": median(trets) if trets else None,
             "win_rate": (wins / len(rets)) if (wins is not None and rets) else None,
             "avg_days": sum(c["days"] for c in rows) / len(rows) if rows else None,
         }
     b, a = cohorts["BUY"]["avg_return"], cohorts["AVOID"]["avg_return"]
+    tb, ta = cohorts["BUY"]["avg_total_return"], cohorts["AVOID"]["avg_total_return"]
     return {"cohorts": cohorts,
-            "buy_avoid_spread": (b - a) if (b is not None and a is not None) else None}
+            "buy_avoid_spread": (b - a) if (b is not None and a is not None) else None,
+            "total_buy_avoid_spread": (tb - ta) if (tb is not None and ta is not None) else None}
 
 
 # ── Full computation over the DB ─────────────────────────────────────────────
+
+def _actions_by_company(db) -> dict[int, list[dict]]:
+    out: dict[int, list[dict]] = {}
+    for a in db.query(models.CorporateAction).all():
+        out.setdefault(a.company_id, []).append(
+            {"action_type": a.action_type, "ex_date": a.ex_date,
+             "value": a.value, "ratio": a.ratio})
+    return out
+
+
+def _universe_benchmark(by_co, price_by, actions_by) -> dict | None:
+    """Equal-weight total return of the WHOLE tracked universe from each name's
+    first snapshot to today — the honest 'what if you just owned everything we
+    track' comparator for the BUY cohort. NOT the NSE NIFTY-TRI series (that
+    needs a vendor feed); labelled as such so it is never misread."""
+    rets = []
+    for cid, rows in by_co.items():
+        if not rows:
+            continue
+        first, last_price = rows[0], price_by.get(cid)
+        if not last_price:
+            continue
+        tr = ca.total_return(first["date"], None, first["price"], last_price, actions_by.get(cid))
+        if tr:
+            rets.append(tr["total"])
+    if not rets:
+        return None
+    return {"total_return": sum(rets) / len(rets), "n": len(rets),
+            "basis": "equal-weight tracked universe, first snapshot → today, incl. dividends"}
+
 
 def compute_backtest(db) -> dict:
     snaps = (db.query(models.VerdictSnapshot)
                .order_by(models.VerdictSnapshot.company_id,
                          models.VerdictSnapshot.date).all())
     price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    actions_by = _actions_by_company(db)
 
     by_co: dict[int, list[dict]] = {}
     for s in snaps:
@@ -148,7 +203,7 @@ def compute_backtest(db) -> dict:
 
     all_calls: list[dict] = []
     for cid, rows in by_co.items():
-        all_calls += compress_calls(rows, price_by.get(cid))
+        all_calls += compress_calls(rows, price_by.get(cid), actions_by.get(cid))
 
     scored = [c for c in all_calls if c["verdict"] in ACTIONABLE]
     agg = aggregate(scored)
@@ -160,6 +215,7 @@ def compute_backtest(db) -> dict:
         "companies_tracked": len(by_co),
         "total_calls": len(scored),
         "excluded_no_call": sum(1 for c in all_calls if c["verdict"] not in ACTIONABLE),
+        "benchmark": _universe_benchmark(by_co, price_by, actions_by),
         **agg,
         # Per-call ledger, newest first, worst-kept-in: full transparency.
         "calls": sorted(scored, key=lambda c: (c["start_date"], c["ticker"] or ""),

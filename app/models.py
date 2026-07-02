@@ -288,3 +288,36 @@ class QuarterlyDocument(Base):
     fetched_at = Column(DateTime, default=func.now(), nullable=False)
 
     company = relationship("Company", backref="quarterly_documents")
+
+
+class CorporateAction(Base):
+    """Dividends / splits / bonuses per company — the raw ledger behind
+    total-return math (dividends) and the price back-adjustment engine
+    (splits/bonuses). Parsed from IndianAPI `stockCorporateActionData` by the
+    ingester; purged + re-inserted per company each refresh (idempotent).
+
+    action_type : "dividend" | "split" | "bonus"
+    ex_date     : "YYYY-MM-DD" — dividend xd-date / split xs-date / bonus xb-date
+    value       : ₹/share cash dividend (None for split/bonus)
+    ratio       : PRE-event price multiplier for split/bonus — multiply every
+                  close STRICTLY BEFORE ex_date by this to put the series on the
+                  current per-share basis. Split FV 2→1 ⇒ 0.5; bonus 4:1 ⇒ 0.2.
+                  (None for dividends.)
+
+    Additive table — auto-creates via Base.metadata.create_all; never ALTERs an
+    existing table. NULL `value` on split/bonus rows is intentional; the ingester
+    purges + de-dupes before insert so the unique constraint is only a safety net.
+    """
+    __tablename__ = "corporate_actions"
+    id          = Column(Integer, primary_key=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    action_type = Column(String(12), nullable=False)          # dividend | split | bonus
+    ex_date     = Column(String(10), nullable=True, index=True)  # "YYYY-MM-DD"
+    record_date = Column(String(10), nullable=True)
+    value       = Column(Float, nullable=True)                # ₹/share (dividends)
+    ratio       = Column(Float, nullable=True)                # pre-event price multiplier (split/bonus)
+    raw_remarks = Column(String, nullable=True)
+    source      = Column(String, default="indianapi")
+    company     = relationship("Company")
+    __table_args__ = (UniqueConstraint("company_id", "action_type", "ex_date", "value",
+                                       name="uq_corp_action"),)

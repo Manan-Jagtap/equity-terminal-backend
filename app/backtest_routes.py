@@ -26,7 +26,8 @@ def backtest(db: Session = Depends(get_db)):
         # deploy — return an empty-but-valid shape instead of a 500.
         return {"as_of": None, "tracking_since": None, "snapshot_days": 0,
                 "companies_tracked": 0, "total_calls": 0, "excluded_no_call": 0,
-                "cohorts": {}, "buy_avoid_spread": None, "calls": []}
+                "cohorts": {}, "buy_avoid_spread": None,
+                "total_buy_avoid_spread": None, "benchmark": None, "calls": []}
 
 
 @router.post("/backtest/snapshot")

@@ -10,8 +10,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
+from app.corporate_actions import adjust_price_series
 
 router = APIRouter(prefix="/api/companies")
+
+
+def _actions_for(db: Session, company_id: int) -> list[dict]:
+    """CorporateAction rows for a company as plain dicts (the shape
+    app.corporate_actions expects)."""
+    rows = db.query(models.CorporateAction).filter_by(company_id=company_id).all()
+    return [{"action_type": a.action_type, "ex_date": a.ex_date,
+             "value": a.value, "ratio": a.ratio} for a in rows]
 
 
 def _pe_band(pe_history):
@@ -45,31 +54,42 @@ def _latest_facts(db: Session, company_id: int) -> dict:
 
 @router.get("/{ticker}/history")
 def price_history(ticker: str, db: Session = Depends(get_db)):
-    """5 years of daily OHLCV prices."""
+    """5 years of daily OHLCV prices, back-adjusted for splits & bonuses.
+
+    Raw closes are stored as-reported; the split/bonus back-adjustment is applied
+    on read (app.corporate_actions.adjust_price_series) so the line is continuous
+    across corporate actions instead of showing a fake 50%/80% cliff. Dividends
+    are NOT applied to the price line (they belong in total-return math)."""
     co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
     if not co:
         raise HTTPException(404, f"Unknown ticker {ticker}")
 
-    # Prefer 5yr historical prices
+    actions = _actions_for(db, co.id)
+    has_sb = any(a["action_type"] in ("split", "bonus") and a.get("ratio") for a in actions)
+
+    # Prefer 5yr historical prices (dated → adjustable)
     hist = (db.query(models.HistoricalPrice)
               .filter_by(company_id=co.id)
               .order_by(models.HistoricalPrice.date)
               .all())
 
     if hist:
+        raw = [{"date": p.date, "open": p.open, "high": p.high, "low": p.low,
+                "close": p.close, "volume": p.volume} for p in hist]
         return {
             "ticker": co.ticker,
             "source": "historical_prices",
-            "count": len(hist),
-            "data": [{"date":p.date,"open":p.open,"high":p.high,"low":p.low,"close":p.close,"volume":p.volume}
-                     for p in hist],
+            "adjusted": has_sb,
+            "count": len(raw),
+            "data": adjust_price_series(raw, actions),
         }
 
-    # Fallback to 1yr PricePoint
+    # Fallback to 1yr PricePoint (index-based, no dates → cannot back-adjust)
     pts = sorted(co.prices, key=lambda x: x.t)
     return {
         "ticker": co.ticker,
         "source": "price_points",
+        "adjusted": False,
         "count": len(pts),
         "data": [{"date": None, "open": None, "high": None, "low": None,
                   "close": p.close, "volume": None} for p in pts],
