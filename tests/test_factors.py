@@ -3,7 +3,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/_pytest_terminal.db")
 
-from app.factors import _pct_ranks, trailing_return, realized_vol, score_universe
+from app.factors import _pct_ranks, trailing_return, realized_vol, score_universe, portfolio_xray
 
 
 def test_pct_ranks_direction():
@@ -38,7 +38,7 @@ def test_score_universe_ranks_dominant_name_first():
     out = score_universe(rows)
     assert out[0]["ticker"] == "A" and out[0]["rank"] == 1
     assert out[0]["alpha_score"] >= out[1]["alpha_score"]
-    assert set(out[0]["factors"]) == {"value", "quality", "momentum", "low_vol", "growth"}
+    assert set(out[0]["factors"]) == {"value", "quality", "momentum", "low_vol", "growth", "catalyst"}
 
 
 def test_score_universe_handles_missing_factors():
@@ -48,3 +48,48 @@ def test_score_universe_handles_missing_factors():
     out = score_universe(rows)
     assert all(r["alpha_score"] is not None for r in out)
     assert all(r["factors"]["momentum"] is None for r in out)   # no price history
+
+
+def test_catalyst_factor_participates_when_present():
+    # Isolate catalyst: all other factor inputs absent (None) so only the
+    # revision signal drives the score (avoids arbitrary tie-splitting).
+    rows = [
+        {"ticker": "A", "mos": None, "roe": None, "pe": None, "pb": None, "closes": [], "growth": None, "catalyst": 0.30},
+        {"ticker": "B", "mos": None, "roe": None, "pe": None, "pb": None, "closes": [], "growth": None, "catalyst": -0.10},
+    ]
+    m = {r["ticker"]: r for r in score_universe(rows)}
+    assert m["A"]["factors"]["catalyst"] == 100.0 and m["B"]["factors"]["catalyst"] == 0.0
+    assert m["A"]["alpha_score"] > m["B"]["alpha_score"]        # upgraded name ranks higher
+
+
+def test_catalyst_none_degrades_gracefully():
+    rows = [{"ticker": "X", "mos": 0.2, "roe": 0.2, "pe": 20, "pb": 4, "closes": [], "catalyst": None}]
+    out = score_universe(rows)
+    assert out[0]["factors"]["catalyst"] is None and out[0]["alpha_score"] is not None
+
+
+def test_portfolio_xray_weights_sizing_and_aggregates():
+    items = [
+        {"ticker": "A", "sector": "IT",   "value": 6000, "alpha_score": 80,
+         "factors": {"value": 70, "quality": 80, "momentum": 60, "low_vol": 50, "growth": 40, "catalyst": None}, "volatility": 0.20},
+        {"ticker": "B", "sector": "IT",   "value": 3000, "alpha_score": 30,
+         "factors": {"value": 40, "quality": 30, "momentum": 50, "low_vol": 40, "growth": 20, "catalyst": None}, "volatility": 0.40},
+        {"ticker": "C", "sector": "Bank", "value": 1000, "alpha_score": 55,
+         "factors": {"value": 60, "quality": 50, "momentum": 45, "low_vol": 55, "growth": 30, "catalyst": None}, "volatility": 0.25},
+    ]
+    x = portfolio_xray(items)
+    assert abs(items[0]["weight"] - 0.6) < 1e-9                 # actual weight
+    # inverse-vol: low-vol A gets more than high-vol B; suggested weights sum to 1
+    assert items[0]["suggested_weight"] > items[1]["suggested_weight"]
+    assert abs(sum(i["suggested_weight"] for i in items) - 1.0) < 1e-9
+    assert any("Over" in f for f in items[0]["flags"])          # A is 60% of book
+    assert "Low Alpha" in items[1]["flags"]                     # B alpha 30 < 40
+    assert x["n"] == 3 and x["weighted_alpha"] is not None
+    top = x["sector_concentration"][0]
+    assert top["sector"] == "IT" and abs(top["weight"] - 0.9) < 1e-9
+    assert x["hhi"] is not None
+
+
+def test_portfolio_xray_empty():
+    x = portfolio_xray([])
+    assert x["n"] == 0 and x["total_value"] == 0 and x["weighted_alpha"] is None

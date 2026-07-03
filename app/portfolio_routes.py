@@ -135,6 +135,38 @@ def list_portfolio(user: models.User = Depends(get_current_user),
     return {"items": items, "totals": totals}
 
 
+@router.get("/xray")
+def portfolio_xray_route(user: models.User = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    """Factor / risk X-ray of the book + inverse-vol position-sizing suggestions.
+    Each holding is scored against the WHOLE universe (not just the portfolio),
+    so its Alpha/factors are its market-relative percentiles. A sizing aid, not
+    investment advice."""
+    from app.signals import ranked_visible
+    from app.factors import portfolio_xray
+    uk = f"u{user.id}"
+    holdings = (db.query(models.PortfolioHolding)
+                  .filter_by(user_key=uk).join(models.Company)
+                  .order_by(models.Company.ticker).all())
+    price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    ranked = {(r["ticker"] or "").upper(): r for r in ranked_visible(db)}
+    items = []
+    for h in holdings:
+        co = h.company
+        r = ranked.get((co.ticker or "").upper()) or {}
+        price = price_by.get(h.company_id)
+        items.append({
+            "ticker": co.ticker, "name": co.name, "sector": co.sector,
+            "qty": h.qty or 0.0, "price": price,
+            "value": ((h.qty or 0.0) * price) if price else None,
+            "alpha_score": r.get("alpha_score"), "rank": r.get("rank"),
+            "factors": r.get("factors"), "volatility": r.get("volatility"),
+            "verdict": r.get("verdict"),
+        })
+    xray = portfolio_xray(items)
+    return {"items": items, "xray": xray}
+
+
 @router.post("")
 def upsert_holding(body: HoldingUpsert, user: models.User = Depends(get_current_user),
                    db: Session = Depends(get_db)):

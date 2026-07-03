@@ -334,3 +334,43 @@ class ApiUsage(Base):
     month   = Column(String(7), unique=True, nullable=False, index=True)   # "YYYY-MM"
     calls   = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class AlphaSnapshot(Base):
+    """Daily record of each name's multi-factor Alpha Score + rank — the raw
+    ledger behind a future public 'factor track record' (does the top-Alpha
+    decile actually out-perform?). Written by the scheduler after the daily
+    recompute. History cannot be backfilled, so we start capturing now. One row
+    per (company, date). Additive table."""
+    __tablename__ = "alpha_snapshots"
+    id          = Column(Integer, primary_key=True)
+    company_id  = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    ticker      = Column(String(24), nullable=False, index=True)
+    date        = Column(String(10), nullable=False, index=True)   # "YYYY-MM-DD"
+    price       = Column(Float, nullable=True)
+    alpha_score = Column(Float, nullable=True)
+    rank        = Column(Integer, nullable=True)
+    value       = Column(Float, nullable=True)
+    quality     = Column(Float, nullable=True)
+    momentum    = Column(Float, nullable=True)
+    low_vol     = Column(Float, nullable=True)
+    growth      = Column(Float, nullable=True)
+    catalyst    = Column(Float, nullable=True)
+    __table_args__ = (UniqueConstraint("company_id", "date", name="uq_alpha_company_date"),)
+
+
+class ConsensusSnapshot(Base):
+    """Daily record of analyst consensus (target / implied upside / rating) per
+    company — the raw ledger behind estimate-REVISION signals (upgrades precede
+    price drift). Can't be backfilled, so capture starts now. One row per
+    (company, date). Additive table."""
+    __tablename__ = "consensus_snapshots"
+    id           = Column(Integer, primary_key=True)
+    company_id   = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    ticker       = Column(String(24), nullable=False, index=True)
+    date         = Column(String(10), nullable=False, index=True)   # "YYYY-MM-DD"
+    target       = Column(Float, nullable=True)
+    upside       = Column(Float, nullable=True)
+    rating       = Column(String, nullable=True)
+    num_analysts = Column(Float, nullable=True)
+    __table_args__ = (UniqueConstraint("company_id", "date", name="uq_consensus_company_date"),)

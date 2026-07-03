@@ -1,0 +1,127 @@
+"""
+app/signals.py — DB assembly + daily capture for the factor / signal layer.
+
+Centralizes: the input-row assembly the Alpha Score (factors.score_universe)
+needs, the estimate-revision "catalyst" signal computed from ConsensusSnapshot
+history, and the daily snapshot writers that start the factor track record
+(AlphaSnapshot) and the consensus-revision history (ConsensusSnapshot). Neither
+history can be backfilled, so capture begins the day this ships.
+
+Backend-only; nothing here touches the parity-tested valuation engine.
+"""
+from __future__ import annotations
+from datetime import date as _date
+
+from . import models
+from .factors import score_universe
+
+
+def catalyst_by(db, min_points: int = 2) -> dict:
+    """Per-ticker estimate-revision momentum: change in analyst-implied upside
+    (fallback: target %) between the earliest and latest consensus snapshot we
+    hold. Positive = upgraded. Empty until ≥2 snapshots exist, so the catalyst
+    factor simply doesn't participate yet."""
+    rows = (db.query(models.ConsensusSnapshot)
+              .order_by(models.ConsensusSnapshot.ticker, models.ConsensusSnapshot.date).all())
+    hist: dict[str, list] = {}
+    for r in rows:
+        hist.setdefault(r.ticker, []).append(r)
+    out = {}
+    for tk, h in hist.items():
+        if len(h) < min_points:
+            continue
+        latest, prior = h[-1], h[0]
+        if latest.upside is not None and prior.upside is not None:
+            out[tk] = latest.upside - prior.upside
+        elif latest.target and prior.target:
+            out[tk] = latest.target / prior.target - 1.0
+    return out
+
+
+def assemble_factor_rows(db, tickers) -> list[dict]:
+    """Build score_universe input rows for `tickers` from precomputed valuations
+    + 1-yr price series + consensus revision. No API calls."""
+    tset = {(t or "").upper() for t in tickers}
+    cos = {c.id: c for c in db.query(models.Company).all() if (c.ticker or "").upper() in tset}
+    vals = {}
+    try:
+        vals = {v.company_id: v for v in db.query(models.Valuation).all()}
+    except Exception:
+        db.rollback()
+    price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    closes: dict[int, list] = {}
+    for p in (db.query(models.PricePoint)
+                .order_by(models.PricePoint.company_id, models.PricePoint.t).all()):
+        closes.setdefault(p.company_id, []).append(p.close)
+    cat = catalyst_by(db)
+    rows = []
+    for cid, co in cos.items():
+        v = vals.get(cid)
+        if not v:
+            continue
+        rows.append({
+            "ticker": co.ticker, "name": co.name, "sector": co.sector,
+            "price": price_by.get(cid), "mos": v.mos, "roe": v.roe, "pe": v.pe, "pb": v.pb,
+            "verdict": v.verdict, "confidence": v.confidence,
+            "closes": closes.get(cid, []),
+            "growth": v.analyst_upside,
+            "catalyst": cat.get((co.ticker or "").upper()),
+        })
+    return rows
+
+
+def ranked_visible(db) -> list[dict]:
+    """Alpha-ranked visible universe with the heavy price series stripped."""
+    from .ingest.indianapi_ingester import VISIBLE_UNIVERSE
+    ranked = score_universe(assemble_factor_rows(db, VISIBLE_UNIVERSE))
+    for r in ranked:
+        r.pop("closes", None)
+    return ranked
+
+
+def snapshot_alpha(db) -> int:
+    """Write today's AlphaSnapshot for the visible universe (idempotent/day)."""
+    today = _date.today().isoformat()
+    ranked = ranked_visible(db)
+    tk_to_cid = {(c.ticker or "").upper(): c.id for c in db.query(models.Company).all()}
+    existing = {s.company_id for s in db.query(models.AlphaSnapshot).filter_by(date=today).all()}
+    n = 0
+    for r in ranked:
+        cid = tk_to_cid.get((r["ticker"] or "").upper())
+        if not cid or cid in existing:
+            continue
+        f = r.get("factors") or {}
+        db.add(models.AlphaSnapshot(
+            company_id=cid, ticker=r["ticker"], date=today, price=r.get("price"),
+            alpha_score=r.get("alpha_score"), rank=r.get("rank"),
+            value=f.get("value"), quality=f.get("quality"), momentum=f.get("momentum"),
+            low_vol=f.get("low_vol"), growth=f.get("growth"), catalyst=f.get("catalyst")))
+        n += 1
+    db.commit()
+    return n
+
+
+def snapshot_consensus(db) -> int:
+    """Write today's ConsensusSnapshot from the precomputed valuations' analyst
+    fields (idempotent/day)."""
+    today = _date.today().isoformat()
+    existing = {s.company_id for s in db.query(models.ConsensusSnapshot).filter_by(date=today).all()}
+    cos = {c.id: c for c in db.query(models.Company).all()}
+    try:
+        vals = db.query(models.Valuation).all()
+    except Exception:
+        db.rollback()
+        return 0
+    n = 0
+    for v in vals:
+        if v.company_id in existing or v.company_id not in cos:
+            continue
+        if v.analyst_target is None and v.analyst_upside is None:
+            continue
+        db.add(models.ConsensusSnapshot(
+            company_id=v.company_id, ticker=(cos[v.company_id].ticker or "").upper(),
+            date=today, target=v.analyst_target, upside=v.analyst_upside,
+            rating=v.analyst_rating))
+        n += 1
+    db.commit()
+    return n

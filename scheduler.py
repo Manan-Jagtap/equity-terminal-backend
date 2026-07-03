@@ -53,6 +53,26 @@ def snapshot_verdicts():
         log.error(f"Verdict snapshot failed: {type(e).__name__}: {e}")
 
 
+def snapshot_signals():
+    """Append today's Alpha-Score ranking + analyst-consensus rows to their
+    ledgers — the factor track record and estimate-revision history (neither can
+    be backfilled). Pure local write, idempotent per (company, date)."""
+    try:
+        from app import models, signals
+        from app.database import SessionLocal, engine
+        models.AlphaSnapshot.__table__.create(bind=engine, checkfirst=True)
+        models.ConsensusSnapshot.__table__.create(bind=engine, checkfirst=True)
+        s = SessionLocal()
+        try:
+            na = signals.snapshot_alpha(s)
+            nc = signals.snapshot_consensus(s)
+            log.info(f"Signals: snapshotted {na} alpha + {nc} consensus rows.")
+        finally:
+            s.close()
+    except Exception as e:
+        log.error(f"Signal snapshot failed: {type(e).__name__}: {e}")
+
+
 def run_compute(nifty50=False, visible=False):
     """Recompute the blended valuations (no external API — pure local computation
     from the data already in the DB). Cheap; safe to run after every refresh so
@@ -75,6 +95,7 @@ def run_prices():
         indianapi_run(price_only=True, visible=True)
         run_compute(visible=True)   # refresh MoS/verdict against the new prices
         snapshot_verdicts()         # append today's calls to the track record
+        snapshot_signals()          # alpha + consensus ledgers (factor track record)
         log.info("Price refresh complete.")
     except Exception as e:
         log.error(f"Price refresh failed: {e}")
@@ -302,6 +323,7 @@ else:
         run_compute()
         log.info("Boot recompute complete.")
         snapshot_verdicts()    # day-0 (and post-deploy) track-record entries
+        snapshot_signals()     # day-0 alpha + consensus ledgers
 
 while True:
     schedule.run_pending()

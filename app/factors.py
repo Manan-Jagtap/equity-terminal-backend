@@ -19,8 +19,13 @@ returns. Pure ranking math here; the route layer assembles inputs from the DB
 from __future__ import annotations
 from statistics import pstdev
 
-# Evidence-weighted default blend (sums to 1.0). One place to tune the strategy.
-FACTOR_WEIGHTS = {"quality": 0.25, "momentum": 0.25, "value": 0.20, "low_vol": 0.20, "growth": 0.10}
+# Evidence-weighted default blend. The five core factors sum to 1.0; `catalyst`
+# (estimate-revision momentum) is layered on at 0.12 and only participates once
+# consensus history has accrued — until then it's None and the score re-normalizes
+# over the five core factors, i.e. exactly the original behaviour. One place to
+# tune the strategy.
+FACTOR_WEIGHTS = {"quality": 0.25, "momentum": 0.25, "value": 0.20, "low_vol": 0.20,
+                  "growth": 0.10, "catalyst": 0.12}
 
 
 def _pct_ranks(items, higher_is_better: bool = True) -> dict:
@@ -75,6 +80,7 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
     r_mom = _pct_ranks(mom.items())
     r_vol = _pct_ranks(vol.items(), higher_is_better=False)   # low vol ranks high
     r_grw = _pct_ranks([(r["ticker"], r.get("growth")) for r in rows])
+    r_cat = _pct_ranks([(r["ticker"], r.get("catalyst")) for r in rows])   # revision momentum
 
     def blend(*ranks):
         vals = [x for x in ranks if x is not None]
@@ -89,6 +95,7 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
             "momentum": r_mom.get(tk),
             "low_vol":  r_vol.get(tk),
             "growth":   r_grw.get(tk),
+            "catalyst": r_cat.get(tk),
         }
         num = den = 0.0
         for k, wt in w.items():
@@ -106,3 +113,62 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
     for i, r in enumerate(out, 1):
         r["rank"] = i
     return out
+
+
+def portfolio_xray(items, cap: float = 0.25, low_alpha: float = 40.0) -> dict:
+    """Portfolio-level factor/risk X-ray + position-sizing suggestions.
+
+    items: [{ticker, sector, value, alpha_score, factors:{...}, volatility, verdict}].
+    MUTATES each item to add `weight` (actual = value/total), `suggested_weight`
+    (inverse-volatility target, capped at `cap` and renormalized), and `flags`.
+    Returns portfolio aggregates: value-weighted Alpha & factor exposures, a
+    weighted volatility proxy, sector concentration (+ HHI), and the top weight.
+    Pure math — no DB. This is a research/sizing aid, not investment advice."""
+    priced = [i for i in items if i.get("value")]
+    total = sum(i["value"] for i in priced)
+
+    # Inverse-volatility target weights (risk parity, summing to 1). The `cap` is
+    # applied as a concentration FLAG, not as a hard constraint on the weights —
+    # a small book can't sum to 1 under a tight cap, so forcing it there is
+    # misleading. The flag tells the user where they're over-concentrated.
+    inv = {i["ticker"]: (1.0 / i["volatility"]) for i in priced
+           if i.get("volatility") and i["volatility"] > 0}
+    s = sum(inv.values())
+    sug = {t: inv[t] / s for t in inv} if s else {}
+
+    for i in items:
+        i["weight"] = (i["value"] / total) if (total and i.get("value")) else None
+        i["suggested_weight"] = sug.get(i["ticker"])
+        flags = []
+        if i.get("weight") is not None and i["weight"] > cap:
+            flags.append(f"Over {int(cap*100)}% — concentration risk")
+        if i.get("alpha_score") is not None and i["alpha_score"] < low_alpha:
+            flags.append("Low Alpha")
+        i["flags"] = flags
+
+    def wavg(key, in_factors=False):
+        num = den = 0.0
+        for i in priced:
+            v = (i.get("factors") or {}).get(key) if in_factors else i.get(key)
+            if v is not None:
+                num += i["value"] * v
+                den += i["value"]
+        return (num / den) if den else None
+
+    sect = {}
+    for i in priced:
+        s = i.get("sector") or "—"
+        sect[s] = sect.get(s, 0.0) + i["value"]
+    sector_conc = (sorted(({"sector": s, "weight": v / total} for s, v in sect.items()),
+                          key=lambda x: -x["weight"]) if total else [])
+
+    return {
+        "total_value": total, "n": len(priced),
+        "weighted_alpha": wavg("alpha_score"),
+        "factor_exposure": {k: wavg(k, in_factors=True)
+                            for k in ("value", "quality", "momentum", "low_vol", "growth", "catalyst")},
+        "est_volatility": wavg("volatility"),
+        "top_weight": max((i["weight"] for i in priced if i.get("weight")), default=None),
+        "sector_concentration": sector_conc,
+        "hhi": round(sum(x["weight"] ** 2 for x in sector_conc), 3) if sector_conc else None,
+    }
