@@ -374,3 +374,18 @@ class ConsensusSnapshot(Base):
     rating       = Column(String, nullable=True)
     num_analysts = Column(Float, nullable=True)
     __table_args__ = (UniqueConstraint("company_id", "date", name="uq_consensus_company_date"),)
+
+
+class SavedScenario(Base):
+    """A user's saved DCF slider state for a company — persist your what-if work
+    and reload it later (the collaboration primitive proper terminals sell).
+    Scoped by user_key like watchlist/portfolio; `data` is the assumptions dict.
+    Additive table."""
+    __tablename__ = "saved_scenarios"
+    id         = Column(Integer, primary_key=True)
+    user_key   = Column(String(64), nullable=False, index=True)
+    ticker     = Column(String(24), nullable=False, index=True)
+    name       = Column(String(120), nullable=False)
+    data       = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, server_default=func.now())
+    __table_args__ = (UniqueConstraint("user_key", "ticker", "name", name="uq_scenario"),)

@@ -55,6 +55,8 @@ from app.export_routes import router as export_router
 app.include_router(export_router)
 from app.portfolio_routes import router as portfolio_router
 app.include_router(portfolio_router)
+from app.scenario_routes import router as scenario_router
+app.include_router(scenario_router)
 from app.documents_routes import router as documents_router
 app.include_router(documents_router)
 from app.thesis_routes import router as thesis_router
