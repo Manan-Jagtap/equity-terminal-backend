@@ -95,3 +95,29 @@ if __name__ == "__main__":
     for fn in fns:
         fn()
     print(f"\nAll {len(fns)} watchlist-alert tests passed.")
+
+
+def test_alpha_top_decile_alert_fires():
+    out = compute_alerts({}, {"alpha_score": 82, "alpha_top": True})
+    assert any(a["type"] == "alpha" and a["level"] == "good" for a in out)
+
+
+def test_alpha_not_top_no_alert():
+    out = compute_alerts({}, {"alpha_score": 82, "alpha_top": False})
+    assert not any(a["type"] == "alpha" for a in out)
+
+
+def test_estimate_revision_upgrade_alert():
+    out = compute_alerts({}, {"revision": 0.05})
+    assert any(a["type"] == "revision" and a["level"] == "good" for a in out)
+
+
+def test_small_or_negative_revision_no_alert():
+    assert not any(a["type"] == "revision" for a in compute_alerts({}, {"revision": 0.005}))
+    assert not any(a["type"] == "revision" for a in compute_alerts({}, {"revision": -0.1}))
+
+
+def test_signal_alerts_are_config_free():
+    # Alpha/revision alerts fire with an empty cfg (always-on, no schema change).
+    out = compute_alerts({}, {"alpha_score": 90, "alpha_top": True, "revision": 0.04})
+    assert types(out) >= {"alpha", "revision"}

@@ -22,6 +22,26 @@ from app.watchlist_alerts import compute_alerts
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 
+
+def _alpha_revisions(db: Session):
+    """Universe Alpha ranking (→ {ticker: {alpha_score, top}}) + estimate-revision
+    map (→ {ticker: upside change}). Computed once per watchlist read so alerts
+    can fire on 'top Alpha decile' and 'estimate upgrade'. Degrades to empty on
+    any error so the core watchlist never breaks."""
+    try:
+        from app.signals import ranked_visible, catalyst_by
+        ranked = ranked_visible(db)
+        n = len(ranked)
+        cut = max(1, round(n * 0.10))
+        alpha_by = {(r["ticker"] or "").upper():
+                    {"alpha_score": r.get("alpha_score"),
+                     "top": (r.get("rank") is not None and r["rank"] <= cut)}
+                    for r in ranked}
+        return alpha_by, catalyst_by(db)
+    except Exception:
+        db.rollback()
+        return {}, {}
+
 _NORMALIZE_VERDICT = {"ACCUMULATE": "ACCUMULATE", "BUY": "BUY", "HOLD": "HOLD",
                       "REDUCE": "REDUCE", "AVOID": "AVOID", "LOW CONF": "LOW CONF",
                       "NO DATA": "NO DATA"}
@@ -53,7 +73,7 @@ def _day_move(db: Session, company_id: int):
     return None
 
 
-def _enrich(db: Session, item: models.WatchlistItem):
+def _enrich(db: Session, item: models.WatchlistItem, alpha_by=None, rev_by=None):
     co = item.company
     price = (co.market.price if co.market else None)
     v = None
@@ -65,11 +85,16 @@ def _enrich(db: Session, item: models.WatchlistItem):
     mos = v.mos if v else None
     move = _day_move(db, co.id)
 
+    tk = (co.ticker or "").upper()
+    a = (alpha_by or {}).get(tk) or {}
+    revision = (rev_by or {}).get(tk)
+
     cfg = {"alert_verdict": bool(item.alert_verdict), "alert_mos": bool(item.alert_mos),
            "alert_target": bool(item.alert_target), "alert_move": bool(item.alert_move),
            "mos_threshold": item.mos_threshold, "move_threshold": item.move_threshold,
            "target_price": item.target_price, "last_verdict": item.last_verdict}
-    cur = {"verdict": verdict, "mos": mos, "price": price, "day_move": move}
+    cur = {"verdict": verdict, "mos": mos, "price": price, "day_move": move,
+           "alpha_score": a.get("alpha_score"), "alpha_top": a.get("top"), "revision": revision}
     alerts = compute_alerts(cfg, cur)
 
     # Persist transition state so the next read can detect verdict/price changes.
@@ -89,6 +114,7 @@ def _enrich(db: Session, item: models.WatchlistItem):
         "analyst_target": (v.analyst_target if v else None),
         "analyst_upside": (v.analyst_upside if v else None),
         "pe": (v.pe if v else None), "pb": (v.pb if v else None), "roe": (v.roe if v else None),
+        "alpha_score": a.get("alpha_score"), "revision": revision,
         # config
         "target_price": item.target_price, "mos_threshold": item.mos_threshold,
         "move_threshold": item.move_threshold, "note": item.note,
@@ -107,7 +133,8 @@ def list_watchlist(user: models.User = Depends(get_current_user),
     items = (db.query(models.WatchlistItem)
                .filter_by(user_key=uk)
                .join(models.Company).order_by(models.Company.ticker).all())
-    out = [_enrich(db, it) for it in items]
+    alpha_by, rev_by = _alpha_revisions(db) if items else ({}, {})
+    out = [_enrich(db, it, alpha_by, rev_by) for it in items]
     db.commit()   # persist refreshed last_verdict/last_price
     # Most-actionable first: triggered names on top, then by margin of safety.
     out.sort(key=lambda r: (r["triggered"], r["mos"] if r["mos"] is not None else -9), reverse=True)
@@ -138,7 +165,8 @@ def upsert_watchlist(body: WatchUpsert, user: models.User = Depends(get_current_
             setattr(item, field, 1 if val else 0)
     db.commit()
     db.refresh(item)
-    result = _enrich(db, item)
+    alpha_by, rev_by = _alpha_revisions(db)
+    result = _enrich(db, item, alpha_by, rev_by)
     db.commit()   # persist the refreshed transition state from _enrich
     return result
 

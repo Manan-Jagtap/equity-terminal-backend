@@ -74,4 +74,17 @@ def compute_alerts(cfg: dict, cur: dict) -> list[dict]:
                     "level": "good" if day_move < 0 else "info",
                     "message": f"Moved {day_move*100:+.1f}% in a day — large dislocation"})
 
+    # ── Model-signal alerts (always on — no per-name config, so no schema change).
+    # Multi-factor Alpha Score entered the top decile of the universe.
+    alpha = _num(cur.get("alpha_score"))
+    if cur.get("alpha_top") and alpha is not None:
+        out.append({"type": "alpha", "level": "good",
+                    "message": f"Top Alpha decile — multi-factor score {alpha:.0f}"})
+
+    # Consensus estimate revised UP since tracking began (a positive catalyst).
+    rev = _num(cur.get("revision"))
+    if rev is not None and rev >= 0.02:
+        out.append({"type": "revision", "level": "good",
+                    "message": f"Consensus upside revised +{rev*100:.0f} pts — estimate upgrade"})
+
     return out
