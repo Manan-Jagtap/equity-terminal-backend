@@ -172,3 +172,53 @@ def portfolio_xray(items, cap: float = 0.25, low_alpha: float = 40.0) -> dict:
         "sector_concentration": sector_conc,
         "hhi": round(sum(x["weight"] ** 2 for x in sector_conc), 3) if sector_conc else None,
     }
+
+
+def sector_strength(ranked) -> list[dict]:
+    """Aggregate the Alpha ranking by sector → where the factor tailwind is
+    strongest right now. Returns [{sector, n, avg_alpha, factors:{...}}] sorted by
+    avg_alpha desc. Pure."""
+    by: dict[str, list] = {}
+    for r in ranked:
+        by.setdefault(r.get("sector") or "—", []).append(r)
+    out = []
+    for sec, rows in by.items():
+        alphas = [r["alpha_score"] for r in rows if r.get("alpha_score") is not None]
+        def favg(k):
+            vals = [(r.get("factors") or {}).get(k) for r in rows]
+            vals = [v for v in vals if v is not None]
+            return round(sum(vals) / len(vals), 1) if vals else None
+        out.append({
+            "sector": sec, "n": len(rows),
+            "avg_alpha": round(sum(alphas) / len(alphas), 1) if alphas else None,
+            "factors": {k: favg(k) for k in ("value", "quality", "momentum", "low_vol", "growth", "catalyst")},
+        })
+    out.sort(key=lambda x: (x["avg_alpha"] is not None, x["avg_alpha"] or 0.0), reverse=True)
+    return out
+
+
+def alpha_backtest(rows, buckets: int = 5) -> dict:
+    """Forward-return-by-Alpha-bucket test. rows: [{ticker, alpha0, price0,
+    price_now}] where alpha0/price0 are from a name's FIRST snapshot. Buckets
+    names into quantiles by alpha0 (Q1 = highest) and reports each bucket's mean
+    forward return + the Q1−Q(last) spread. Honest and forward — only meaningful
+    once snapshots span real time. Pure math."""
+    usable = [r for r in rows
+              if r.get("alpha0") is not None and r.get("price0") and r.get("price_now") and r["price0"] > 0]
+    for r in usable:
+        r["fwd_ret"] = r["price_now"] / r["price0"] - 1.0
+    n = len(usable)
+    if n < buckets:
+        return {"n": n, "buckets": [], "top_minus_bottom": None}
+    ranked = sorted(usable, key=lambda r: r["alpha0"], reverse=True)
+    size = n // buckets
+    out = []
+    for b in range(buckets):
+        grp = ranked[b * size: (b + 1) * size] if b < buckets - 1 else ranked[b * size:]
+        rets = [r["fwd_ret"] for r in grp]
+        out.append({"bucket": b + 1, "label": f"Q{b + 1}", "n": len(grp),
+                    "avg_alpha": round(sum(r["alpha0"] for r in grp) / len(grp), 1),
+                    "avg_return": (sum(rets) / len(rets)) if rets else None})
+    top, bot = out[0]["avg_return"], out[-1]["avg_return"]
+    return {"n": n, "buckets": out,
+            "top_minus_bottom": (top - bot) if (top is not None and bot is not None) else None}

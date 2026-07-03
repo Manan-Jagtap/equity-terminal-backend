@@ -3,7 +3,8 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/_pytest_terminal.db")
 
-from app.factors import _pct_ranks, trailing_return, realized_vol, score_universe, portfolio_xray
+from app.factors import (_pct_ranks, trailing_return, realized_vol, score_universe,
+                         portfolio_xray, sector_strength, alpha_backtest)
 
 
 def test_pct_ranks_direction():
@@ -93,3 +94,29 @@ def test_portfolio_xray_weights_sizing_and_aggregates():
 def test_portfolio_xray_empty():
     x = portfolio_xray([])
     assert x["n"] == 0 and x["total_value"] == 0 and x["weighted_alpha"] is None
+
+
+def test_sector_strength_aggregates_and_sorts():
+    ranked = [
+        {"ticker": "A", "sector": "IT", "alpha_score": 80, "factors": {"quality": 90}},
+        {"ticker": "B", "sector": "IT", "alpha_score": 60, "factors": {"quality": 80}},
+        {"ticker": "C", "sector": "Bank", "alpha_score": 40, "factors": {"quality": 30}},
+    ]
+    out = sector_strength(ranked)
+    assert [s["sector"] for s in out] == ["IT", "Bank"]        # sorted by avg_alpha desc
+    assert out[0]["n"] == 2 and out[0]["avg_alpha"] == 70.0 and out[0]["factors"]["quality"] == 85.0
+
+
+def test_alpha_backtest_buckets_and_spread():
+    # 10 names, alpha 100..10, flat entry price, exit priced so higher alpha → higher return
+    rows = [{"ticker": f"T{i}", "alpha0": 100 - i * 10, "price0": 100.0,
+             "price_now": 100 * (1 + (100 - i * 10) / 1000)} for i in range(10)]
+    bt = alpha_backtest(rows, buckets=5)
+    assert bt["n"] == 10 and len(bt["buckets"]) == 5
+    assert bt["top_minus_bottom"] > 0                          # Q1 (high Alpha) beats Q5
+    assert bt["buckets"][0]["avg_alpha"] > bt["buckets"][-1]["avg_alpha"]
+
+
+def test_alpha_backtest_insufficient_history():
+    bt = alpha_backtest([{"ticker": "A", "alpha0": 50, "price0": 100, "price_now": 110}], buckets=5)
+    assert bt["n"] == 1 and bt["buckets"] == [] and bt["top_minus_bottom"] is None

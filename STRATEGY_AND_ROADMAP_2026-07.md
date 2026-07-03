@@ -119,28 +119,35 @@ Mon: scan **Ideas** (Alpha rank) → shortlist high-Alpha ∩ HIGH-confidence. M
 
 ## 4. The roadmap to institutional-grade
 
-### ✅ Phase 1 — shipped this session
+### ✅ Phase 1 — shipped (foundation + valuation)
 Total-return accounting (dividends + splits/bonuses) · Nifty 100 visibility (single-sourced) · REALTY/CHEMICALS sectors · onboarding hardening + API quota guardrail · conglomerate **SOTP** + insurer **P/EV** (real FY26 EVs) · **multi-factor Alpha Score + Ideas view**.
 
-### Phase 2 — near-term, highest ROI (weeks)
-1. **Estimate-revision & earnings-surprise signals** — the single most predictive, currently-missing signal set (upgrades >5% and post-surprise drift persist for ~3 months). Snapshot consensus like you snapshot verdicts → revision momentum + beat/miss history → a 6th "catalyst" factor in the Alpha Score.
-2. **Alpha-Score history + a real factor backtest sleeve** — snapshot Alpha ranks daily (you already have the snapshot pattern); show that top-decile-Alpha beats the universe over time, in public, like the track record.
-3. **Insider trades + FII/DII flow** — insider buying front-runs positive surprises; cheap, high-signal.
-4. **Alerts on Alpha Score / signals** — extend the watchlist alert engine to "entered top decile," "revision upgrade," "insider buy."
-5. **Portfolio X-ray** — factor/beta/sector exposure, concentration, and an inverse-vol **position-size suggester** wired to §3.3.
+### ✅ Phase 2 — shipped (systematic decision layer)
+- **Portfolio X-ray + inverse-vol position sizing** — book-level factor exposure, sector concentration (HHI), est. volatility, risk-parity suggested weights with concentration/low-Alpha flags.
+- **Alpha + consensus daily snapshots** — the ledgers behind a public factor track record and estimate-revision signals (capture started; cannot be backfilled).
+- **Catalyst factor** — estimate-revision momentum wired into the Alpha Score as a 6th factor (activates as consensus history accrues).
+- **Alpha-Score public backtest** — forward return by Alpha bucket (Q1 vs Q5) from the snapshot ledger; grades the model in public like the Track Record.
+- **Sector strength** — the ranking aggregated by sector, so you see where the factor tailwind is now.
+- **⌘K command language** — type a destination ("SECTORS", "IDEAS", "TRACK") to jump there; keyboard-first, Bloomberg-style.
 
-### Phase 3 — mid-term (differentiators)
-6. **Universe → Nifty 500** via a **batch EOD price feed (NSE bhavcopy)** — the one re-architecture that breaks the per-name-polling quota wall (flagged in CHANGES). Ship in sector tranches, gated by the confidence layer.
-7. **Interactive charting** (price/volume, overlays, the factor & valuation bands you already compute).
-8. **Options/derivatives analytics** — option chain, IV, OI/PCR, payoff, a basic strategy builder (Sensibull-lite) for hedging and income.
-9. **Transcript / annual-report NLP** — quarter-over-quarter guidance & sentiment diffs (the ANTHROPIC key is already wired); plus Tijori-style operating-metric extraction.
-10. **Real mobile layout** — bottom nav, sticky ticker column, positions-on-the-go.
+### Phase 3 — near-term, highest remaining ROI (a little data / plumbing)
+1. **Earnings-surprise (beat/miss) signal** — actual-vs-estimate EPS at results; post-earnings drift persists ~3 months. Wire quarterly actual EPS to the estimate snapshots now accruing → a 7th input.
+2. **Insider trades + FII/DII flow** — insider buying front-runs positive surprises. Needs the vendor's insider/ownership-flow endpoints.
+3. **Alerts on Alpha / signals** — extend the watchlist alert engine to "entered top Alpha decile," "revision upgrade." Self-contained; builds on the new snapshots.
+4. **Saved DCF scenarios + shareable links** — persist slider states per user (auth plumbing already exists) — the collaboration primitive CapIQ sells.
 
-### Phase 4 — long-term / institutional moat
-11. **Estimates database** (revision trends, estimate momentum factor) · **entity graph** (cross-holdings, promoter networks — India-specific, nobody does it well) · **saved & shareable scenarios** (the collaboration primitive CapIQ sells) · **second data vendor / staleness alarms** · **AI research copilot** (natural-language "TCS DCF at 12% growth," auto-thesis with citations) · **broker connect for decision-support** (surface orders to place — you approve and execute; never auto-traded).
+### Phase 4 — mid-term (differentiators, each needs a feed or a large build)
+5. **Universe → Nifty 500** via a **batch EOD price feed (NSE bhavcopy)** — the one re-architecture that breaks the per-name-polling quota wall. Ship in sector tranches, gated by the confidence layer.
+6. **Interactive charting** (price/volume, overlays, the factor & valuation bands you already compute).
+7. **Options/derivatives analytics** — option chain, IV, OI/PCR, payoff, a basic strategy builder (Sensibull-lite) for hedging and income.
+8. **Transcript / annual-report NLP** — quarter-over-quarter guidance & sentiment diffs (the ANTHROPIC key is already wired); plus Tijori-style operating-metric extraction.
+9. **Real mobile layout** — bottom nav, sticky ticker column, positions-on-the-go.
 
-### The 5 I'd do next, in order
-**(1) Estimate-revision/surprise signals → (2) Alpha-Score public backtest → (3) Portfolio X-ray + position sizing → (4) Insider/flow data → (5) Nifty 500 via bhavcopy.** These compound the existing moat fastest and directly sharpen the buy/sell decision.
+### Phase 5 — long-term / institutional moat
+**Estimates database** (revision trends, estimate-momentum factor) · **entity graph** (cross-holdings, promoter networks — India-specific, nobody does it well) · **second data vendor / staleness alarms** · **AI research copilot** (natural-language "TCS DCF at 12% growth," auto-thesis with citations) · **broker connect for decision-support** (surface orders to place — you approve and execute; never auto-traded).
+
+### The 4 I'd do next, in order
+**(1) Earnings-surprise signal → (2) Alerts on Alpha/revisions → (3) Insider/FII-DII flow → (4) Saved & shareable scenarios.** The first two are self-contained and build directly on the ledgers now accruing; the others need a vendor endpoint. Nifty 500 and options/charting/mobile are Phase 4 because each needs a new data feed or a large new build.
 
 ---
 

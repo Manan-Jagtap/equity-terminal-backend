@@ -225,7 +225,7 @@ def api_factors(db: Session = Depends(get_db)):
     A transparent value / quality / momentum / low-vol / growth composite — turns
     the universe into a ranked idea list with a factor breakdown. A research aid,
     NOT investment advice. Cached 5 min (same as /api/companies)."""
-    from app.factors import FACTOR_WEIGHTS
+    from app.factors import FACTOR_WEIGHTS, sector_strength
     from app.signals import ranked_visible
     if _FACTORS_CACHE["data"] is not None and (time.time() - _FACTORS_CACHE["ts"]) < 300:
         return _FACTORS_CACHE["data"]
@@ -234,9 +234,40 @@ def api_factors(db: Session = Depends(get_db)):
     payload = {"count": len(ranked), "weights": FACTOR_WEIGHTS,
                "note": "Transparent multi-factor ranking (value/quality/momentum/low-vol/growth/"
                        "catalyst). A research aid, not investment advice.",
+               "sectors": sector_strength(ranked),
                "ideas": ranked}
     _FACTORS_CACHE["data"], _FACTORS_CACHE["ts"] = payload, time.time()
     return payload
+
+
+@app.get("/api/factors/backtest")
+def api_factors_backtest(db: Session = Depends(get_db)):
+    """Public factor track record: forward return by Alpha-Score bucket, read
+    from the AlphaSnapshot ledger (each name bucketed by its FIRST snapshot's
+    Alpha, marked to today's price). Honest and forward — meaningful once
+    snapshots span time; returns an empty-but-valid shape until then."""
+    from app.factors import alpha_backtest
+    try:
+        snaps = (db.query(models.AlphaSnapshot)
+                   .order_by(models.AlphaSnapshot.company_id, models.AlphaSnapshot.date).all())
+    except Exception:
+        db.rollback()
+        return {"tracking_since": None, "snapshot_days": 0, "n": 0, "buckets": [], "top_minus_bottom": None}
+    first = {}
+    dates = set()
+    for s in snaps:
+        dates.add(s.date)
+        if s.company_id not in first:      # earliest (rows are date-ascending per company)
+            first[s.company_id] = s
+    price_now = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    rows = [{"ticker": s.ticker, "alpha0": s.alpha_score, "price0": s.price,
+             "price_now": price_now.get(cid)} for cid, s in first.items()]
+    bt = alpha_backtest(rows)
+    return {"tracking_since": (min(dates) if dates else None),
+            "snapshot_days": len(dates),
+            "note": "Forward return by Alpha bucket (Q1 = highest Alpha). If the model has signal, "
+                    "Q1 should beat Q5 over time. Accrues from the tracking-since date.",
+            **bt}
 
 
 @app.get("/api/companies")
