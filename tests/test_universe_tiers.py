@@ -47,9 +47,12 @@ def test_excluded_never_visible():
 
 def test_default_tier_is_nifty100():
     # This test runs without UNIVERSE_TIER set, so the safe default must hold.
+    # INDIGO is officially IN the Nifty 50 now, so the exclusion actively strips
+    # it: visible = core minus held-back names, and never equals bare core.
     if not os.getenv("UNIVERSE_TIER"):
         assert UNIVERSE_TIER == "nifty100"
-        assert VISIBLE_UNIVERSE == CORE_UNIVERSE - EXCLUDED_TICKERS == CORE_UNIVERSE
+        assert VISIBLE_UNIVERSE == CORE_UNIVERSE - EXCLUDED_TICKERS
+        assert "INDIGO" in CORE_UNIVERSE and "INDIGO" not in VISIBLE_UNIVERSE
     print("  ok default tier")
 
 
