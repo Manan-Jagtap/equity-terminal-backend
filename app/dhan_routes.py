@@ -17,6 +17,16 @@ from app import models
 router = APIRouter(prefix="/api", tags=["dhan"])
 
 
+def _dhan_error(e: Exception) -> str:
+    """Compact error string that KEEPS Dhan's response body — that's where the
+    real reason lives (e.g. DH-901 invalid client-id vs DH-808 no Data-plan
+    subscription); httpx's status line alone can't tell them apart."""
+    import httpx
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"HTTP {e.response.status_code}: {e.response.text[:220]}"
+    return str(e)[:220]
+
+
 @router.get("/dhan/status")
 def dhan_status():
     """Diagnostics: is the token present, is client-id present, does the token
@@ -37,7 +47,14 @@ def dhan_status():
                 rows = client.historical_daily(sid, frm.isoformat(), to.isoformat())
                 out["historical_probe"] = {"ok": rows is not None, "rows": len(rows or [])}
             except Exception as e:
-                out["historical_probe"] = {"ok": False, "error": str(e)[:180]}
+                out["historical_probe"] = {"ok": False, "error": _dhan_error(e)}
+            # Option-chain auth probe: needs token + client-id + F&O data access.
+            # The full Dhan error body is surfaced so a failure self-diagnoses.
+            try:
+                exp = client.expiry_list(sid, seg="NSE_EQ")
+                out["option_chain_probe"] = {"ok": exp is not None, "expiries": len(exp or [])}
+            except Exception as e:
+                out["option_chain_probe"] = {"ok": False, "error": _dhan_error(e)}
     return out
 
 
@@ -56,7 +73,7 @@ def company_options(ticker: str, expiry: str | None = None, db: Session = Depend
         expiries = client.expiry_list(sid, seg="NSE_EQ") or []
     except Exception as e:
         return {"ticker": tk, "configured": True, "available": False,
-                "message": f"Dhan expiry-list error: {str(e)[:140]}"}
+                "message": f"Dhan expiry-list error: {_dhan_error(e)}"}
     if not expiries:
         return {"ticker": tk, "configured": True, "available": False,
                 "message": "No option expiries for this name (may not be in F&O)."}
@@ -65,7 +82,7 @@ def company_options(ticker: str, expiry: str | None = None, db: Session = Depend
         chain = client.option_chain(sid, chosen, seg="NSE_EQ")
     except Exception as e:
         return {"ticker": tk, "configured": True, "available": False, "expiries": expiries,
-                "expiry": chosen, "message": f"Dhan option-chain error: {str(e)[:140]}"}
+                "expiry": chosen, "message": f"Dhan option-chain error: {_dhan_error(e)}"}
     return {"ticker": tk, "configured": True,
             "available": bool(chain and chain.get("strikes")),
             "expiries": expiries, "expiry": chosen, **(chain or {})}
