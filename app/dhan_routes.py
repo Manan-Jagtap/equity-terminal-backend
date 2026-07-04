@@ -64,6 +64,47 @@ def dhan_status():
     return out
 
 
+_IDX_HIST_CACHE: dict = {}
+_IDX_HIST_TTL = 3600.0
+
+
+@router.get("/indices/{name}/history")
+def index_history(name: str, years: int = 5):
+    """Daily history for an NSE index (clicking an index card on the dashboard
+    opens its chart). Name is the display name ("NIFTY 50", "NIFTY Bank", …) —
+    resolved to a Dhan securityId via instruments.resolve_index. Cached 1h per
+    index; degrades to an honest message for unresolvable names (e.g. SENSEX,
+    a BSE index) or when Dhan is unconfigured."""
+    import datetime as _dt
+    import time as _time
+    from app.dhan import client, instruments
+    if not client.configured():
+        return {"index": name, "available": False,
+                "message": "Index history needs the Dhan feed (DHAN_ACCESS_TOKEN)."}
+    sid = instruments.index_security_id(name)
+    if not sid:
+        return {"index": name, "available": False,
+                "message": f"No NSE index series for “{name}” — BSE indices aren't covered yet."}
+    years = max(1, min(int(years or 5), 10))
+    key = (sid, years)
+    hit = _IDX_HIST_CACHE.get(key)
+    if hit and _time.time() - hit[0] < _IDX_HIST_TTL:
+        return hit[1]
+    to = _dt.date.today()
+    frm = to - _dt.timedelta(days=365 * years + 7)
+    try:
+        rows = client.historical_daily(sid, frm.isoformat(), to.isoformat(),
+                                       exchange_segment="IDX_I", instrument="INDEX")
+    except Exception as e:
+        return {"index": name, "available": False,
+                "message": f"Dhan index-history error: {_dhan_error(e)}"}
+    out = {"index": name, "available": bool(rows), "count": len(rows or []),
+           "data": rows or []}
+    if rows:
+        _IDX_HIST_CACHE[key] = (_time.time(), out)
+    return out
+
+
 @router.get("/dhan/fno")
 def fno_universe():
     """Tickers with listed stock futures/options (from the Dhan scrip master,

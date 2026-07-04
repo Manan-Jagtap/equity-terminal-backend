@@ -116,3 +116,17 @@ def test_client_id_env_fallback_when_token_lacks_claim(monkeypatch):
     monkeypatch.setenv("DHAN_CLIENT_ID", "1100005678")
     assert client._client_id_from_token() == ""
     assert client.client_id() == "1100005678"
+
+
+def test_resolve_index_aliases_exact_and_fuzzy():
+    idx = {"NIFTY": "13", "BANKNIFTY": "25", "NIFTY METAL": "31",
+           "NIFTYNXT50": "38", "NIFTY MIDCAP 100": "36", "INDIA VIX": "21"}
+    r = instruments.resolve_index
+    assert r("NIFTY 50", idx) == "13"            # alias
+    assert r("NIFTY Bank", idx) == "25"          # alias, case-insensitive
+    assert r("NIFTY METAL", idx) == "31"         # exact
+    assert r("NIFTY Next 50", idx) == "38"       # alias
+    assert r("India VIX", idx) == "21"           # exact after casing
+    assert r("NIFTY Midcap 100", idx) == "36"    # space-insensitive
+    assert r("SENSEX", idx) is None              # BSE — honestly unresolvable
+    assert r("", idx) is None and r("NIFTY 50", {}) is None

@@ -122,6 +122,46 @@ def fno_tickers() -> set:
     return _cache["fno"] or set()
 
 
+# Dashboard/index display names → Dhan scrip-master index symbols. The master
+# has no "NIFTY 50" entry (spot Nifty is just "NIFTY"), and the banks/fins use
+# derivative-style names.
+_INDEX_ALIASES = {
+    "NIFTY 50": "NIFTY", "NIFTY BANK": "BANKNIFTY", "BANK NIFTY": "BANKNIFTY",
+    "NIFTY FINANCIAL SERVICES": "FINNIFTY", "NIFTY FIN SERVICE": "FINNIFTY",
+    "NIFTY NEXT 50": "NIFTYNXT50", "NIFTY IT": "NIFTYIT",
+    "NIFTY MIDCAP SELECT": "MIDCPNIFTY", "NIFTY PSE": "NIFTYPSE",
+    "NIFTY INFRASTRUCTURE": "NIFTYINFRA",
+}
+
+
+def resolve_index(name, idx) -> str | None:
+    """Pure: display name → securityId using aliases, exact, space-insensitive
+    and (longest-key-first) containment matching. None when unresolvable —
+    e.g. SENSEX, which is a BSE index the NSE master doesn't carry."""
+    if not name or not idx:
+        return None
+    n = " ".join(name.strip().upper().split())
+    alias = _INDEX_ALIASES.get(n)
+    if alias and alias in idx:
+        return idx[alias]
+    if n in idx:
+        return idx[n]
+    ns = n.replace(" ", "")
+    for k, v in idx.items():
+        if k.replace(" ", "") == ns:
+            return v
+    for k in sorted(idx, key=len, reverse=True):      # longest first: "NIFTY" can't
+        kns = k.replace(" ", "")                       # swallow "NIFTY METAL"
+        if len(kns) >= 6 and (kns in ns or ns in kns):
+            return idx[k]
+    return None
+
+
+def index_security_id(name) -> str | None:
+    _load()
+    return resolve_index(name, _cache["idx"] or {})
+
+
 def coverage() -> dict:
     _load()
     return {"equities": len(_cache["eq"] or {}), "indices": len(_cache["idx"] or {}),
