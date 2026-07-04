@@ -57,6 +57,8 @@ from app.portfolio_routes import router as portfolio_router
 app.include_router(portfolio_router)
 from app.scenario_routes import router as scenario_router
 app.include_router(scenario_router)
+from app.dhan_routes import router as dhan_router
+app.include_router(dhan_router)
 from app.documents_routes import router as documents_router
 app.include_router(documents_router)
 from app.thesis_routes import router as thesis_router

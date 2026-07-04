@@ -262,6 +262,33 @@ elif _flag("RUN_FULL_NOW"):
                  "Remove RUN_FULL_NOW from Variables to avoid re-running on restart.")
     except Exception as e:
         log.error(f"One-off full refresh failed: {e}")
+elif _flag("RUN_DHAN_BACKFILL"):
+    # One-off: populate HistoricalPrice from Dhan daily OHLCV (REST-only — no
+    # WebSocket, so the recorder's feeds are untouched). Scope with
+    # RUN_DHAN_TICKERS=A,B,C or default to the visible universe. Needs
+    # DHAN_ACCESS_TOKEN set. Remove the flag after it runs.
+    log.info("RUN_DHAN_BACKFILL set — backfilling HistoricalPrice from Dhan (REST)…")
+    try:
+        from app.dhan.backfill import backfill_prices
+        from app.dhan import client as _dhan
+        from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+        from app.database import SessionLocal
+        if not _dhan.configured():
+            log.error("DHAN_ACCESS_TOKEN not set — nothing to backfill.")
+        else:
+            _scope = os.getenv("RUN_DHAN_TICKERS", "").strip()
+            _tickers = ([t.strip().upper() for t in _scope.split(",") if t.strip()]
+                        if _scope else sorted(VISIBLE_UNIVERSE))
+            s = SessionLocal()
+            try:
+                stats = backfill_prices(s, _tickers)
+                log.info(f"Dhan backfill result: {stats}")
+            finally:
+                s.close()
+            run_compute(visible=True)   # recompute so charts/verdicts see fresh history
+        log.info("Dhan backfill done. Remove RUN_DHAN_BACKFILL from Variables now.")
+    except Exception as e:
+        log.error(f"Dhan backfill failed: {type(e).__name__}: {e}")
 else:
     # ── Auto-onboard missing universe members on every deploy ────────────────
     # Adding a ticker to EXTRA_TICKERS (indianapi_ingester.py) is the ONLY step
