@@ -19,8 +19,26 @@ router = APIRouter(prefix="/api", tags=["dhan"])
 
 @router.get("/dhan/status")
 def dhan_status():
+    """Diagnostics: is the token present, is client-id present, does the token
+    actually authenticate (token-only historical probe), and did the instrument
+    map load. Never exposes the secret values themselves."""
     from app.dhan import client, instruments
-    return {"configured": client.configured(), "instruments": instruments.coverage()}
+    out = {"configured": client.configured(),
+           "has_client_id": bool(client.client_id()),
+           "instruments": instruments.coverage()}
+    if client.configured():
+        sid = instruments.security_id("RELIANCE")
+        out["reliance_security_id"] = sid
+        if sid:
+            import datetime as _dt
+            to = _dt.date.today()
+            frm = to - _dt.timedelta(days=8)
+            try:
+                rows = client.historical_daily(sid, frm.isoformat(), to.isoformat())
+                out["historical_probe"] = {"ok": rows is not None, "rows": len(rows or [])}
+            except Exception as e:
+                out["historical_probe"] = {"ok": False, "error": str(e)[:180]}
+    return out
 
 
 @router.get("/companies/{ticker}/options")
