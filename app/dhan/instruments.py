@@ -79,6 +79,10 @@ def parse_scrip_master(csv_text: str):
                      else sym.split("-")[0])
             if under:
                 fno.add(under)
+    # The derivatives segment carries NSE TEST instruments (011NSETEST…) and
+    # occasional index rows — a real stock-option underlying must itself be a
+    # listed NSE equity, so intersect with the equity map and drop test scrips.
+    fno = {t for t in fno if "NSETEST" not in t} & set(eq)
     return eq, idx, fno
 
 

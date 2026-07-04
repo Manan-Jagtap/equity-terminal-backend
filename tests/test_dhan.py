@@ -70,6 +70,8 @@ SCRIP_CSV = (
     "NSE,D,49081,FUTSTK,TCS-28Aug2026-FUT,TCS\n"
     "NSE,D,49082,OPTSTK,TCS-28Aug2026-3200-CE,TCS\n"
     "NSE,D,49090,FUTSTK,HDFCBANK-28Aug2026-FUT,\n"
+    "NSE,D,49999,FUTSTK,011NSETEST-28Aug2026-FUT,011NSETEST\n"
+    "NSE,D,49998,OPTSTK,GHOST-28Aug2026-100-CE,GHOST\n"
 )
 
 
@@ -80,7 +82,8 @@ def test_parse_scrip_master_splits_equities_and_indices():
     assert "NIFTY" not in eq                                   # index not in equity map
     assert len(eq) == 2                                         # BSE row excluded (NSE only)
     # F&O underlyings: from the plain-symbol column, or the derivative symbol
-    # prefix when that column is blank.
+    # prefix when that column is blank. Test scrips (NSETEST) and underlyings
+    # that aren't real listed equities (GHOST) are excluded.
     assert fno == {"TCS", "HDFCBANK"}
 
 
