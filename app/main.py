@@ -69,6 +69,8 @@ from app.quality_routes import router as quality_router
 app.include_router(quality_router)
 from app.screens_routes import router as screens_router
 app.include_router(screens_router)
+from app.admin_routes import router as admin_router
+app.include_router(admin_router)
 from app.onepager import build_onepager
 
 

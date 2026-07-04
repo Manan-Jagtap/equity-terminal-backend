@@ -126,3 +126,34 @@ def test_watchlist_requires_auth():
     r = client.get("/api/watchlist", headers=_auth(token))
     assert r.status_code == 200
     assert r.json()["count"] == 0   # new user sees their own (empty) list
+
+
+# ── Auth event ledger + admin gate ───────────────────────────────────────────
+def test_auth_events_recorded():
+    _signup("ledger@example.com")
+    client.post("/api/auth/login", json={"email": "ledger@example.com", "password": PW})
+    client.post("/api/auth/login", json={"email": "ledger@example.com", "password": "wrong-password"})
+    s = SessionLocal()
+    try:
+        evs = [e.event for e in s.query(models.AuthEvent)
+               .filter_by(email="ledger@example.com")
+               .order_by(models.AuthEvent.id).all()]
+    finally:
+        s.close()
+    assert evs == ["signup", "login", "login_failed"]
+
+
+def test_admin_gate_fails_closed_and_opens_for_listed_email(monkeypatch):
+    tok = _signup("adminky@example.com").json()["token"]
+    h = {"Authorization": f"Bearer {tok}"}
+    monkeypatch.delenv("ADMIN_EMAILS", raising=False)
+    assert client.get("/api/admin/users", headers=h).status_code == 403   # unset → closed
+    monkeypatch.setenv("ADMIN_EMAILS", "someoneelse@example.com")
+    assert client.get("/api/admin/users", headers=h).status_code == 403   # not listed
+    monkeypatch.setenv("ADMIN_EMAILS", "AdminKY@example.com")             # case-insensitive
+    r = client.get("/api/admin/users", headers=h)
+    assert r.status_code == 200
+    me = next(u for u in r.json()["users"] if u["email"] == "adminky@example.com")
+    assert me["login_count"] == 0 and me["created_at"]
+    ev = client.get("/api/admin/auth-events?limit=5", headers=h)
+    assert ev.status_code == 200 and ev.json()["count"] >= 1

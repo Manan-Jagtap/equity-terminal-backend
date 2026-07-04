@@ -27,6 +27,22 @@ class User(Base):
     created_at    = Column(DateTime, server_default=func.now())
 
 
+class AuthEvent(Base):
+    """Signup/login audit ledger — who is joining and coming back, plus failed
+    attempts (a security signal). IP + user-agent are personal data under the
+    DPDP Act: cover this collection in the privacy policy before public launch
+    (see COMPLIANCE.md §4). Additive table; writes are best-effort and never
+    block auth."""
+    __tablename__ = "auth_events"
+    id         = Column(Integer, primary_key=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    email      = Column(String(255), nullable=False, index=True)
+    event      = Column(String(16), nullable=False)   # signup | login | login_failed
+    ip         = Column(String(64), nullable=True)
+    user_agent = Column(String(256), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
 class Company(Base):
     __tablename__ = "companies"
     id = Column(Integer, primary_key=True)

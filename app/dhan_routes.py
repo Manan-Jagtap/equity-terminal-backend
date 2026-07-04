@@ -64,6 +64,17 @@ def dhan_status():
     return out
 
 
+@router.get("/dhan/fno")
+def fno_universe():
+    """Tickers with listed stock futures/options (from the Dhan scrip master,
+    cached ~daily). The frontend hides the Options tab for names not here.
+    Empty list = master unavailable — callers should fail OPEN (show the tab)
+    rather than hide options for everyone."""
+    from app.dhan import instruments
+    tks = sorted(instruments.fno_tickers())
+    return {"count": len(tks), "tickers": tks}
+
+
 @router.get("/companies/{ticker}/options")
 def company_options(ticker: str, expiry: str | None = None, db: Session = Depends(get_db)):
     from app.dhan import client, instruments

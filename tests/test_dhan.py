@@ -67,15 +67,21 @@ SCRIP_CSV = (
     "NSE,E,1333,EQUITY,HDFCBANK,HDFC BANK\n"
     "NSE,I,13,INDEX,NIFTY,NIFTY 50\n"
     "BSE,E,500180,EQUITY,HDFCBANK,HDFC BANK\n"
+    "NSE,D,49081,FUTSTK,TCS-28Aug2026-FUT,TCS\n"
+    "NSE,D,49082,OPTSTK,TCS-28Aug2026-3200-CE,TCS\n"
+    "NSE,D,49090,FUTSTK,HDFCBANK-28Aug2026-FUT,\n"
 )
 
 
 def test_parse_scrip_master_splits_equities_and_indices():
-    eq, idx = instruments.parse_scrip_master(SCRIP_CSV)
+    eq, idx, fno = instruments.parse_scrip_master(SCRIP_CSV)
     assert eq["TCS"] == "11536" and eq["HDFCBANK"] == "1333"   # NSE equities
     assert idx["NIFTY"] == "13"                                # NSE index
     assert "NIFTY" not in eq                                   # index not in equity map
     assert len(eq) == 2                                         # BSE row excluded (NSE only)
+    # F&O underlyings: from the plain-symbol column, or the derivative symbol
+    # prefix when that column is blank.
+    assert fno == {"TCS", "HDFCBANK"}
 
 
 def test_security_id_lookup_with_quirks(monkeypatch):

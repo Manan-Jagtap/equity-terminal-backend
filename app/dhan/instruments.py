@@ -3,9 +3,11 @@ app/dhan/instruments.py — Dhan instrument master → {NSE ticker: securityId}.
 
 Dhan addresses scrips by numeric securityId, not ticker, so we fetch the public
 compact scrip-master CSV (no token needed) and build a ticker→id map for NSE
-equities (and one for NSE indices, for index option chains). Cached in memory
-with a ~daily refresh. The header is matched BY NAME (with fallbacks) so a minor
-column change upstream doesn't silently break the map.
+equities (and one for NSE indices, for index option chains), plus the set of
+F&O-UNDERLYING tickers (from FUTSTK/OPTSTK rows) so the UI can hide the Options
+tab for cash-only names. Cached in memory with a ~daily refresh. The header is
+matched BY NAME (with fallbacks) so a minor column change upstream doesn't
+silently break the map.
 
 CSV: https://images.dhan.co/api-data/api-scrip-master.csv
 """
@@ -26,7 +28,9 @@ _EXCH = ("SEM_EXM_EXCH_ID", "EXCH_ID")
 _SEG = ("SEM_SEGMENT", "SEGMENT")
 _INSTR = ("SEM_INSTRUMENT_NAME", "INSTRUMENT")
 
-_cache = {"eq": None, "idx": None, "ts": 0.0}
+_UNDER = ("SM_SYMBOL_NAME", "SYMBOL_NAME")
+
+_cache = {"eq": None, "idx": None, "fno": None, "ts": 0.0}
 
 
 def _pick(header, cands):
@@ -38,18 +42,21 @@ def _pick(header, cands):
 
 
 def parse_scrip_master(csv_text: str):
-    """Pure: parse the scrip-master CSV → ({eq ticker: id}, {index ticker: id}).
-    Equities = NSE + segment E + instrument EQUITY; indices = NSE + INDEX."""
+    """Pure: parse the scrip-master CSV → ({eq ticker: id}, {index ticker: id},
+    {F&O-underlying tickers}). Equities = NSE + segment E + instrument EQUITY;
+    indices = NSE + INDEX; F&O underlyings from FUTSTK/OPTSTK rows (the plain
+    symbol column when present, else the prefix of the derivative symbol)."""
     reader = csv.reader(io.StringIO(csv_text))
     rows = list(reader)
     if len(rows) < 2:
-        return {}, {}
+        return {}, {}, set()
     header = rows[0]
     ci_sec, ci_sym = _pick(header, _SEC), _pick(header, _SYM)
     ci_exch, ci_seg, ci_instr = _pick(header, _EXCH), _pick(header, _SEG), _pick(header, _INSTR)
+    ci_under = _pick(header, _UNDER)
     if ci_sec is None or ci_sym is None:
-        return {}, {}
-    eq, idx = {}, {}
+        return {}, {}, set()
+    eq, idx, fno = {}, {}, set()
     for row in rows[1:]:
         if len(row) <= max(ci_sec, ci_sym):
             continue
@@ -66,7 +73,13 @@ def parse_scrip_master(csv_text: str):
             idx.setdefault(sym, sec)
         elif seg in ("E", "") and instr in ("EQUITY", "ES", ""):
             eq.setdefault(sym, sec)
-    return eq, idx
+        elif instr in ("FUTSTK", "OPTSTK"):
+            under = (row[ci_under].strip().upper()
+                     if ci_under is not None and len(row) > ci_under and row[ci_under].strip()
+                     else sym.split("-")[0])
+            if under:
+                fno.add(under)
+    return eq, idx, fno
 
 
 def _load(force: bool = False):
@@ -75,9 +88,9 @@ def _load(force: bool = False):
     try:
         r = httpx.get(CSV_URL, timeout=40.0, follow_redirects=True)
         r.raise_for_status()
-        eq, idx = parse_scrip_master(r.text)
+        eq, idx, fno = parse_scrip_master(r.text)
         if eq:
-            _cache.update({"eq": eq, "idx": idx, "ts": time.time()})
+            _cache.update({"eq": eq, "idx": idx, "fno": fno, "ts": time.time()})
     except Exception:
         # keep any previously-loaded map; a transient CSV failure isn't fatal
         pass
@@ -97,7 +110,16 @@ def security_id(ticker: str, index: bool = False):
     return None
 
 
+def fno_tickers() -> set:
+    """Tickers with listed stock futures/options — the Options tab is only
+    meaningful for these. Empty set when the master hasn't loaded (callers
+    should fail OPEN in that case rather than hide everything)."""
+    _load()
+    return _cache["fno"] or set()
+
+
 def coverage() -> dict:
     _load()
     return {"equities": len(_cache["eq"] or {}), "indices": len(_cache["idx"] or {}),
+            "fno_underlyings": len(_cache["fno"] or set()),
             "age_s": round(time.time() - _cache["ts"], 1) if _cache["ts"] else None}
