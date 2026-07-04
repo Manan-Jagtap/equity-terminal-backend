@@ -29,8 +29,27 @@ def access_token() -> str:
     return os.getenv("DHAN_ACCESS_TOKEN", "").strip()
 
 
+def _client_id_from_token() -> str:
+    """The Dhan access token is a JWT whose payload carries its own dhanClientId
+    claim — decode it (no signature check needed; we only read our own token).
+    This is the source of truth: it matches the token by construction."""
+    tok = access_token()
+    try:
+        import base64
+        import json
+        body = tok.split(".")[1]
+        body += "=" * (-len(body) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(body))
+        return str(claims.get("dhanClientId") or "").strip()
+    except Exception:
+        return ""
+
+
 def client_id() -> str:
-    return os.getenv("DHAN_CLIENT_ID", "").strip()
+    """Prefer the id embedded in the token (can't mismatch); DHAN_CLIENT_ID is
+    only a fallback for tokens that lack the claim. A wrong env var caused a
+    live option-chain 401 (Dhan error 808) — this makes that class impossible."""
+    return _client_id_from_token() or os.getenv("DHAN_CLIENT_ID", "").strip()
 
 
 def configured() -> bool:

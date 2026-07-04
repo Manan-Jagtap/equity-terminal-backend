@@ -33,8 +33,14 @@ def dhan_status():
     actually authenticate (token-only historical probe), and did the instrument
     map load. Never exposes the secret values themselves."""
     from app.dhan import client, instruments
+    tok_cid = client._client_id_from_token()
+    env_cid = __import__("os").getenv("DHAN_CLIENT_ID", "").strip()
     out = {"configured": client.configured(),
            "has_client_id": bool(client.client_id()),
+           # Which id the client actually sends, and whether the env var agrees
+           # with the token's own claim (a mismatch here was the option-chain 401).
+           "client_id_source": "token" if tok_cid else ("env" if env_cid else "none"),
+           "env_client_id_matches_token": (env_cid == tok_cid) if (env_cid and tok_cid) else None,
            "instruments": instruments.coverage()}
     if client.configured():
         sid = instruments.security_id("RELIANCE")

@@ -69,3 +69,25 @@ def test_security_id_lookup_with_quirks(monkeypatch):
     assert instruments.security_id("NIFTY", index=True) == "13"
     assert instruments.security_id("M&M") == "2031"            # '&' stripped → MM
     assert instruments.security_id("UNKNOWN") is None
+
+
+def test_client_id_derived_from_token(monkeypatch):
+    import base64, json
+    from app.dhan import client
+    payload = base64.urlsafe_b64encode(json.dumps(
+        {"dhanClientId": "1100001234", "exp": 9999999999}).encode()).decode().rstrip("=")
+    fake_jwt = f"eyJhbGciOiJIUzUxMiJ9.{payload}.sig"
+    monkeypatch.setenv("DHAN_ACCESS_TOKEN", fake_jwt)
+    monkeypatch.setenv("DHAN_CLIENT_ID", "9999999999")   # wrong env must NOT win
+    assert client._client_id_from_token() == "1100001234"
+    assert client.client_id() == "1100001234"
+
+
+def test_client_id_env_fallback_when_token_lacks_claim(monkeypatch):
+    import base64, json
+    from app.dhan import client
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": 9999999999}).encode()).decode().rstrip("=")
+    monkeypatch.setenv("DHAN_ACCESS_TOKEN", f"eyJhbGciOiJIUzUxMiJ9.{payload}.sig")
+    monkeypatch.setenv("DHAN_CLIENT_ID", "1100005678")
+    assert client._client_id_from_token() == ""
+    assert client.client_id() == "1100005678"
