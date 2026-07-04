@@ -46,6 +46,13 @@ def fetch_transcript_text(url: str) -> str | None:
         return None
     try:
         with httpx.Client(timeout=_TIMEOUT, follow_redirects=True, headers=_HEADERS) as client:
+            # BSE's AnnPdfOpen.aspx only serves the PDF WITHIN a browser session —
+            # prime cookies by hitting the site root first (best-effort, short).
+            if "bseindia.com" in url.lower():
+                try:
+                    client.get("https://www.bseindia.com/", timeout=httpx.Timeout(8.0))
+                except Exception:
+                    pass
             r = client.get(url)
             r.raise_for_status()
             raw = r.content
