@@ -462,6 +462,21 @@ def recommend(co: Dict, a: Dict) -> Dict:
                         "note": "Diversified conglomerate — needs sum-of-the-parts; a "
                                 "single-sector DCF understates it. Model unreliable here.",
                         "good": False, "bad": True})
+    elif mos is not None and mos > 2.0:
+        # An intrinsic more than 3x the market price out of a GENERIC sector model
+        # is far more likely a mis-modeled name than a hidden multi-bagger: thin-
+        # margin distributors/refiners/sugar on premium sector multiples, holding
+        # companies, demerger stubs with mismatched fundamentals. The market is
+        # sometimes wrong; a generic model claiming +200% on a liquid large/midcap
+        # is wrong more often. Honest state: LOW CONF, never a confident BUY.
+        # (Caught live: AWL/REDINGTON/EIDPARRY +700-850% "BUYs" on the tier flip.)
+        verdict = "LOW CONF"
+        reliable = False
+        reasons.append({"label": "Model", "score": 50,
+                        "note": f"Implausible margin of safety ({mos*100:.0f}%) — the sector "
+                                "model likely doesn't fit this name's economics. "
+                                "Model unreliable here.",
+                        "good": False, "bad": True})
 
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
             "intrinsic": iv, "confidence": conf, "reliable": reliable,

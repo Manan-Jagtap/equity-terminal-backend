@@ -129,3 +129,24 @@ if __name__ == "__main__":
             print(f"  ✗ {fn.__name__}: {type(e).__name__}: {e}")
     print(f"\n{passed}/{len(fns)} passed.")
     sys.exit(0 if passed == len(fns) else 1)
+
+
+def test_implausible_mos_forces_low_conf():
+    # The AWL/REDINGTON class of failure: internally-consistent inputs, but the
+    # sector model produces an intrinsic many times the price (thin-margin
+    # business on premium multiples). Must read LOW CONF, never a confident BUY.
+    co = _co(price=10.0)                     # tiny price vs healthy fundamentals
+    r = engines.recommend(co, _a_nonfin())
+    assert r["mos"] is not None and r["mos"] > 2.0   # the setup must reach the guard
+    assert r["verdict"] == "LOW CONF"
+    assert r["reliable"] is False
+    assert any("Implausible margin of safety" in (x.get("note") or "")
+               for x in r["reasons"])
+
+
+def test_plausible_mos_untouched():
+    # A normal-gap name must NOT trip the implausibility guard.
+    r = engines.recommend(_co(), _a_nonfin())
+    assert r["mos"] is None or r["mos"] <= 2.0 or r["verdict"] == "LOW CONF"
+    if r["mos"] is not None and 0 < r["mos"] <= 2.0:
+        assert r["verdict"] != "LOW CONF" or r["confidence"]["score"] < 0.5
