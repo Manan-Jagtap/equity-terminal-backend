@@ -8,7 +8,11 @@ from . import sector_params as SP
 # Diversified conglomerates / incubators that no single-sector model can value —
 # their parts trade on different economics, so the blended DCF/RI is wrong by
 # construction and they're surfaced as LOW CONF (need sum-of-the-parts).
-_CONGLOMERATES = {"RELIANCE", "ADANIENT"}
+# Diversified conglomerates + pure holding companies: a single-sector engine is
+# wrong by construction (the parts trade on different economics; holdcos trade
+# at a discount to look-through NAV that no P&L model sees). SOTP presets exist
+# for the first two; the holdcos read NO CALL until a NAV model lands.
+_CONGLOMERATES = {"RELIANCE", "ADANIENT", "BBTC", "TATAINVEST", "BAJAJHLDNG", "CHOLAHLDNG"}
 
 
 def safe(val, default=0.0):
