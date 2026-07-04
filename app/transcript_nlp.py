@@ -21,37 +21,50 @@ import httpx
 from .thesis import call_claude, ThesisCache
 
 _cache = ThesisCache(ttl_seconds=3600 * 6)
-MAX_CHARS = 40000          # ~10k tokens fed to Claude — bounds cost
+MAX_CHARS = 32000          # ~8k tokens fed to Claude — bounds cost + latency
 MAX_BYTES = 25 * 1024 * 1024   # skip absurdly large downloads
+MAX_PAGES = 60             # hard page cap so pdfplumber can't run away
 MIN_TEXT = 500             # below this we treat extraction as failed
 
+# Browser-like headers — BSE (AnnPdfOpen.aspx) STALLS header-less requests, which
+# is what hung the first version. UA + Referer make it serve the PDF normally.
+_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"),
+    "Accept": "application/pdf,text/html,*/*",
+    "Referer": "https://www.bseindia.com/",
+}
+# Hard, bounded timeout so a slow source can never hang the request thread.
+_TIMEOUT = httpx.Timeout(connect=8.0, read=18.0, write=8.0, pool=8.0)
 
-def fetch_transcript_text(url: str, timeout: float = 30.0) -> str | None:
-    """Download a transcript (PDF or HTML) and extract text, capped at MAX_CHARS.
-    Returns None on any failure or if too little text is recovered (so the caller
-    degrades to 'unavailable' rather than summarizing noise)."""
+
+def fetch_transcript_text(url: str) -> str | None:
+    """Download a transcript (PDF or HTML) and extract text, capped at MAX_CHARS /
+    MAX_PAGES. Bounded by _TIMEOUT. Returns None on any failure or if too little
+    text is recovered (so the caller degrades to 'unavailable', never noise)."""
     if not url or not str(url).lower().startswith("http"):
         return None
     try:
-        r = httpx.get(url, timeout=timeout, follow_redirects=True)
-        r.raise_for_status()
-        raw = r.content
-        if len(raw) > MAX_BYTES:
+        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True, headers=_HEADERS) as client:
+            r = client.get(url)
+            r.raise_for_status()
+            raw = r.content
+        if not raw or len(raw) > MAX_BYTES:
             return None
         ctype = (r.headers.get("content-type") or "").lower()
         text = ""
         if "pdf" in ctype or str(url).lower().endswith(".pdf") or raw[:4] == b"%PDF":
             import pdfplumber
             with pdfplumber.open(io.BytesIO(raw)) as pdf:
-                parts = []
+                parts, n = [], 0
                 for page in pdf.pages:
                     parts.append(page.extract_text() or "")
-                    if sum(len(p) for p in parts) > MAX_CHARS:
+                    n += 1
+                    if n >= MAX_PAGES or sum(len(p) for p in parts) > MAX_CHARS:
                         break
                 text = "\n".join(parts)
         else:
-            text = re.sub(r"<[^>]+>", " ", r.text)      # crude HTML strip
-            text = re.sub(r"\s+", " ", text)
+            text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r.text))   # crude HTML strip
         text = (text or "").strip()
         return text[:MAX_CHARS] if len(text) >= MIN_TEXT else None
     except Exception:
@@ -116,7 +129,9 @@ def summarize_transcript(company_name: str, ticker: str, concalls: list, api_key
     if not text:
         return {"ticker": ticker, "available": False, "quarter": latest.get("date"),
                 "message": "The transcript link could not be fetched or held no extractable text."}
-    prev_text = fetch_transcript_text(withlink[1].get("transcript")) if len(withlink) > 1 else None
+    # Single transcript per call for bounded latency (one fetch + one parse).
+    # QoQ language diff is deferred to a background job (see note in the route).
+    prev_text = None
 
     system, user = build_prompt(company_name, ticker, latest.get("date"), text, prev_text)
     try:
