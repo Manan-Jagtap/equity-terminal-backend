@@ -257,10 +257,17 @@ def _price_from_stock(s, co, stock):
     price = cp.get("NSE") or cp.get("BSE")
     if price:
         price = round(float(price), 2)
+        # Stamp as_of on EVERY update. It used to be set only on insert (the
+        # server_default), so snapshots carried their creation time forever —
+        # which made freshness unknowable (the cross-check flagged all 101
+        # names) and would let the Dhan snapshot-sync overwrite prices
+        # IndianAPI had just refreshed.
+        now = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
         if co.market:
             co.market.price = price
+            co.market.as_of = now
         else:
-            s.add(models.MarketSnapshot(company_id=co.id, price=price))
+            s.add(models.MarketSnapshot(company_id=co.id, price=price, as_of=now))
         return price
     return None
 
