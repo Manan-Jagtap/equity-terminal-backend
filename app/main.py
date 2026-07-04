@@ -65,6 +65,10 @@ from app.thesis_routes import router as thesis_router
 app.include_router(thesis_router)
 from app.auth_routes import router as auth_router
 app.include_router(auth_router)
+from app.quality_routes import router as quality_router
+app.include_router(quality_router)
+from app.screens_routes import router as screens_router
+app.include_router(screens_router)
 from app.onepager import build_onepager
 
 
@@ -208,13 +212,14 @@ def _live_recommend(db, co):
 
 @app.get("/api/universe")
 def api_universe():
-    """Tickers the terminal currently EXPOSES (Nifty 100) — the SINGLE source of
-    truth for the frontend's visibility whitelist, so backend and frontend can no
-    longer drift. Edit NIFTY_NEXT_50 in one place (indianapi_ingester.py) to
-    change what's shown."""
-    from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE, NIFTY_50, NIFTY_NEXT_50
+    """Tickers the terminal currently EXPOSES — the SINGLE source of truth for
+    the frontend's visibility whitelist, so backend and frontend can no longer
+    drift. The tier is selected by the UNIVERSE_TIER env var (nifty100 |
+    nifty250 | nifty500); membership sets live in indianapi_ingester.py."""
+    from app.ingest.indianapi_ingester import (VISIBLE_UNIVERSE, UNIVERSE_TIER,
+                                               NIFTY_50, NIFTY_NEXT_50)
     return {
-        "tier": "nifty100",
+        "tier": UNIVERSE_TIER,
         "count": len(VISIBLE_UNIVERSE),
         "tickers": sorted(VISIBLE_UNIVERSE),
         "core": sorted(NIFTY_50 | {"FEDFINA"}),

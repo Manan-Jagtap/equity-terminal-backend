@@ -119,35 +119,42 @@ Mon: scan **Ideas** (Alpha rank) → shortlist high-Alpha ∩ HIGH-confidence. M
 
 ## 4. The roadmap to institutional-grade
 
-### ✅ Phase 1 — shipped (foundation + valuation)
-Total-return accounting (dividends + splits/bonuses) · Nifty 100 visibility (single-sourced) · REALTY/CHEMICALS sectors · onboarding hardening + API quota guardrail · conglomerate **SOTP** + insurer **P/EV** (real FY26 EVs) · **multi-factor Alpha Score + Ideas view**.
+### ✅ Shipped — Valuation & data foundation
+Total-return accounting (dividends + splits/bonuses) · Nifty 100 visibility (single-sourced) · REALTY/CHEMICALS sectors · onboarding hardening + IndianAPI quota guardrail · conglomerate **SOTP** + insurer **P/EV** (real FY26 EVs).
 
-### ✅ Phase 2 — shipped (systematic decision layer)
-- **Portfolio X-ray + inverse-vol position sizing** — book-level factor exposure, sector concentration (HHI), est. volatility, risk-parity suggested weights with concentration/low-Alpha flags.
-- **Alpha + consensus daily snapshots** — the ledgers behind a public factor track record and estimate-revision signals (capture started; cannot be backfilled).
-- **Catalyst factor** — estimate-revision momentum wired into the Alpha Score as a 6th factor (activates as consensus history accrues).
-- **Alpha-Score public backtest** — forward return by Alpha bucket (Q1 vs Q5) from the snapshot ledger; grades the model in public like the Track Record.
-- **Sector strength** — the ranking aggregated by sector, so you see where the factor tailwind is now.
-- **⌘K command language** — type a destination ("SECTORS", "IDEAS", "TRACK") to jump there; keyboard-first, Bloomberg-style.
+### ✅ Shipped — Systematic decision layer
+Multi-factor **Alpha Score + Ideas** tab · **Portfolio X-ray + inverse-vol sizing** (factor exposure, sector HHI, risk-parity weights, flags) · **Alpha + consensus daily snapshots** (public factor track record + revision history, accruing) · **Catalyst factor** (estimate-revision momentum, 6th factor) · **Alpha public backtest** (Q1-vs-Q5) · **sector strength**.
 
-### Phase 3 — near-term, highest remaining ROI (a little data / plumbing)
-1. **Earnings-surprise (beat/miss) signal** — actual-vs-estimate EPS at results; post-earnings drift persists ~3 months. Wire quarterly actual EPS to the estimate snapshots now accruing → a 7th input.
-2. **Insider trades + FII/DII flow** — insider buying front-runs positive surprises. Needs the vendor's insider/ownership-flow endpoints.
-3. **Alerts on Alpha / signals** — extend the watchlist alert engine to "entered top Alpha decile," "revision upgrade." Self-contained; builds on the new snapshots.
-4. **Saved DCF scenarios + shareable links** — persist slider states per user (auth plumbing already exists) — the collaboration primitive CapIQ sells.
+### ✅ Shipped — Workflow & UX
+**Saved DCF scenarios** (persist slider what-ifs) · **Interactive chart** (range, 50/200-DMA, volume, and a **fair-value line** at the model's intrinsic) · **Options tab** (Dhan chain: OI/IV/greeks/PCR/ATM) · **⌘K command navigation** · **watchlist Alpha/revision alerts** · **mobile bottom-nav + responsive**.
 
-### Phase 4 — mid-term (differentiators, each needs a feed or a large build)
-5. **Universe → Nifty 500** via a **batch EOD price feed (NSE bhavcopy)** — the one re-architecture that breaks the per-name-polling quota wall. Ship in sector tranches, gated by the confidence layer.
-6. **Interactive charting** (price/volume, overlays, the factor & valuation bands you already compute).
-7. **Options/derivatives analytics** — option chain, IV, OI/PCR, payoff, a basic strategy builder (Sensibull-lite) for hedging and income.
-8. **Transcript / annual-report NLP** — quarter-over-quarter guidance & sentiment diffs (the ANTHROPIC key is already wired); plus Tijori-style operating-metric extraction.
-9. **Real mobile layout** — bottom nav, sticky ticker column, positions-on-the-go.
+### ✅ Shipped — Dhan integration (REST-only, recorder-safe) — the big enabler
+`app/dhan/` REST client + instrument map + price backfill + options endpoints. **Verified live:** token authenticates, 9,600 NSE equities mapped, historical OHLCV pulls succeed. This removes the biggest constraint — the IndianAPI price quota — and adds an options feed. See `DHAN_INTEGRATION.md`.
 
-### Phase 5 — long-term / institutional moat
-**Estimates database** (revision trends, estimate-momentum factor) · **entity graph** (cross-holdings, promoter networks — India-specific, nobody does it well) · **second data vendor / staleness alarms** · **AI research copilot** (natural-language "TCS DCF at 12% growth," auto-thesis with citations) · **broker connect for decision-support** (surface orders to place — you approve and execute; never auto-traded).
+### ✅ Shipped 4 Jul 2026 — the Dhan dividend (see CHANGES_2026-07-04.md)
+- **Daily Dhan top-up** — the 5-yr `HistoricalPrice` series now stays current (the one-off backfill had gone stale at 2026-05-29); wired into the daily EOD job, recorder-safe.
+- **Second-source cross-check** — `/api/quality/cross-check` compares Dhan vs IndianAPI closes from the DB (zero vendor calls): STALE / DIVERGENT (split-shaped) alarms + a Data-health strip on the dashboard.
+- **12-1 momentum + 252d vol** — the factor engine now reads the split-adjusted 5-yr series (the canonical momentum horizon), falling back to the 1-yr series for uncovered names.
+- **Universe tiers** — official Nifty-500 membership (niftyindices.com CSVs, fetched 2026-07-04) is in the ingester; `UNIVERSE_TIER=nifty100|nifty250|nifty500` selects visibility. IndianAPI daily EOD stays pinned to the core 100; wider tiers are priced by the Dhan top-up + snapshot sync — no IndianAPI quota cost.
+- **Shareable scenarios** — HMAC share tokens; a `?scenario=` deep link opens the company with the shared assumptions (the CapIQ collaboration primitive, done).
+- **Portfolio risk block** — historical 95% VaR, 1-yr max drawdown, XIRR in the X-ray (each degrades to None on thin data — never a fabricated statistic).
+- **Saved screens** — named screener presets, auth-scoped.
 
-### The 4 I'd do next, in order
-**(1) Earnings-surprise signal → (2) Alerts on Alpha/revisions → (3) Insider/FII-DII flow → (4) Saved & shareable scenarios.** The first two are self-contained and build directly on the ledgers now accruing; the others need a vendor endpoint. Nifty 500 and options/charting/mobile are Phase 4 because each needs a new data feed or a large new build.
+### 🔜 Immediate next (credential / config, not code)
+1. **Options go-live** — the chain endpoint 401s (`/optionchain/expirylist`) even though `has_client_id` is true: fix the `DHAN_CLIENT_ID` value or the Dhan Data-plan entitlement, then the Options tab is fully live (`/api/dhan/status` probes this).
+2. **Flip the tier** — after a broad `RUN_DHAN_BACKFILL`, set `UNIVERSE_TIER=nifty250` (later `nifty500`) on BOTH Railway services and onboard missing names. The classification gate stays.
+3. **Refresh index membership before each flip** — re-pull the niftyindices CSVs. Drift is live: TATAMOTORS demerged into TMPV/TMCV; the Nifty-50 ingest set still lists TATAMOTORS and needs a successor-ticker decision.
+
+### ⏳ Data/entitlement-gated (need a specific source, not more code)
+- **Earnings-surprise (beat/miss)** — needs quarterly *actual* EPS captured at results and matched to the prior estimate. Neither IndianAPI (uncertain field) nor Dhan (no fundamentals) cleanly provides it; parked until a reliable EPS source.
+- **Insider trades + FII/DII flow** — needs an insider/ownership-flow data source.
+- **Transcript / annual-report NLP** — *built and deployed*, but dormant: BSE blocks the transcript-PDF fetch from Railway's IP. Unblock = a proxy or a stored-text pipeline, then it lights up.
+
+### 🌅 Long-term / institutional moat
+**Estimates database** (revision trends, estimate-momentum factor) · **entity graph** (cross-holdings, promoter networks — India-specific) · **AI research copilot** (natural-language "TCS DCF at 12% growth", auto-thesis) · **broker connect for decision-support** (surface orders you approve + execute — never auto-traded).
+
+### The 3 I'd do next, in order
+**(1) Options go-live (fix the Dhan chain 401) → (2) Nifty-250 tier flip (backfill, then `UNIVERSE_TIER`) → (3) the data-gated set** (earnings EPS, insider/flows, a transcript proxy) — everything else on the near-term list is now built and deployed-on-push.
 
 ---
 

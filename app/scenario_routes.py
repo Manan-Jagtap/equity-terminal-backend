@@ -6,16 +6,46 @@ Auth-scoped by user_key = f"u{user.id}" like watchlist/portfolio:
   GET    /api/scenarios?ticker=TCS   → this user's saved scenarios (optionally for one name)
   POST   /api/scenarios              → save/overwrite a named scenario (the assumptions dict)
   DELETE /api/scenarios/{id}         → delete one
+
+Shareable links (the collaboration primitive CapIQ sells):
+
+  POST   /api/scenarios/{id}/share   → owner mints an HMAC-signed share token
+  GET    /api/scenarios/shared/{tok} → PUBLIC read-only view (ticker+name+data,
+                                       never the owner). Stateless — no schema
+                                       change; a link dies when its scenario is
+                                       deleted, and tampered tokens don't parse.
 """
+import hashlib
+import hmac as _hmac
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models
-from app.auth import get_current_user
+from app.auth import get_current_user, SECRET, _b64url_encode, _b64url_decode
 
 router = APIRouter(prefix="/api/scenarios", tags=["scenarios"])
+
+
+def _share_token(scenario_id: int) -> str:
+    payload = str(scenario_id).encode("utf-8")
+    sig = _hmac.new(SECRET, b"scenario-share:" + payload, hashlib.sha256).hexdigest()[:32]
+    return f"{_b64url_encode(payload)}.{sig}"
+
+
+def parse_share_token(token: str) -> int | None:
+    """Verify signature; return the scenario id or None. Constant-time compare."""
+    try:
+        body, sig = token.split(".", 1)
+        payload = _b64url_decode(body)
+        want = _hmac.new(SECRET, b"scenario-share:" + payload, hashlib.sha256).hexdigest()[:32]
+        if not _hmac.compare_digest(sig, want):
+            return None
+        return int(payload.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
 
 
 class ScenarioUpsert(BaseModel):
@@ -58,6 +88,30 @@ def save_scenario(body: ScenarioUpsert,
     db.commit()
     db.refresh(row)
     return _row(row)
+
+
+@router.get("/shared/{token}")
+def get_shared(token: str, db: Session = Depends(get_db)):
+    """Public read-only view of a shared scenario. Returns ticker/name/data —
+    deliberately not the owner. 404 for bad tokens and deleted scenarios alike
+    (no oracle for probing which ids exist)."""
+    sid = parse_share_token(token)
+    row = db.query(models.SavedScenario).filter_by(id=sid).first() if sid else None
+    if not row:
+        raise HTTPException(404, "Scenario not found")
+    return {"ticker": row.ticker, "name": row.name, "data": row.data,
+            "created_at": row.created_at.isoformat() if row.created_at else None}
+
+
+@router.post("/{scenario_id}/share")
+def share_scenario(scenario_id: int,
+                   user: models.User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    uk = f"u{user.id}"
+    row = db.query(models.SavedScenario).filter_by(id=scenario_id, user_key=uk).first()
+    if not row:
+        raise HTTPException(404, "Scenario not found")
+    return {"token": _share_token(row.id), "ticker": row.ticker, "name": row.name}
 
 
 @router.delete("/{scenario_id}")

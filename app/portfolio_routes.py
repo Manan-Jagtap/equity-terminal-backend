@@ -164,7 +164,51 @@ def portfolio_xray_route(user: models.User = Depends(get_current_user),
             "verdict": r.get("verdict"),
         })
     xray = portfolio_xray(items)
-    return {"items": items, "xray": xray}
+    return {"items": items, "xray": xray, "risk": _risk_block(db, holdings)}
+
+
+def _risk_block(db: Session, holdings) -> dict | None:
+    """VaR / max-drawdown / XIRR for the book, fed by the split-adjusted Dhan
+    HistoricalPrice series (trailing year). Pure math in app.portfolio_risk;
+    every stat degrades to None on thin data rather than fabricating a number."""
+    import datetime as _dt
+    from app.portfolio_risk import risk_summary
+    if not holdings:
+        return None
+    cids = {h.company_id: h for h in holdings}
+    cutoff = (_dt.date.today() - _dt.timedelta(days=400)).isoformat()
+    acts: dict[int, list] = {}
+    for a in (db.query(models.CorporateAction)
+                .filter(models.CorporateAction.company_id.in_(list(cids))).all()):
+        if a.action_type in ("split", "bonus") and a.ratio:
+            acts.setdefault(a.company_id, []).append(
+                {"action_type": a.action_type, "ex_date": a.ex_date, "ratio": a.ratio})
+    closes_by: dict[str, dict] = {}
+    price_rows = (db.query(models.HistoricalPrice)
+                    .filter(models.HistoricalPrice.company_id.in_(list(cids)),
+                            models.HistoricalPrice.date >= cutoff)
+                    .order_by(models.HistoricalPrice.date).all())
+    for hp in price_rows:
+        h = cids.get(hp.company_id)
+        if not h or hp.close is None:
+            continue
+        f = price_factor(hp.date, acts.get(hp.company_id)) if acts.get(hp.company_id) else 1.0
+        closes_by.setdefault((h.company.ticker or "").upper(), {})[hp.date] = hp.close * f
+
+    price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    hold_rows, cashflows, total_value = [], [], 0.0
+    today = _dt.date.today()
+    for h in holdings:
+        tk = (h.company.ticker or "").upper()
+        hold_rows.append({"ticker": tk, "qty": h.qty or 0.0})
+        added = h.added_at.date() if isinstance(h.added_at, _dt.datetime) else today
+        cashflows.append((added, -(h.qty or 0.0) * (h.avg_cost or 0.0)))
+        price = price_by.get(h.company_id)
+        if price:
+            total_value += (h.qty or 0.0) * price
+    if total_value:
+        cashflows.append((today, total_value))
+    return risk_summary(hold_rows, closes_by, cashflows, total_value)
 
 
 @router.post("")

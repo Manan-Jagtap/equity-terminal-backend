@@ -1055,12 +1055,90 @@ NIFTY_NEXT_50 = {
     "VEDL","ZYDUSLIFE","MUTHOOTFIN","INDHOTEL","MANKIND","ABB",
 }
 
-# The VISIBLE universe (Nifty 100): what the terminal exposes + keeps fresh with
-# daily EOD prices and a daily valuation recompute. Intraday (90-min) and the
-# weekly full-fundamentals refresh stay scoped to UNIVERSE (Nifty 50) to respect
-# the IndianAPI monthly quota — Next-50 prices refresh daily, fundamentals ride
-# the weekly full only for the core 50 (they change quarterly, so this is fine).
-VISIBLE_UNIVERSE = NIFTY_50 | NIFTY_NEXT_50 | EXTRA_TICKERS
+# The CORE universe (Nifty 100): the set IndianAPI keeps fresh with daily EOD
+# prices — quota-priced, so it does NOT grow when the visible tier widens.
+# Intraday (90-min) and the weekly full-fundamentals refresh stay scoped to
+# UNIVERSE (Nifty 50); Next-50 prices refresh daily, fundamentals ride the
+# weekly full only for the core 50 (they change quarterly, so this is fine).
+CORE_UNIVERSE = NIFTY_50 | NIFTY_NEXT_50 | EXTRA_TICKERS
+
+# ── Nifty Midcap 150 / rest-of-Nifty-500 — visibility tranches 3 and 4 ──────
+# OFFICIAL membership, fetched 2026-07-04 from niftyindices.com IndexConstituent
+# CSVs (ind_niftymidcap150list.csv / ind_nifty500list.csv), minus names already
+# in the tranches above. Indices rebalance ~half-yearly — re-pull the CSVs
+# before enabling a wider tier. Drift is real: the official Nifty 500 no longer
+# lists TATAMOTORS (demerged into TMPV/TMCV — both appear below).
+NIFTY_MIDCAP_150 = {
+    "360ONE","3MINDIA","ABBOTINDIA","ABCAPITAL","ACC","AIAENG","AIIL","AJANTPHARM","ALKEM",
+    "ANTHEM","APARINDS","APLAPOLLO","APOLLOTYRE","ASHOKLEY","ASTRAL","ATGL","AUBANK",
+    "AUROPHARMA","AWL","BAJAJHFL","BALKRISIND","BANKINDIA","BDL","BHARATFORG","BHARTIHEXA",
+    "BHEL","BIOCON","BLUESTARCO","BSE","COCHINSHIP","COFORGE","CONCOR","COROMANDEL","CRISIL",
+    "DALBHARAT","DIXON","ENDURANCE","ESCORTS","EXIDEIND","FEDERALBNK","FLUOROCHEM","FORTIS",
+    "GICRE","GLAXO","GLENMARK","GMRAIRPORT","GODFRYPHLP","GODREJIND","GODREJPROP","GROWW",
+    "GVT&D","HDBFS","HEXT","HINDPETRO","HONAUT","HUDCO","ICICIAMC","IDEA","IDFCFIRSTB",
+    "INDIANB","INDUSINDBK","INDUSTOWER","IPCALAB","IRCTC","IREDA","ITCHOTELS","JKCEMENT","JSL",
+    "JSWINFRA","JUBLFOOD","KALYANKJIL","KEI","KPITTECH","KPRMILL","LAURUSLABS","LENSKART",
+    "LGEINDIA","LICHSGFIN","LINDEINDIA","LLOYDSME","LTF","LTTS","LUPIN","M&MFIN","MAHABANK",
+    "MCX","MEDANTA","MFSL","MOTILALOFS","MPHASIS","MRF","NAM-INDIA","NATIONALUM","NHPC","NIACL",
+    "NLCINDIA","NMDC","NTPCGREEN","NYKAA","OBEROIRLTY","OFSS","OIL","PAGEIND","PATANJALI",
+    "PAYTM","PERSISTENT","PETRONET","PHOENIXLTD","PIIND","POLICYBZR","POLYCAB","POWERINDIA",
+    "PREMIERENE","PRESTIGE","RADICO","RVNL","SAIL","SBICARD","SCHAEFFLER","SJVN","SUNDARMFIN",
+    "SUPREMEIND","SUZLON","SWIGGY","TATACOMM","TATAELXSI","TATAINVEST","THERMAX","TIINDIA",
+    "TORNTPOWER","UBL","UNOMINDA","UPL","VMM","VOLTAS","WAAREEENER","YESBANK",
+}
+NIFTY_500_REST = {
+    "AADHARHFC","AARTIIND","AAVAS","ABDL","ABFRL","ABLBL","ABREL","ABSLAMC","ACE","ACMESOLAR",
+    "ACUTAAS","AEGISLOG","AEGISVOPAK","AFCONS","AFFLE","AMBER","ANANDRATHI","ANANTRAJ",
+    "ANGELONE","ANURAS","APTUS","ARE&M","ASAHIINDIA","ASTERDM","ATHERENERG","ATUL","BALRAMCHIN",
+    "BANDHANBNK","BATAINDIA","BAYERCROP","BBTC","BELRISE","BEML","BIKAJI","BLS","BLUEDART",
+    "BLUEJET","BRIGADE","BSOFT","CAMS","CANFINHOME","CANHLIFE","CAPLIPOINT","CARBORUNIV",
+    "CARTRADE","CASTROLIND","CCL","CDSL","CEATLTD","CEMPRO","CENTRALBK","CESC","CGCL","CHALET",
+    "CHAMBLFERT","CHENNPETRO","CHOICEIN","CHOLAHLDNG","CIEINDIA","CLEAN","COHANCE","CONCORDBIO",
+    "CPPLUS","CRAFTSMAN","CREDITACC","CROMPTON","CUB","CUMMINSIND","CYIENT","DATAPATTNS",
+    "DCMSHRIRAM","DEEPAKFERT","DEEPAKNTR","DELHIVERY","DEVYANI","DOMS","ECLERX","EIDPARRY",
+    "EIHOTEL","ELECON","ELGIEQUIP","EMAMILTD","EMCURE","EMMVEE","ENGINERSIN","ENRIN","ERIS",
+    "FACT","FINCABLES","FIRSTCRY","FIVESTAR","FORCEMOT","FSL","GABRIEL","GALLANTT","GESHIP",
+    "GILLETTE","GLAND","GMDCLTD","GODIGIT","GPIL","GRANULES","GRAPHITE","GRAVITA","GRSE",
+    "HBLENGINE","HEG","HFCL","HINDCOPPER","HINDZINC","HOMEFIRST","HONASA","HSCL","HYUNDAI",
+    "IDBI","IEX","IFCI","IGIL","IGL","IIFL","IKS","INDGN","INDIACEM","INDIAMART","INDIGO",
+    "INOXWIND","INTELLECT","IOB","IRB","IRCON","ITI","J&KBANK","JAINREC","JBCHEPHARM","JBMA",
+    "JINDALSAW","JKTYRE","JMFINANCIL","JPPOWER","JSWCEMENT","JSWDULUX","JUBLINGREA",
+    "JUBLPHARMA","JWL","JYOTICNC","KAJARIACER","KARURVYSYA","KAYNES","KEC","KFINTECH","KIMS",
+    "KIRLOSENG","KPIL","LALPATHLAB","LATENTVIEW","LEMONTREE","LTFOODS","LTM","MANAPPURAM",
+    "MAPMYINDIA","MAXHEALTH","MAZDOCK","MEESHO","MGL","MINDACORP","MMTC","MRPL","MSUMI",
+    "NATCOPHARM","NAVA","NAVINFLUOR","NBCC","NCC","NETWEB","NEULANDLAB","NEWGEN","NH",
+    "NIVABUPA","NSLNISP","NUVAMA","NUVOCO","OLAELEC","OLECTRA","ONESOURCE","PARADEEP","PCBL",
+    "PFIZER","PGEL","PINELABS","PIRAMALFIN","PNBHOUSING","POLYMED","POONAWALLA","PPLPHARMA",
+    "PTCIL","PVRINOX","PWL","RAILTEL","RAINBOW","RAMCOCEM","RBLBANK","REDINGTON","RHIM","RITES",
+    "RKFORGE","RPOWER","RRKABEL","SAGILITY","SAILIFE","SAMMAANCAP","SAPPHIRE","SARDAEN",
+    "SAREGAMA","SBFC","SCHNEIDER","SCI","SHREECEM","SHYAMMETL","SIGNATURE","SOBHA","SOLARINDS",
+    "SONACOMS","SONATSOFTW","SPLPETRO","STARHEALTH","SUMICHEM","SUNTV","SWANCORP","SYNGENE",
+    "SYRMA","TARIL","TATACAP","TATACHEM","TATATECH","TBOTEK","TECHNOE","TEGA","TEJASNET",
+    "TENNIND","THELEELA","TIMKEN","TITAGARH","TMCV","TMPV","TRAVELFOOD","TRIDENT","TRITURBINE",
+    "TTML","UCOBANK","UNIONBANK","URBANCO","USHAMART","UTIAMC","VIJAYA","VTL","WELCORP",
+    "WELSPUNLIV","WHIRLPOOL","WOCKPHARMA","ZEEL","ZENSARTECH","ZENTEC","ZFCVINDIA","ZYDUSWELL",
+}
+
+# Held back at ANY tier: no defensible sector model yet — an airline valued on a
+# generic manufacturing multiple would be confidently wrong. Better hidden than
+# mis-priced (the INDIGO rule).
+EXCLUDED_TICKERS = {"INDIGO"}
+
+# The VISIBLE universe: what the terminal exposes + recomputes daily, selected
+# by the UNIVERSE_TIER env var (nifty100 | nifty250 | nifty500). Names beyond
+# CORE_UNIVERSE get their prices from the daily Dhan top-up + snapshot sync
+# (100k calls/day) — NOT IndianAPI — so widening the tier costs no IndianAPI
+# quota. Fundamentals for wider tiers refresh on bootstrap/weekly-full only;
+# the data-quality gate keeps thin names LOW CONF rather than confidently wrong.
+_TIERS = {
+    "nifty100": CORE_UNIVERSE,
+    "nifty250": CORE_UNIVERSE | NIFTY_MIDCAP_150,
+    "nifty500": CORE_UNIVERSE | NIFTY_MIDCAP_150 | NIFTY_500_REST,
+}
+UNIVERSE_TIER = (os.getenv("UNIVERSE_TIER", "nifty100") or "").strip().lower()
+if UNIVERSE_TIER not in _TIERS:
+    UNIVERSE_TIER = "nifty100"
+VISIBLE_UNIVERSE = _TIERS[UNIVERSE_TIER] - EXCLUDED_TICKERS
 
 
 # ── Intraday spot-price refresh (yfinance — all 50 in ONE batched call) ──────
@@ -1144,9 +1222,11 @@ def run(limit=None, ticker=None, price_only=False, nifty50=False, insights=True,
     if ticker:
         q = q.filter(models.Company.ticker == ticker.upper())
     companies = q.all()
-    # `visible` scopes to the Nifty 100 (daily EOD prices); `nifty50` to the tight
-    # Nifty 50 (intraday + weekly full). `visible` takes precedence when both set.
-    scope = VISIBLE_UNIVERSE if visible else (UNIVERSE if nifty50 else None)
+    # `visible` scopes to the CORE Nifty 100 (IndianAPI daily EOD — deliberately
+    # NOT the tier-widened VISIBLE_UNIVERSE, whose extra names are priced by the
+    # Dhan top-up instead); `nifty50` to the tight Nifty 50 (intraday + weekly
+    # full). `visible` takes precedence when both set.
+    scope = CORE_UNIVERSE if visible else (UNIVERSE if nifty50 else None)
     if scope is not None:
         companies = [c for c in companies if (c.ticker or "").upper() in scope]
     if limit:

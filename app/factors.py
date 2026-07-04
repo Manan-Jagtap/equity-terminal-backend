@@ -52,8 +52,18 @@ def trailing_return(closes, lookback: int = 126, skip: int = 21):
     return end / start - 1.0
 
 
-def realized_vol(closes, window: int = 126):
-    """Annualized volatility of daily returns over the trailing window."""
+def momentum(closes):
+    """Canonical 12-1 momentum (231d lookback, 21d skip) when at least a year of
+    history exists — the horizon with the strongest cross-sectional evidence —
+    falling back to 6-1 on shorter series (e.g. a freshly onboarded name)."""
+    if closes and len(closes) >= 231 + 21 + 1:
+        return trailing_return(closes, lookback=231, skip=21)
+    return trailing_return(closes)
+
+
+def realized_vol(closes, window: int = 252):
+    """Annualized volatility of daily returns over the trailing window
+    (a full trading year when the series allows; shorter series truncate)."""
     s = closes[-window:] if len(closes) >= window else closes
     rets = [s[i] / s[i - 1] - 1 for i in range(1, len(s)) if s[i - 1]]
     if len(rets) < 20:
@@ -70,7 +80,7 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
     w = weights or FACTOR_WEIGHTS
     ey = {r["ticker"]: (1.0 / r["pe"] if r.get("pe") and r["pe"] > 0 else None) for r in rows}
     by = {r["ticker"]: (1.0 / r["pb"] if r.get("pb") and r["pb"] > 0 else None) for r in rows}
-    mom = {r["ticker"]: trailing_return(r.get("closes") or []) for r in rows}
+    mom = {r["ticker"]: momentum(r.get("closes") or []) for r in rows}
     vol = {r["ticker"]: realized_vol(r.get("closes") or []) for r in rows}
 
     r_mos = _pct_ranks([(r["ticker"], r.get("mos")) for r in rows])

@@ -38,9 +38,40 @@ def catalyst_by(db, min_points: int = 2) -> dict:
     return out
 
 
+def _adjusted_closes_by(db, days: int = 420) -> dict:
+    """Split/bonus-adjusted closes per company from the Dhan HistoricalPrice
+    series, windowed to the trailing ~420 calendar days — enough for canonical
+    12-1 momentum and a 252-day vol window without loading 5 years for the
+    whole universe. Adjustment uses the same corporate-action ledger the chart
+    does, so a split inside the window can't fake a -50% momentum print."""
+    import datetime as _dt
+    from .corporate_actions import price_factor
+    cutoff = (_dt.date.today() - _dt.timedelta(days=days)).isoformat()
+    acts: dict[int, list] = {}
+    try:
+        for a in db.query(models.CorporateAction).all():
+            if a.action_type in ("split", "bonus") and a.ratio:
+                acts.setdefault(a.company_id, []).append(
+                    {"action_type": a.action_type, "ex_date": a.ex_date, "ratio": a.ratio})
+        rows = (db.query(models.HistoricalPrice)
+                  .filter(models.HistoricalPrice.date >= cutoff)
+                  .order_by(models.HistoricalPrice.company_id,
+                            models.HistoricalPrice.date).all())
+    except Exception:
+        db.rollback()
+        return {}
+    out: dict[int, list] = {}
+    for hp in rows:
+        f = price_factor(hp.date, acts.get(hp.company_id)) if acts.get(hp.company_id) else 1.0
+        out.setdefault(hp.company_id, []).append(hp.close * f)
+    return out
+
+
 def assemble_factor_rows(db, tickers) -> list[dict]:
     """Build score_universe input rows for `tickers` from precomputed valuations
-    + 1-yr price series + consensus revision. No API calls."""
+    + price series + consensus revision. No API calls. Prefers the split-adjusted
+    Dhan HistoricalPrice series (longer window → 12-1 momentum, 252d vol); the
+    1-yr PricePoint series remains the fallback for names Dhan hasn't covered."""
     tset = {(t or "").upper() for t in tickers}
     cos = {c.id: c for c in db.query(models.Company).all() if (c.ticker or "").upper() in tset}
     vals = {}
@@ -53,6 +84,12 @@ def assemble_factor_rows(db, tickers) -> list[dict]:
     for p in (db.query(models.PricePoint)
                 .order_by(models.PricePoint.company_id, models.PricePoint.t).all()):
         closes.setdefault(p.company_id, []).append(p.close)
+    hist = _adjusted_closes_by(db)
+    for cid, series in hist.items():
+        # Only prefer Dhan when it actually extends the window (short stubs lose
+        # to a full 1-yr PricePoint series).
+        if len(series) >= max(200, len(closes.get(cid, []))):
+            closes[cid] = series
     cat = catalyst_by(db)
     rows = []
     for cid, co in cos.items():

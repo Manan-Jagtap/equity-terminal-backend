@@ -389,3 +389,16 @@ class SavedScenario(Base):
     data       = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime, server_default=func.now())
     __table_args__ = (UniqueConstraint("user_key", "ticker", "name", name="uq_scenario"),)
+
+
+class SavedScreen(Base):
+    """A user's saved screener state (query / sector / sort — the `data` dict is
+    schemaless so new filters serialize without a migration). Scoped by user_key
+    like watchlist/portfolio. Additive table."""
+    __tablename__ = "saved_screens"
+    id         = Column(Integer, primary_key=True)
+    user_key   = Column(String(64), nullable=False, index=True)
+    name       = Column(String(120), nullable=False)
+    data       = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, server_default=func.now())
+    __table_args__ = (UniqueConstraint("user_key", "name", name="uq_screen"),)

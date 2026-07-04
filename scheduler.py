@@ -87,12 +87,39 @@ def run_compute(nifty50=False, visible=False):
         log.error(f"Valuation recompute failed: {e}")
 
 
+def run_dhan_topup(days: int = 30):
+    """Incremental Dhan top-up of HistoricalPrice for the visible universe so the
+    5-yr series stays current (the one-off RUN_DHAN_BACKFILL seeded it; this keeps
+    it fed). ~1 REST call/name, self-rate-limited, no WebSocket — recorder-safe.
+    The 30-day window self-heals holiday/outage gaps. No-op when Dhan is unset."""
+    try:
+        from app.dhan import client as _dhan
+        from app.dhan.backfill import backfill_prices
+        from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+        from app.database import SessionLocal
+        if not _dhan.configured():
+            return
+        s = SessionLocal()
+        try:
+            stats = backfill_prices(s, sorted(VISIBLE_UNIVERSE), days=days)
+            # Mark names IndianAPI's core EOD pass doesn't cover (wider tiers)
+            # to Dhan's close, so nothing visible drifts on a stale price.
+            from app.dhan.backfill import sync_snapshots_from_history
+            sync = sync_snapshots_from_history(s, sorted(VISIBLE_UNIVERSE))
+        finally:
+            s.close()
+        log.info(f"Dhan daily top-up: {stats} · snapshot sync: {sync}")
+    except Exception as e:
+        log.error(f"Dhan daily top-up failed: {e}")
+
+
 def run_prices():
     # Daily EOD prices for the FULL visible set (Nifty 100) so every shown name is
     # marked to today's close; intraday + weekly full stay Nifty-50 tight for quota.
     log.info("IndianAPI daily price refresh (Nifty 100)…")
     try:
         indianapi_run(price_only=True, visible=True)
+        run_dhan_topup()            # keep the Dhan 5-yr HistoricalPrice series current
         run_compute(visible=True)   # refresh MoS/verdict against the new prices
         snapshot_verdicts()         # append today's calls to the track record
         snapshot_signals()          # alpha + consensus ledgers (factor track record)
