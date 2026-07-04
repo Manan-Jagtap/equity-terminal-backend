@@ -1225,18 +1225,23 @@ def run_intraday(debug=False):
         s.close()
 
 
-def run(limit=None, ticker=None, price_only=False, nifty50=False, insights=True, visible=False):
+def run(limit=None, ticker=None, price_only=False, nifty50=False, insights=True, visible=False,
+        tickers=None):
     from app import api_budget as B
     s = SessionLocal()
     q = s.query(models.Company)
     if ticker:
         q = q.filter(models.Company.ticker == ticker.upper())
     companies = q.all()
+    # `tickers` (explicit set) wins — the rolling-cohort refresh uses it. Then
     # `visible` scopes to the CORE Nifty 100 (IndianAPI daily EOD — deliberately
     # NOT the tier-widened VISIBLE_UNIVERSE, whose extra names are priced by the
     # Dhan top-up instead); `nifty50` to the tight Nifty 50 (intraday + weekly
-    # full). `visible` takes precedence when both set.
-    scope = CORE_UNIVERSE if visible else (UNIVERSE if nifty50 else None)
+    # full). `visible` takes precedence over `nifty50` when both set.
+    if tickers is not None:
+        scope = {(t or "").upper() for t in tickers}
+    else:
+        scope = CORE_UNIVERSE if visible else (UNIVERSE if nifty50 else None)
     if scope is not None:
         companies = [c for c in companies if (c.ticker or "").upper() in scope]
     if limit:

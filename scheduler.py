@@ -152,10 +152,41 @@ def run_intraday_prices():
         log.error(f"Intraday price refresh failed: {e}")
 
 
+def rolling_cohort(size: int | None = None) -> list:
+    """This week's slice of the non-core visible universe for the rotating full
+    refresh. Deterministic from the ISO week number — no cursor to persist, and
+    a redeploy mid-week re-picks the same cohort (idempotent re-ingest). At the
+    default 60 names/week the ~450 non-core names fully cycle in ~8 weeks;
+    fundamentals move quarterly, so that keeps everyone inside one quarter.
+    Tune with ROLLING_REFRESH_SIZE (0 disables)."""
+    import datetime as _dt
+    from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE, UNIVERSE
+    size = int(os.getenv("ROLLING_REFRESH_SIZE", "60")) if size is None else size
+    names = sorted(VISIBLE_UNIVERSE - UNIVERSE)
+    if size <= 0 or not names:
+        return []
+    week = _dt.date.today().isocalendar()[1]
+    start = (week * size) % len(names)
+    picked = names[start:start + size]
+    if len(picked) < size:                     # wrap around the list end
+        picked += names[:size - len(picked)]
+    return picked
+
+
 def run_full():
+    # Core Nifty 50: full statements + facts + insights weekly (as always).
+    # Then this week's rolling cohort of the wider universe gets the same
+    # treatment, so analyst consensus / documents / forecasts exist for ALL
+    # 500 names, not just the core — the budget pre-flight in run() aborts
+    # the cohort if the month's IndianAPI budget would be breached.
     log.info("IndianAPI weekly full refresh (statements + facts + insights)…")
     try:
         indianapi_run(nifty50=True, insights=True)
+        cohort = rolling_cohort()
+        if cohort:
+            log.info(f"Rolling cohort refresh: {len(cohort)} names "
+                     f"({cohort[0]}…{cohort[-1]})")
+            indianapi_run(tickers=cohort, insights=True)
         run_compute()          # rebuild valuations from the fresh statements
         log.info("Weekly full refresh complete.")
     except Exception as e:

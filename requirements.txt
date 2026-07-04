@@ -13,3 +13,4 @@ bse
 pdfplumber
 openpyxl==3.1.5
 httpx
+dnspython

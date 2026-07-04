@@ -45,3 +45,4 @@ def test_unclassifiable_sector_is_flagged():
 def test_missing_profile_uses_ticker_and_flags_fallback():
     name, sector, tmpl, typ, fb = _resolve_onboarding("NEWCO", {}, "Unknown", None)
     assert name == "NEWCO" and fb is True     # no sector → default multiple, flagged
+

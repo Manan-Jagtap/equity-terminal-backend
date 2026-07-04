@@ -21,15 +21,21 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.database import SessionLocal
 from app import models
+import app.email_check as email_check
+
+# The suite must run offline and fast: stub the DNS layer to "couldn't check"
+# (fail-open), which is exactly what a resolver timeout produces in prod.
+email_check._domain_accepts_mail = lambda domain, timeout=3.0: None
 
 client = TestClient(app)
 
 PW = "correct-horse-9"
 
 
-def _signup(email, pw=PW, name=None):
+def _signup(email, pw=PW, name="Test User", consent=True):
     return client.post("/api/auth/signup",
-                       json={"email": email, "password": pw, "name": name})
+                       json={"email": email, "password": pw, "name": name,
+                             "consent": consent})
 
 
 def _auth(token):
@@ -157,3 +163,26 @@ def test_admin_gate_fails_closed_and_opens_for_listed_email(monkeypatch):
     assert me["login_count"] == 0 and me["created_at"]
     ev = client.get("/api/admin/auth-events?limit=5", headers=h)
     assert ev.status_code == 200 and ev.json()["count"] >= 1
+
+
+# ── Signup validation layer ──────────────────────────────────────────────────
+def test_signup_requires_name_and_consent():
+    assert _signup("noname@example.com", name="").status_code == 400
+    assert _signup("noconsent@example.com", consent=False).status_code == 400
+
+
+def test_signup_rejects_disposable_and_bad_syntax():
+    assert _signup("throwaway@mailinator.com").status_code == 400
+    assert _signup("double..dot@example.com").status_code == 400
+
+
+def test_signup_fails_open_on_dns_unknown():
+    # _domain_accepts_mail stubbed to None (undeterminable) — signup must succeed.
+    r = _signup("dnsopen@example.com")
+    assert r.status_code == 200 and r.json()["user"]["name"] == "Test User"
+
+
+def test_signup_rejects_domain_that_refuses_mail(monkeypatch):
+    monkeypatch.setattr(email_check, "_domain_accepts_mail", lambda d, timeout=3.0: False)
+    r = _signup("ghost@no-such-domain-xyz.example")
+    assert r.status_code == 400 and "doesn't appear to accept email" in r.json()["detail"]

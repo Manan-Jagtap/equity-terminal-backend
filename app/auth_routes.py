@@ -50,6 +50,7 @@ class SignupBody(BaseModel):
     email: str
     password: str
     name: str | None = None
+    consent: bool = False       # privacy-policy acceptance (required)
 
 
 class LoginBody(BaseModel):
@@ -67,17 +68,26 @@ def _auth_response(user: models.User) -> dict:
 
 @router.post("/signup")
 def signup(body: SignupBody, request: Request, db: Session = Depends(get_db)):
+    from app.email_check import validate_email
     email = (body.email or "").strip().lower()
+    name = (body.name or "").strip()
     if not _EMAIL_RE.match(email):
         raise HTTPException(400, "Invalid email address")
+    email_problem = validate_email(email)     # syntax + disposable + DNS/MX
+    if email_problem:
+        raise HTTPException(400, email_problem)
+    if not name:
+        raise HTTPException(400, "Name is required")
     if len(body.password or "") < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
+    if not body.consent:
+        raise HTTPException(400, "Please accept the Privacy Policy to create an account")
     if db.query(models.User).filter_by(email=email).first():
         raise HTTPException(400, "An account with this email already exists")
 
     is_first_user = db.query(models.User).count() == 0
 
-    user = models.User(email=email, name=(body.name or None),
+    user = models.User(email=email, name=name,
                        password_hash=hash_password(body.password))
     db.add(user)
     db.commit()
