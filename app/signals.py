@@ -67,11 +67,44 @@ def _adjusted_closes_by(db, days: int = 420) -> dict:
     return out
 
 
+def surprise_by(db, max_age_days: int = 100) -> dict:
+    """Per-ticker latest EPS surprise (%) from the stored forecast blobs — the
+    same parse the Results scoreboard uses (results_logic.eps_surprise). Only
+    surprises reported within `max_age_days` participate: post-earnings drift
+    persists ~3 months, so a stale beat shouldn't score forever. Undated
+    surprises are excluded rather than guessed at."""
+    import datetime as _dt
+    from .results_logic import eps_surprise
+    cutoff = _dt.date.today() - _dt.timedelta(days=max_age_days)
+    cos = {c.id: (c.ticker or "").upper() for c in db.query(models.Company).all()}
+    out = {}
+    try:
+        insights = db.query(models.CompanyInsight).all()
+    except Exception:
+        db.rollback()
+        return out
+    for r in insights:
+        tk = cos.get(r.company_id)
+        if not tk or not r.data:
+            continue
+        s = eps_surprise((r.data or {}).get("forecasts"))
+        if not s or s.get("surprise_pct") is None:
+            continue
+        try:
+            reported = _dt.date.fromisoformat(str(s.get("date"))[:10])
+        except (ValueError, TypeError):
+            continue
+        if reported >= cutoff:
+            out[tk] = s["surprise_pct"]
+    return out
+
+
 def assemble_factor_rows(db, tickers) -> list[dict]:
     """Build score_universe input rows for `tickers` from precomputed valuations
-    + price series + consensus revision. No API calls. Prefers the split-adjusted
-    Dhan HistoricalPrice series (longer window → 12-1 momentum, 252d vol); the
-    1-yr PricePoint series remains the fallback for names Dhan hasn't covered."""
+    + price series + consensus revision + latest EPS surprise. No API calls.
+    Prefers the split-adjusted Dhan HistoricalPrice series (longer window →
+    12-1 momentum, 252d vol); the 1-yr PricePoint series remains the fallback
+    for names Dhan hasn't covered."""
     tset = {(t or "").upper() for t in tickers}
     cos = {c.id: c for c in db.query(models.Company).all() if (c.ticker or "").upper() in tset}
     vals = {}
@@ -91,6 +124,7 @@ def assemble_factor_rows(db, tickers) -> list[dict]:
         if len(series) >= max(200, len(closes.get(cid, []))):
             closes[cid] = series
     cat = catalyst_by(db)
+    sur = surprise_by(db)
     rows = []
     for cid, co in cos.items():
         v = vals.get(cid)
@@ -103,6 +137,7 @@ def assemble_factor_rows(db, tickers) -> list[dict]:
             "closes": closes.get(cid, []),
             "growth": v.analyst_upside,
             "catalyst": cat.get((co.ticker or "").upper()),
+            "surprise": sur.get((co.ticker or "").upper()),
         })
     return rows
 

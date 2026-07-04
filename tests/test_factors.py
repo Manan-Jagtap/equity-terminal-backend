@@ -39,7 +39,7 @@ def test_score_universe_ranks_dominant_name_first():
     out = score_universe(rows)
     assert out[0]["ticker"] == "A" and out[0]["rank"] == 1
     assert out[0]["alpha_score"] >= out[1]["alpha_score"]
-    assert set(out[0]["factors"]) == {"value", "quality", "momentum", "low_vol", "growth", "catalyst"}
+    assert set(out[0]["factors"]) == {"value", "quality", "momentum", "low_vol", "growth", "catalyst", "surprise"}
 
 
 def test_score_universe_handles_missing_factors():
@@ -120,3 +120,20 @@ def test_alpha_backtest_buckets_and_spread():
 def test_alpha_backtest_insufficient_history():
     bt = alpha_backtest([{"ticker": "A", "alpha0": 50, "price0": 100, "price_now": 110}], buckets=5)
     assert bt["n"] == 1 and bt["buckets"] == [] and bt["top_minus_bottom"] is None
+
+
+def test_surprise_factor_participates_and_renormalizes():
+    # Isolate the surprise factor (all other inputs None, like the catalyst-only
+    # test): alpha is then driven purely by the beat/miss rank.
+    base = {"mos": None, "roe": None, "pe": None, "pb": None, "closes": [], "growth": None}
+    rows = [{"ticker": "BEAT", **base, "surprise": 8.0},
+            {"ticker": "MISS", **base, "surprise": -6.0}]
+    out = {r["ticker"]: r for r in score_universe(rows)}
+    assert out["BEAT"]["factors"]["surprise"] == 100.0
+    assert out["MISS"]["factors"]["surprise"] == 0.0
+    assert out["BEAT"]["alpha_score"] > out["MISS"]["alpha_score"]
+    # Without surprise data the factor is simply None (score renormalizes
+    # over whatever else exists — here nothing, so alpha is None too).
+    out2 = score_universe([{"ticker": "A", **base}])
+    assert out2[0]["factors"]["surprise"] is None
+    assert out2[0]["alpha_score"] is None

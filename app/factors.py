@@ -20,12 +20,13 @@ from __future__ import annotations
 from statistics import pstdev
 
 # Evidence-weighted default blend. The five core factors sum to 1.0; `catalyst`
-# (estimate-revision momentum) is layered on at 0.12 and only participates once
-# consensus history has accrued — until then it's None and the score re-normalizes
-# over the five core factors, i.e. exactly the original behaviour. One place to
-# tune the strategy.
+# (estimate-revision momentum) and `surprise` (latest EPS beat/miss vs consensus
+# — post-earnings drift persists ~3 months) are layered on top and only
+# participate when their data exists — otherwise they're None and the score
+# re-normalizes over the factors that do, i.e. exactly the prior behaviour.
+# One place to tune the strategy.
 FACTOR_WEIGHTS = {"quality": 0.25, "momentum": 0.25, "value": 0.20, "low_vol": 0.20,
-                  "growth": 0.10, "catalyst": 0.12}
+                  "growth": 0.10, "catalyst": 0.12, "surprise": 0.10}
 
 
 def _pct_ranks(items, higher_is_better: bool = True) -> dict:
@@ -91,6 +92,7 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
     r_vol = _pct_ranks(vol.items(), higher_is_better=False)   # low vol ranks high
     r_grw = _pct_ranks([(r["ticker"], r.get("growth")) for r in rows])
     r_cat = _pct_ranks([(r["ticker"], r.get("catalyst")) for r in rows])   # revision momentum
+    r_sur = _pct_ranks([(r["ticker"], r.get("surprise")) for r in rows])   # EPS beat/miss %
 
     def blend(*ranks):
         vals = [x for x in ranks if x is not None]
@@ -106,6 +108,7 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
             "low_vol":  r_vol.get(tk),
             "growth":   r_grw.get(tk),
             "catalyst": r_cat.get(tk),
+            "surprise": r_sur.get(tk),
         }
         num = den = 0.0
         for k, wt in w.items():
@@ -176,7 +179,7 @@ def portfolio_xray(items, cap: float = 0.25, low_alpha: float = 40.0) -> dict:
         "total_value": total, "n": len(priced),
         "weighted_alpha": wavg("alpha_score"),
         "factor_exposure": {k: wavg(k, in_factors=True)
-                            for k in ("value", "quality", "momentum", "low_vol", "growth", "catalyst")},
+                            for k in ("value", "quality", "momentum", "low_vol", "growth", "catalyst", "surprise")},
         "est_volatility": wavg("volatility"),
         "top_weight": max((i["weight"] for i in priced if i.get("weight")), default=None),
         "sector_concentration": sector_conc,
@@ -201,7 +204,7 @@ def sector_strength(ranked) -> list[dict]:
         out.append({
             "sector": sec, "n": len(rows),
             "avg_alpha": round(sum(alphas) / len(alphas), 1) if alphas else None,
-            "factors": {k: favg(k) for k in ("value", "quality", "momentum", "low_vol", "growth", "catalyst")},
+            "factors": {k: favg(k) for k in ("value", "quality", "momentum", "low_vol", "growth", "catalyst", "surprise")},
         })
     out.sort(key=lambda x: (x["avg_alpha"] is not None, x["avg_alpha"] or 0.0), reverse=True)
     return out
