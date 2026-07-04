@@ -71,24 +71,44 @@ class _RateLimiter:
             self._last = time.monotonic()
 
 
-_data_rl = _RateLimiter(0.22)   # ~4.5 req/s — under the 5/s Data-API cap
+# Dhan's documented 5 req/s proved optimistic in practice (a burst of ~3 rapid
+# historical calls tripped a 429), so pace conservatively and make it tunable via
+# env without a redeploy. The 429 RETRY below is the real safety net.
+_data_rl = _RateLimiter(float(os.getenv("DHAN_MIN_INTERVAL", "0.6")))   # ~1.7 req/s
 _oc_rl = _RateLimiter(3.1)      # 1 request / 3s — the Option Chain cap
+
+_RETRYABLE = {429, 502, 503, 504}
 
 
 def _post(path: str, body: dict, rl: _RateLimiter, extra_headers: dict | None = None,
-          timeout: float = 20.0):
-    """POST to Dhan with auth; None when unconfigured. Raises on HTTP error so the
-    caller can decide whether to swallow it."""
+          timeout: float = 20.0, retries: int = 5):
+    """POST to Dhan with auth. None when unconfigured. Retries 429/5xx with
+    exponential backoff (honouring Retry-After); raises on a non-retryable error
+    or once retries are exhausted, so the caller can skip that item and continue."""
     tok = access_token()
     if not tok:
         return None
-    rl.wait()
     headers = {"access-token": tok, "Content-Type": "application/json", "Accept": "application/json"}
     if extra_headers:
         headers.update({k: v for k, v in extra_headers.items() if v})
-    r = httpx.post(BASE + path, headers=headers, json=body, timeout=timeout)
-    r.raise_for_status()
-    return r.json()
+    resp = None
+    for attempt in range(retries):
+        rl.wait()
+        resp = httpx.post(BASE + path, headers=headers, json=body, timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+        if resp.status_code in _RETRYABLE and attempt < retries - 1:
+            ra = resp.headers.get("Retry-After")
+            try:
+                delay = float(ra) if ra else 0.0
+            except ValueError:
+                delay = 0.0
+            time.sleep(delay if delay > 0 else min(10.0, 0.75 * (2 ** attempt)))
+            continue
+        resp.raise_for_status()     # non-retryable error → raise
+        return resp.json()
+    resp.raise_for_status()         # retries exhausted (persistent 429) → raise
+    return None
 
 
 # ── Historical daily OHLCV ───────────────────────────────────────────────────
@@ -99,16 +119,25 @@ def _f(arr, i):
         return None
 
 
+IST = _dt.timezone(_dt.timedelta(hours=5, minutes=30))
+
+
 def rows_from_candles(data: dict) -> list[dict]:
     """Dhan returns parallel arrays (open/high/low/close/volume/timestamp). Zip
-    them into [{date 'YYYY-MM-DD', open, high, low, close, volume}] oldest→newest."""
+    them into [{date 'YYYY-MM-DD', open, high, low, close, volume}] oldest→newest.
+
+    The candle date MUST be taken in IST, not UTC: Dhan stamps some responses at
+    market hours (09:15 IST → same date either way) and some at midnight IST —
+    which is 18:30 UTC of the PREVIOUS day, so a UTC conversion shifted every
+    trading day back by one (Sunday-dated candles in prod, and duplicate-key
+    crashes where the two conventions met). IST is correct for both."""
     if not isinstance(data, dict):
         return []
     o, h, l, c, v, t = (data.get(k) or [] for k in ("open", "high", "low", "close", "volume", "timestamp"))
     rows = []
     for i in range(len(t)):
         try:
-            d = _dt.datetime.utcfromtimestamp(int(t[i])).strftime("%Y-%m-%d")
+            d = _dt.datetime.fromtimestamp(int(t[i]), IST).strftime("%Y-%m-%d")
         except Exception:
             continue
         rows.append({"date": d, "open": _f(o, i), "high": _f(h, i),

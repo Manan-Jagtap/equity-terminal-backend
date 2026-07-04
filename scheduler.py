@@ -316,6 +316,29 @@ elif _flag("RUN_DHAN_BACKFILL"):
         log.info("Dhan backfill done. Remove RUN_DHAN_BACKFILL from Variables now.")
     except Exception as e:
         log.error(f"Dhan backfill failed: {type(e).__name__}: {e}")
+elif _flag("RUN_DHAN_REPAIR"):
+    # One-off: fix the 2026-07-04 UTC-shifted-date poisoning. Detects companies
+    # whose history holds Sunday-dated rows (the buggy converter's signature),
+    # wipes their whole series, and re-backfills with the fixed IST converter.
+    # Needs DHAN_ACCESS_TOKEN. Remove the flag after it runs.
+    log.info("RUN_DHAN_REPAIR set — repairing UTC-shifted price histories…")
+    try:
+        from app.dhan.backfill import repair_shifted_histories
+        from app.dhan import client as _dhan
+        from app.database import SessionLocal
+        if not _dhan.configured():
+            log.error("DHAN_ACCESS_TOKEN not set — cannot re-backfill after wiping; aborting.")
+        else:
+            s = SessionLocal()
+            try:
+                stats = repair_shifted_histories(s)
+                log.info(f"Dhan repair result: {stats}")
+            finally:
+                s.close()
+            run_compute(visible=True)   # recompute so factors/charts see clean history
+        log.info("Dhan repair done. Remove RUN_DHAN_REPAIR from Variables now.")
+    except Exception as e:
+        log.error(f"Dhan repair failed: {type(e).__name__}: {e}")
 else:
     # ── Auto-onboard missing universe members on every deploy ────────────────
     # Adding a ticker to EXTRA_TICKERS (indianapi_ingester.py) is the ONLY step

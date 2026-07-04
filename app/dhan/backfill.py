@@ -32,19 +32,52 @@ def backfill_ticker(db, co, years: int = 5, days: int | None = None):
         return "unconfigured"
     if not rows:
         return "no_data"
-    existing = {r[0] for r in db.query(models.HistoricalPrice.date)
-                .filter_by(company_id=co.id).all()}
+    # `seen` starts from the DB and grows with THIS batch: a response where two
+    # candles map to the same date (mixed timestamp conventions) must not raise
+    # a duplicate-key error mid-commit — first candle wins, the rest skip.
+    seen = {r[0] for r in db.query(models.HistoricalPrice.date)
+            .filter_by(company_id=co.id).all()}
     added = 0
     for r in rows:
         d, close = r.get("date"), r.get("close")
-        if not d or close is None or d in existing:
+        if not d or close is None or d in seen:
             continue
+        seen.add(d)
         db.add(models.HistoricalPrice(company_id=co.id, date=d,
                open=r.get("open"), high=r.get("high"), low=r.get("low"),
                close=close, volume=r.get("volume")))
         added += 1
     db.commit()
     return added
+
+
+def repair_shifted_histories(db, min_sundays: int = 3) -> dict:
+    """One-off repair for the UTC-shifted-date poisoning (2026-07-04 run): a
+    company whose history holds ≥`min_sundays` Sunday-dated rows was written by
+    the buggy converter (NSE never trades Sundays; the odd special/muhurat
+    session stays under the threshold). Wipe the whole series for those names
+    and re-backfill from scratch with the fixed IST converter — surgically
+    deleting only bad rows can't work, because shifted candles also landed on
+    REAL trading dates with the wrong close."""
+    by_co: dict[int, int] = {}
+    for cid, d in db.query(models.HistoricalPrice.company_id,
+                           models.HistoricalPrice.date).all():
+        try:
+            if _dt.date.fromisoformat(str(d)[:10]).weekday() == 6:
+                by_co[cid] = by_co.get(cid, 0) + 1
+        except ValueError:
+            by_co[cid] = by_co.get(cid, 0) + 1        # unparseable date → poisoned
+    poisoned = [cid for cid, n in by_co.items() if n >= min_sundays]
+    if not poisoned:
+        return {"poisoned": 0}
+    cos = {c.id: c for c in db.query(models.Company).all()}
+    tickers = sorted((cos[cid].ticker or "").upper() for cid in poisoned if cid in cos)
+    (db.query(models.HistoricalPrice)
+       .filter(models.HistoricalPrice.company_id.in_(poisoned))
+       .delete(synchronize_session=False))
+    db.commit()
+    stats = backfill_prices(db, tickers)
+    return {"poisoned": len(poisoned), "tickers": tickers, "refill": stats}
 
 
 def sync_snapshots_from_history(db, tickers) -> dict:
@@ -102,7 +135,17 @@ def backfill_prices(db, tickers, years: int = 5, days: int | None = None) -> dic
         if not co:
             stats["missing_company"] += 1
             continue
-        res = backfill_ticker(db, co, years, days=days)
+        try:
+            res = backfill_ticker(db, co, years, days=days)
+        except Exception:
+            # A persistent 429 or transient error on ONE name must not abort the
+            # whole run — roll back and move on (this name simply keeps its old data).
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            stats["error"] += 1
+            continue
         if isinstance(res, int):
             stats["ok"] += 1
             stats["rows_added"] += res

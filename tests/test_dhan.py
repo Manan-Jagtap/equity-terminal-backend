@@ -9,13 +9,29 @@ from app.dhan.client import rows_from_candles, normalize_chain, historical_daily
 
 
 def test_rows_from_candles_zips_and_dates():
+    # 1326220200 = 2012-01-10 18:30 UTC = 2012-01-11 00:00 IST — a midnight-IST
+    # stamped candle. The date must be read in IST: the old UTC conversion
+    # shifted every such candle back a day (Sunday-dated rows in prod).
     data = {"open": [100, 101], "high": [102, 103], "low": [99, 100],
             "close": [101, 102], "volume": [1000, 2000],
             "timestamp": [1326220200, 1326306600]}
     rows = rows_from_candles(data)
     assert len(rows) == 2
-    assert rows[0]["date"] == "2012-01-10" and rows[0]["close"] == 101.0 and rows[0]["volume"] == 1000.0
+    assert rows[0]["date"] == "2012-01-11" and rows[0]["close"] == 101.0 and rows[0]["volume"] == 1000.0
+    assert rows[1]["date"] == "2012-01-12"
     assert rows[1]["open"] == 101.0
+
+
+def test_rows_from_candles_both_timestamp_conventions_agree():
+    # The same trading day (2024-05-15) stamped two ways: 09:15 IST market open
+    # (03:45 UTC) and 00:00 IST midnight (18:30 UTC of May 14). Both must map to
+    # 2024-05-15 — mixed conventions in one response caused the duplicate-key
+    # crash when converted in UTC.
+    market_open, midnight_ist = 1715744700, 1715711400
+    data = {"open": [1, 1], "high": [1, 1], "low": [1, 1], "close": [1, 1],
+            "volume": [1, 1], "timestamp": [market_open, midnight_ist]}
+    rows = rows_from_candles(data)
+    assert [r["date"] for r in rows] == ["2024-05-15", "2024-05-15"]
 
 
 def test_rows_from_candles_empty_safe():
