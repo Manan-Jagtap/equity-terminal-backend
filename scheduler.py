@@ -109,6 +109,16 @@ def run_dhan_topup(days: int = 30):
         finally:
             s.close()
         log.info(f"Dhan daily top-up: {stats} · snapshot sync: {sync}")
+        # Dhan outage escalation: if the top-up added nothing AND synced
+        # nothing (dead/expired token), spend IndianAPI budget pricing the
+        # WIDER tier directly — this is exactly what the monthly budget guard
+        # exists for. Core names are already covered by the daily EOD pass.
+        if not stats.get("ok") and not sync.get("updated"):
+            log.warning("Dhan appears down — escalating IndianAPI EOD to the full visible universe.")
+            from app.ingest.indianapi_ingester import CORE_UNIVERSE
+            wider = sorted(set(VISIBLE_UNIVERSE) - set(CORE_UNIVERSE))
+            if wider:
+                indianapi_run(price_only=True, tickers=wider)
     except Exception as e:
         log.error(f"Dhan daily top-up failed: {e}")
 
@@ -145,16 +155,22 @@ def run_intraday_prices():
         return
     try:
         from app.dhan import client as _dhan
+        n, src = 0, "none"
         if _dhan.configured():
             from app.live_prices import update_snapshots_from_live
             from app.database import SessionLocal
             s = SessionLocal()
             try:
                 n = update_snapshots_from_live(s)
+            except Exception as e:
+                log.warning(f"Dhan intraday failed ({e}); falling back to IndianAPI.")
             finally:
                 s.close()
             src = "Dhan batch LTP"
-        else:
+        if n == 0:
+            # HEALTH-based fallback, not presence-based: an expired token is
+            # "configured" but useless — the 8-day July outage proved a
+            # presence check silently disables the backup vendor.
             n = run_intraday()
             src = "IndianAPI fallback"
         if n:
