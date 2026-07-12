@@ -8,6 +8,7 @@ Add these to your existing app/main.py:
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from app.price_hygiene import drop_bad_ticks
 from app.database import get_db
 from app import models
 
@@ -83,8 +84,10 @@ def price_history(ticker: str, db: Session = Depends(get_db)):
             # Dhan's historical API serves SPLIT-ADJUSTED closes already —
             # applying our corporate-action ledger on top double-adjusted every
             # name with a split (fake x2-x10 up-cliffs at the ex-date, found by
-            # the 500-name audit: CESC x10.45, COFORGE x5.07). Serve as-is.
-            "data": raw,
+            # the 500-name audit: CESC x10.45, COFORGE x5.07). Serve as-is,
+            # minus V-spike bad ticks (vendor skips special-session candles
+            # when adjusting — price_hygiene.drop_bad_ticks).
+            "data": drop_bad_ticks(raw),
         }
 
     # Fallback to 1yr PricePoint (index-based, no dates → cannot back-adjust)

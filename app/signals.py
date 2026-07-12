@@ -56,10 +56,12 @@ def _adjusted_closes_by(db, days: int = 420) -> dict:
     except Exception:
         db.rollback()
         return {}
-    out: dict[int, list] = {}
+    from .price_hygiene import drop_bad_ticks
+    grouped: dict[int, list] = {}
     for hp in rows:
-        out.setdefault(hp.company_id, []).append(hp.close)
-    return out
+        grouped.setdefault(hp.company_id, []).append({"close": hp.close})
+    return {cid: [r["close"] for r in drop_bad_ticks(series)]
+            for cid, series in grouped.items()}
 
 
 def surprise_by(db, max_age_days: int = 100) -> dict:

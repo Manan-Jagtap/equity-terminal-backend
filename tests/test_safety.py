@@ -160,3 +160,17 @@ def test_cagr_sign_flip_returns_none_not_complex():
     assert _cagr(-100.0, 50.0, 3) is None
     r = _cagr(100.0, 150.0, 3)
     assert isinstance(r, float) and r > 0
+
+
+def test_drop_bad_ticks_removes_v_spikes_keeps_real_moves():
+    from app.price_hygiene import drop_bad_ticks
+    mk = lambda cs: [{"date": f"d{i}", "close": c} for i, c in enumerate(cs)]
+    # V-spike (special-session bad tick): 216 -> 79 -> 215 → middle dropped
+    out = drop_bad_ticks(mk([210, 216, 79.6, 215.6, 220]))
+    assert [r["close"] for r in out] == [210, 216, 215.6, 220]
+    # Sustained repricing (real demerger): 660 -> 395 -> 401 → kept
+    out = drop_bad_ticks(mk([655, 660, 395, 401, 398]))
+    assert 395 in [r["close"] for r in out]
+    # Normal series untouched; short series untouched
+    assert len(drop_bad_ticks(mk([100, 101, 102]))) == 3
+    assert len(drop_bad_ticks(mk([100, 101]))) == 2

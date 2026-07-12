@@ -183,11 +183,16 @@ def _risk_block(db: Session, holdings) -> dict | None:
                     .filter(models.HistoricalPrice.company_id.in_(list(cids)),
                             models.HistoricalPrice.date >= cutoff)
                     .order_by(models.HistoricalPrice.date).all())
+    from app.price_hygiene import drop_bad_ticks
+    raw_by: dict[str, list] = {}
     for hp in price_rows:
         h = cids.get(hp.company_id)
         if not h or hp.close is None:
             continue
-        closes_by.setdefault((h.company.ticker or "").upper(), {})[hp.date] = hp.close
+        raw_by.setdefault((h.company.ticker or "").upper(), []).append(
+            {"date": hp.date, "close": hp.close})
+    for tk, series in raw_by.items():
+        closes_by[tk] = {r["date"]: r["close"] for r in drop_bad_ticks(series)}
 
     price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
     hold_rows, cashflows, total_value = [], [], 0.0
