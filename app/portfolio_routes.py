@@ -463,14 +463,43 @@ def portfolio_analysis(user: models.User = Depends(get_current_user),
                      if i.get("suggested_weight") is not None}
     except Exception:
         db.rollback()
-    analysis["manager"] = manager_report(items, analysis, mom_by, target_by)
+    # Per-name intelligence for the touched tickers: institutional/promoter
+    # flow (quarterly shareholding deltas) + results momentum (PAT YoY, EPS
+    # surprise) — the same published data the Ownership and Results pages show.
+    intel_by: dict[str, dict] = {}
+    quote_by: dict[str, dict] = {}
+    if touch:
+        try:
+            from app.results_logic import eps_surprise
+            cos = {c.id: c.ticker for c in
+                   db.query(models.Company).filter(models.Company.ticker.in_(touch)).all()}
+            for row in (db.query(models.CompanyInsight)
+                          .filter(models.CompanyInsight.company_id.in_(list(cos))).all()):
+                d = row.data or {}
+                own = d.get("ownership") or {}
+                res = d.get("results") or {}
+                sur = eps_surprise(d.get("forecasts")) or {}
+                intel_by[cos[row.company_id]] = {
+                    "inst_delta": (own.get("institutional") or {}).get("delta"),
+                    "promoter_delta": (own.get("promoter") or {}).get("delta"),
+                    "pat_yoy": res.get("pat_yoy"),
+                    "surprise_pct": sur.get("surprise_pct"),
+                }
+            for u in universe:
+                if u["ticker"] in touch:
+                    quote_by[u["ticker"]] = {"price": u.get("price"), "mos": u.get("mos")}
+        except Exception:
+            db.rollback()
+    analysis["manager"] = manager_report(items, analysis, mom_by, target_by,
+                                         intel_by, quote_by)
     return analysis
 
 
 # ── Fund Manager report ──────────────────────────────────────────────────────
 
 def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None,
-                   target_by: dict | None = None) -> dict:
+                   target_by: dict | None = None, intel_by: dict | None = None,
+                   quote_by: dict | None = None) -> dict:
     """The strategist's recommendations upgraded to a fund-manager brief:
     conviction-scored actions with rupee sizing against inverse-vol target
     weights, a momentum overlay, and a written PM note. Pure — unit-testable.
@@ -480,7 +509,43 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     total = sum(i["value"] for i in live) or 0.0
     mom_by = mom_by or {}
     target_by = target_by or {}
+    intel_by = intel_by or {}
+    quote_by = quote_by or {}
     by_ticker = {i["ticker"]: i for i in live}
+
+    def _levels(tk, i):
+        """Entry band / target / upside from the model's OWN fair value.
+        Entry-below = the price at which MoS reaches the BUY gate (25%);
+        target = fair value on the model's 12–18 month horizon."""
+        price = (i or {}).get("price") or (quote_by.get(tk) or {}).get("price")
+        fair = (i or {}).get("intrinsic")
+        if fair is None:
+            q = quote_by.get(tk) or {}
+            if q.get("price") and q.get("mos") is not None:
+                fair = q["price"] * (1 + q["mos"])
+                price = price or q["price"]
+        if not (price and fair and fair > 0):
+            return {}
+        return {"price": round(price, 1), "target": round(fair, 1),
+                "entry_below": round(fair / 1.25, 1),
+                "upside_pct": round(fair / price - 1, 4)}
+
+    def _intel_reasons(tk):
+        out = []
+        iv = intel_by.get(tk) or {}
+        d = iv.get("inst_delta")
+        if d is not None and abs(d) >= 0.3:
+            out.append(f"institutions {'added' if d > 0 else 'cut'} {abs(d):.1f}pp last quarter")
+        pd = iv.get("promoter_delta")
+        if pd is not None and pd <= -1.0:
+            out.append(f"promoter stake fell {abs(pd):.1f}pp — governance check")
+        py = iv.get("pat_yoy")
+        if py is not None and abs(py) >= 0.15:
+            out.append(f"latest quarter PAT {py*100:+.0f}% YoY")
+        sp = iv.get("surprise_pct")
+        if sp is not None and abs(sp) >= 0.02:
+            out.append(f"FY EPS {'beat' if sp > 0 else 'missed'} the Street by {abs(sp)*100:.0f}%")
+        return out
 
     actions = []
     for r in analysis.get("recommendations", []):
@@ -518,6 +583,17 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
             if total:
                 a["size_inr"] = round(0.03 * total)
                 a["size_note"] = "a starter tranche (~3% of book; scale on conviction)"
+        # Ownership-flow / results-momentum intelligence (both directions).
+        for reason in _intel_reasons(r["ticker"]):
+            a["reasons"] = a["reasons"] + [reason]
+            iv = intel_by.get(r["ticker"]) or {}
+            good = ((iv.get("inst_delta") or 0) > 0 or (iv.get("pat_yoy") or 0) > 0
+                    or (iv.get("surprise_pct") or 0) > 0)
+            if r["action"].startswith(("ADD", "TOP-UP")):
+                conviction += 4 if good else -4
+            else:
+                conviction += -3 if good else 4
+        a["levels"] = _levels(r["ticker"], by_ticker.get(r["ticker"]))
         a["conviction"] = max(10, min(95, conviction))
         actions.append(a)
     actions.sort(key=lambda x: (-x["conviction"], x.get("priority", 9)))
@@ -548,3 +624,55 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     if not lines:
         lines.append("No structural flags: sizing, alignment and terms all read clean.")
     return {"actions": actions[:10], "note": " ".join(lines), "aum": total}
+
+
+@router.post("/sync-dhan")
+def sync_dhan_holdings(user: models.User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    """One-click import of the owner's ACTUAL holdings from their own Dhan
+    account (GET /v2/holdings — a read-only data endpoint on the same token
+    the price feed uses; no order/trading API is ever touched). Upserts
+    qty + avg cost; names outside coverage are reported, never dropped."""
+    import httpx as _httpx
+    from app.dhan import client as _dhan
+    tok = _dhan.access_token()
+    if not tok:
+        raise HTTPException(503, "Dhan feed is not configured.")
+    try:
+        r = _httpx.get("https://api.dhan.co/v2/holdings",
+                       headers={"access-token": tok, "Accept": "application/json"},
+                       timeout=20)
+        r.raise_for_status()
+        rows = r.json()
+    except _httpx.HTTPStatusError as e:
+        raise HTTPException(502, f"Dhan holdings error: HTTP {e.response.status_code}")
+    except Exception as e:
+        raise HTTPException(502, f"Dhan holdings error: {type(e).__name__}")
+    if not isinstance(rows, list):
+        rows = (rows or {}).get("data") or []
+
+    uk = f"u{user.id}"
+    imported, uncovered = 0, []
+    for h in rows:
+        sym = str(h.get("tradingSymbol") or "").upper().strip()
+        sym = sym.split("-")[0] if sym.endswith(("-EQ", "-BE")) else sym
+        qty = h.get("totalQty") or h.get("availableQty") or 0
+        avg = h.get("avgCostPrice") or 0
+        if not sym or not qty or not avg:
+            continue
+        co = db.query(models.Company).filter_by(ticker=sym).first()
+        if not co:
+            uncovered.append(sym)
+            continue
+        holding = (db.query(models.PortfolioHolding)
+                     .filter_by(user_key=uk, company_id=co.id).first())
+        if not holding:
+            db.add(models.PortfolioHolding(user_key=uk, company_id=co.id,
+                                           qty=float(qty), avg_cost=float(avg)))
+        else:
+            holding.qty, holding.avg_cost = float(qty), float(avg)
+        imported += 1
+    db.commit()
+    return {"imported": imported, "uncovered": uncovered,
+            "note": "Buy dates aren't in the holdings API — set them per "
+                    "position for exact LTCG terms (tradebook import can come later)."}

@@ -18,13 +18,10 @@ router = APIRouter(prefix="/api", tags=["ownership"])
 
 @router.get("/ownership")
 def ownership(db: Session = Depends(get_db)):
-    from app.ingest.indianapi_ingester import NIFTY_50
     insights = {r.company_id: r.data for r in db.query(models.CompanyInsight).all() if r.data}
 
     out = []
     for co in db.query(models.Company).all():
-        if (co.ticker or "").upper() not in NIFTY_50:
-            continue
         own = (insights.get(co.id) or {}).get("ownership")
         if not own:
             continue

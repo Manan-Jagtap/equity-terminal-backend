@@ -246,12 +246,62 @@ if not KEY:
     log.warning("INDIANAPI_KEY is NOT set on this service — refreshes will no-op "
                 "until you add it in Railway → equity-terminal-scheduler → Variables.")
 
+
+
+def run_results_calendar():
+    """Weekly sweep of /corporate_actions board meetings for the whole visible
+    universe → CompanyInsight.data['board_meetings'] (the Results page's
+    'Upcoming' calendar). ~500 calls/week — comfortably inside the 40k/month
+    Growth budget, and pre-flighted anyway."""
+    try:
+        import re as _re
+        from app.database import SessionLocal
+        from app import models, api_budget
+        from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE, _get_safe
+        from sqlalchemy.orm.attributes import flag_modified
+        s = SessionLocal()
+        wrote = 0
+        try:
+            if api_budget.would_exceed(s, len(VISIBLE_UNIVERSE)):
+                log.info("Results calendar: budget pre-flight refused — skipping.")
+                return
+            for tk in sorted(VISIBLE_UNIVERSE):
+                co = s.query(models.Company).filter_by(ticker=tk).first()
+                if co is None:
+                    continue
+                r = _get_safe("/corporate_actions", {"stock_name": tk})
+                bm = (r or {}).get("board_meetings") if isinstance(r, dict) else None
+                rows = (bm or {}).get("data") or []
+                meetings = [{"date": str(row[0]), "agenda": str(row[1])[:300]}
+                            for row in rows if isinstance(row, (list, tuple)) and len(row) >= 2][:8]
+                if not meetings:
+                    continue
+                ins = s.query(models.CompanyInsight).filter_by(company_id=co.id).first()
+                if ins is None:
+                    ins = models.CompanyInsight(company_id=co.id, data={})
+                    s.add(ins)
+                data = dict(ins.data or {})
+                data["board_meetings"] = meetings
+                ins.data = data
+                flag_modified(ins, "data")
+                s.commit()
+                wrote += 1
+            api_budget.record_usage(s, len(VISIBLE_UNIVERSE))
+        finally:
+            s.close()
+        log.info(f"Results calendar: board meetings stored for {wrote} names.")
+    except Exception as e:
+        log.error(f"Results calendar failed: {type(e).__name__}: {e}")
+
 # Daily EOD price refresh — 3:45pm IST = 10:15 UTC, Mon-Fri
 for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
     getattr(schedule.every(), _day).at("10:15").do(run_prices)
 
 # Weekly full refresh — 6:00am IST Sunday = 00:30 UTC
 schedule.every().sunday.at("00:30").do(run_full)
+
+# Results calendar (board-meeting dates) — Saturday 04:00 IST = Fri 22:30 UTC
+schedule.every().friday.at("22:30").do(run_results_calendar)
 
 # Intraday spot prices — every 90 min; the job self-gates to NSE market hours.
 # IndianAPI (~50 calls/run) since Yahoo blocks datacenter IPs: ~4 runs/market-day
@@ -445,6 +495,10 @@ elif _flag("RUN_PROFILE_SNAPSHOTS"):
                  "Remove RUN_PROFILE_SNAPSHOTS now.")
     except Exception as e:
         log.error(f"Profile snapshots failed: {type(e).__name__}: {e}")
+elif _flag("RUN_RESULTS_CALENDAR"):
+    log.info("RUN_RESULTS_CALENDAR set — sweeping board-meeting dates…")
+    run_results_calendar()
+    log.info("Done. Remove RUN_RESULTS_CALENDAR from Variables now.")
 elif _flag("RUN_DHAN_REPAIR"):
     # One-off: fix the 2026-07-04 UTC-shifted-date poisoning END TO END.
     # 1) wipe + refill companies whose history holds Sunday-dated rows (the

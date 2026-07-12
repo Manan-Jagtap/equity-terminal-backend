@@ -536,3 +536,30 @@ def test_manager_report_convictions_and_note():
     assert add_d["size_inr"] == round(0.03 * 100000)
     assert m["aum"] == 100000.0
     assert "Concentration" in m["note"] or "positions worth" in m["note"]
+
+
+def test_manager_v3_levels_and_intel():
+    """Entry band = fair/1.25 (the BUY gate), target = fair value; ownership
+    flow and results momentum shift conviction in the right direction."""
+    from app.portfolio_routes import build_analysis, compute_totals, manager_report
+    items = [{"ticker": "AAA", "name": "Alpha", "sector": "IT", "value": 50000.0,
+              "cost": 40000.0, "mos": -0.40, "verdict": "REDUCE", "term": "long",
+              "days_to_lt": 0, "confidence": "HIGH", "price": 100.0, "intrinsic": 60.0}]
+    compute_totals(items)
+    uni = [{"ticker": "DDD", "name": "Delta", "sector": "Pharma", "mos": 0.50,
+            "verdict": "BUY", "confidence": "HIGH", "price": 200.0}]
+    analysis = build_analysis(items, uni)
+    m = manager_report(items, analysis,
+                       intel_by={"AAA": {"inst_delta": -1.2, "pat_yoy": -0.30},
+                                 "DDD": {"inst_delta": 1.1, "pat_yoy": 0.34, "surprise_pct": 0.17}},
+                       quote_by={"DDD": {"price": 200.0, "mos": 0.50}})
+    add = next(a for a in m["actions"] if a["ticker"] == "DDD")
+    # fair = 200*(1+0.5)=300; entry_below = 300/1.25 = 240; upside 50%
+    assert add["levels"]["target"] == 300.0
+    assert add["levels"]["entry_below"] == 240.0
+    assert abs(add["levels"]["upside_pct"] - 0.5) < 1e-9
+    assert any("institutions added" in x for x in add["reasons"])
+    assert any("PAT +34%" in x for x in add["reasons"])
+    exit_a = next(a for a in m["actions"] if a["ticker"] == "AAA")
+    assert exit_a["levels"]["target"] == 60.0            # model fair value
+    assert any("institutions cut" in x for x in exit_a["reasons"])

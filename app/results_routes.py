@@ -19,7 +19,6 @@ router = APIRouter(prefix="/api", tags=["results"])
 
 @router.get("/results")
 def results(db: Session = Depends(get_db)):
-    from app.ingest.indianapi_ingester import NIFTY_50
     insights = {r.company_id: r.data for r in db.query(models.CompanyInsight).all() if r.data}
     price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
     val_by = {}
@@ -30,8 +29,6 @@ def results(db: Session = Depends(get_db)):
 
     out = []
     for co in db.query(models.Company).all():
-        if (co.ticker or "").upper() not in NIFTY_50:
-            continue
         d = insights.get(co.id) or {}
         res = d.get("results") or {}
         surprise = eps_surprise(d.get("forecasts"))
@@ -54,4 +51,34 @@ def results(db: Session = Depends(get_db)):
         s = r.get("surprise") or {}
         return (str(s.get("date") or ""), str(r.get("quarter") or ""))
     out.sort(key=_key, reverse=True)
+    return {"count": len(out), "items": out}
+
+
+@router.get("/results/upcoming")
+def upcoming_results(db: Session = Depends(get_db)):
+    """Board-meeting dates with a results agenda across the whole universe —
+    the 'when do they report' calendar. Populated by the scheduler's weekly
+    results-calendar sweep (stored on CompanyInsight.data['board_meetings']);
+    past meetings older than 3 days are dropped."""
+    import datetime as _dt
+    import re as _re
+    today = _dt.date.today()
+    insights = {r.company_id: r.data for r in db.query(models.CompanyInsight).all() if r.data}
+    out = []
+    for co in db.query(models.Company).all():
+        for m in (insights.get(co.id) or {}).get("board_meetings") or []:
+            ds = str(m.get("date") or "")
+            mm = _re.match(r"(\d{2})-(\d{2})-(\d{4})", ds)
+            if not mm:
+                continue
+            d = _dt.date(int(mm.group(3)), int(mm.group(2)), int(mm.group(1)))
+            if d < today - _dt.timedelta(days=3):
+                continue
+            agenda = str(m.get("agenda") or "")
+            is_results = bool(_re.search(r"financial result|quarterly result|audited", agenda, _re.I))
+            out.append({"ticker": co.ticker, "name": co.name, "sector": co.sector,
+                        "date": d.isoformat(), "days_away": (d - today).days,
+                        "results_meeting": is_results,
+                        "agenda": agenda[:220]})
+    out.sort(key=lambda r: (r["date"], r["ticker"]))
     return {"count": len(out), "items": out}
