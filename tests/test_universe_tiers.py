@@ -26,7 +26,7 @@ def test_tiers_are_nested():
 
 
 def test_tier_sizes_sane():
-    assert len(_TIERS["nifty100"]) == 101              # 50 + 50 + FEDFINA
+    assert len(_TIERS["nifty100"]) == 103              # 50 + 50 + owner extras (FEDFINA, RATEGAIN, IDEAFORGE)
     assert 230 <= len(_TIERS["nifty250"]) <= 260
     assert 480 <= len(_TIERS["nifty500"]) <= 520
     print("  ok tier sizes")
