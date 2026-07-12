@@ -415,7 +415,13 @@ elif _flag("RUN_PROFILE_SNAPSHOTS"):
         s = SessionLocal()
         done = skipped = 0
         try:
-            for tk in sorted(VISIBLE_UNIVERSE):
+            # One probe before the loop: if the vendor is refusing (monthly
+            # quota 429), a 500-name pass is pure waste — abort with a log.
+            from app.profile_routes import _get as _papi
+            vendor_ok = _papi("/stock", {"name": "RELIANCE"}, ttl=60) is not None
+            if not vendor_ok:
+                log.info("Profile snapshots: vendor refusing calls (quota/down) — skipping; re-run after the monthly reset.")
+            for tk in sorted(VISIBLE_UNIVERSE) if vendor_ok else []:
                 co = s.query(models.Company).filter_by(ticker=tk).first()
                 if co is None:
                     continue
