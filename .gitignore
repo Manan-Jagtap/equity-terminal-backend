@@ -34,3 +34,13 @@ onepager_out/
 # ── Secrets ─────────────────────────────────────────────────────────────────
 .env
 .env.*
+
+# ── Editor/agent backup files and probe payload dumps ───────────────────────
+*.bak
+*.bak.*
+*.bak2
+app/ingest/probe_*_dump.json
+app/ingest/probe_dump.json
+terminal.db-journal
+.DS_Store
+backend/
