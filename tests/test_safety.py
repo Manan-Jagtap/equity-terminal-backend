@@ -399,3 +399,22 @@ def test_recent_news_items_parse():
     assert out[0]["title"] == "LIC Housing cuts home loan rates"
     assert out[0]["published"].startswith("2026-07-12")
     assert out[0]["url"] == "https://x/1"
+
+
+def test_market_rows_map_to_universe_only():
+    """Dashboard movers must never list names outside our coverage, and every
+    kept row carries OUR ticker for clickthrough."""
+    from app import market_routes as mr
+    mr._uni_cache.update(
+        ts=9e12,
+        by_ticker={"JIOFIN": "JIOFIN", "TATASTEEL": "TATASTEEL"},
+        by_name={mr._norm_name("Jio Financial Services Ltd."): "JIOFIN",
+                 mr._norm_name("Tata Steel Ltd."): "TATASTEEL"})
+    # RIC row resolves by name (JIOF.NS is a Reuters code, not the NSE symbol)
+    assert mr._to_universe({"ticker": "JIOF.NS", "company": "Jio Financial Services"}) == "JIOFIN"
+    # nseCode resolves directly
+    assert mr._to_universe({"nseCode": "TATASTEEL", "company_name": "Tata Steel"}) == "TATASTEEL"
+    # outside coverage → dropped
+    assert mr._to_universe({"ticker": "SCAN.BO", "company": "Scan Steels"}) is None
+    assert mr._to_universe({"company": "Ruby Mills Ltd"}) is None
+    mr._uni_cache.update(ts=0, by_ticker={}, by_name={})

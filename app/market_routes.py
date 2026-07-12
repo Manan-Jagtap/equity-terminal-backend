@@ -12,7 +12,7 @@ auto-refreshing, and serves the last good payload if an upstream call fails.
   GET /api/market/high_low   → 52-week highs / lows (NSE)
   GET /api/market/snapshot   → all of the above in one call (one round-trip)
 """
-import os, time, requests
+import os, re, time, requests
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter
 
@@ -52,6 +52,68 @@ def _num(x):
         return None
 
 
+# ── Universe restriction ─────────────────────────────────────────────────────
+# The vendor feeds are NSE-WIDE; the terminal only covers its Nifty-500
+# universe. Every list is filtered to names we actually cover (mapped to OUR
+# ticker so rows are clickable), and anything else is dropped — commenting on
+# stocks outside coverage was showing Scan Steels / Ruby Mills on the
+# dashboard with no page behind them.
+_UNI_TTL = 3600
+_uni_cache: dict = {"ts": 0, "by_ticker": {}, "by_name": {}}
+_NAME_STOP = re.compile(
+    r"\b(ltd|limited|company|corp|corporation|industries|enterprises|the|and)\b\.?", re.I)
+
+
+def _norm_name(n: str) -> str:
+    n = _NAME_STOP.sub(" ", (n or "").lower().replace("&", " and "))
+    return " ".join(re.split(r"[^a-z0-9]+", n)).strip()
+
+
+def _universe():
+    now = time.time()
+    if now - _uni_cache["ts"] < _UNI_TTL and _uni_cache["by_ticker"]:
+        return _uni_cache
+    try:
+        from app.database import SessionLocal
+        from app import models
+        s = SessionLocal()
+        try:
+            rows = s.query(models.Company.ticker, models.Company.name).all()
+        finally:
+            s.close()
+        by_ticker = {t.upper(): t.upper() for t, _ in rows}
+        by_name = {_norm_name(nm): t.upper() for t, nm in rows if nm}
+        _uni_cache.update(ts=now, by_ticker=by_ticker, by_name=by_name)
+    except Exception:
+        pass
+    return _uni_cache
+
+
+def _to_universe(row) -> str | None:
+    """Map a vendor row to OUR ticker, or None when outside coverage."""
+    uni = _universe()
+    for key in ("nseCode", "nse_code"):
+        v = (row.get(key) or "").strip().upper()
+        if v and v in uni["by_ticker"]:
+            return v
+    ric = (row.get("ticker") or row.get("ric") or "").strip().upper()
+    if ric:
+        sym = ric.split(".")[0]
+        if sym in uni["by_ticker"]:
+            return sym
+    nm = _norm_name(row.get("company_name") or row.get("company") or row.get("name") or "")
+    if nm:
+        hit = uni["by_name"].get(nm)
+        if hit:
+            return hit
+        # vendor often drops the Ltd-suffix; try startswith both ways on ≥2 words
+        if len(nm.split()) >= 2:
+            for full, tk in uni["by_name"].items():
+                if full.startswith(nm) or nm.startswith(full):
+                    return tk
+    return None
+
+
 # Curated, ordered set of headline indices for the dashboard strip.
 KEY_INDICES = [
     "NIFTY 50", "NIFTY Bank", "SENSEX", "NIFTY Next 50", "NIFTY IT",
@@ -61,20 +123,33 @@ KEY_INDICES = [
 
 
 def _indices():
+    """Headline indices. The production IndianAPI host has no /indices, so
+    values come from the Dhan live snapshot when the feed is up; the list of
+    NAMES always returns so every index stays a clickable chart entry even
+    when live values are unavailable."""
+    live = {}
+    try:
+        from app.live_prices import snapshot as _live_snap
+        # shape: {display_name: last_price_float}
+        for nm, px in (_live_snap().get("indices") or {}).items():
+            live[" ".join(str(nm).upper().split())] = px
+    except Exception:
+        pass
+    vendor = {}
     data = _get("/indices") or {}
-    items = data.get("indices") or []
-    by_name = {}
-    for it in items:
-        by_name.setdefault(it.get("name"), it)
+    for it in (data.get("indices") or []):
+        vendor.setdefault(" ".join(str(it.get("name") or "").upper().split()), it)
     out = []
     for nm in KEY_INDICES:
-        it = by_name.get(nm)
-        if it:
-            out.append({
-                "name": nm, "price": _num(it.get("price")),
-                "pct": _num(it.get("percentChange")), "net": _num(it.get("netChange")),
-                "date": it.get("date"), "time": it.get("time"),
-            })
+        key = " ".join(nm.upper().split())
+        lv, vd = live.get(key), vendor.get(key)
+        out.append({
+            "name": nm,
+            "price": _num(lv) or _num((vd or {}).get("price")),
+            "pct":   _num((vd or {}).get("percentChange")),
+            "net":   _num((vd or {}).get("netChange")),
+            "date":  (vd or {}).get("date"), "time": (vd or {}).get("time"),
+        })
     return out
 
 
@@ -84,12 +159,17 @@ def _movers():
 
     def clean(arr):
         out = []
-        for x in (arr or [])[:8]:
+        for x in (arr or []):
+            tk = _to_universe(x)
+            if not tk:
+                continue          # outside our coverage — never listed
             out.append({
-                "name": x.get("company_name"), "ticker": x.get("nseCode") or x.get("ric"),
+                "name": x.get("company_name"), "ticker": tk,
                 "price": _num(x.get("price")), "pct": _num(x.get("percent_change")),
                 "rating": x.get("overall_rating"),
             })
+            if len(out) >= 8:
+                break
         return out
 
     return {"gainers": clean(ts.get("top_gainers")), "losers": clean(ts.get("top_losers"))}
@@ -98,12 +178,17 @@ def _movers():
 def _active():
     data = _get("/NSE_most_active") or []
     out = []
-    for x in (data or [])[:10]:
+    for x in (data or []):
+        tk = _to_universe(x)
+        if not tk:
+            continue
         out.append({
-            "name": x.get("company"), "ticker": x.get("ticker"),
+            "name": x.get("company"), "ticker": tk,
             "price": _num(x.get("price")), "pct": _num(x.get("percent_change")),
             "volume": _num(x.get("volume")), "rating": x.get("overall_rating"),
         })
+        if len(out) >= 10:
+            break
     return out
 
 
@@ -113,11 +198,16 @@ def _high_low():
 
     def clean(arr, level_key):
         out = []
-        for x in (arr or [])[:8]:
+        for x in (arr or []):
+            tk = _to_universe(x)
+            if not tk:
+                continue
             out.append({
-                "name": x.get("company"), "ticker": x.get("ticker"),
+                "name": x.get("company"), "ticker": tk,
                 "price": _num(x.get("price")), "level": _num(x.get(level_key)),
             })
+            if len(out) >= 8:
+                break
         return out
 
     return {
