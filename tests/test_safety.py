@@ -417,4 +417,10 @@ def test_market_rows_map_to_universe_only():
     # outside coverage → dropped
     assert mr._to_universe({"ticker": "SCAN.BO", "company": "Scan Steels"}) is None
     assert mr._to_universe({"company": "Ruby Mills Ltd"}) is None
+    # short-stem prefix trap: Pioneer Investcorp must NOT map to PI Industries
+    mr._uni_cache["by_name"][mr._norm_name("PI Industries Ltd.")] = "PIIND"
+    assert mr._to_universe({"company": "Pioneer Investcorp"}) is None
+    # ...while a real suffix-dropped vendor name still maps
+    mr._uni_cache["by_name"][mr._norm_name("Sun Pharmaceutical Industries Ltd.")] = "SUNPHARMA"
+    assert mr._to_universe({"company": "Sun Pharmaceutical Industries"}) == "SUNPHARMA"
     mr._uni_cache.update(ts=0, by_ticker={}, by_name={})

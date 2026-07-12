@@ -106,10 +106,15 @@ def _to_universe(row) -> str | None:
         hit = uni["by_name"].get(nm)
         if hit:
             return hit
-        # vendor often drops the Ltd-suffix; try startswith both ways on ≥2 words
+        # The vendor often drops suffixes ("Sun Pharmaceutical" vs "Sun
+        # Pharmaceutical Industries"). Prefixes must align on a WORD boundary
+        # and the shorter side must be ≥6 chars — a bare startswith mapped
+        # "Pioneer Investcorp" onto PI Industries via the 2-char stem "pi".
         if len(nm.split()) >= 2:
             for full, tk in uni["by_name"].items():
-                if full.startswith(nm) or nm.startswith(full):
+                if min(len(full), len(nm)) < 6:
+                    continue
+                if full.startswith(nm + " ") or nm.startswith(full + " "):
                     return tk
     return None
 
