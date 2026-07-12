@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/companies")
 _NEWS_CACHE: dict[str, tuple[float, dict]] = {}
 _CACHE_TTL  = 1800
 _HAIKU      = "claude-haiku-4-5-20251001"
-_INDIANAPI_BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
+_INDIANAPI_BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
 
 
 # ── Source 2: Anthropic web_search (multi-turn) ──────────────────────────────

@@ -17,7 +17,7 @@ from app import models
 
 router = APIRouter(prefix="/api", tags=["logo"])
 
-BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
+BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 _CACHE: dict = {}   # ticker -> (bytes, content_type) | None (negative cache)
 _HEADERS = {"Cache-Control": "public, max-age=604800"}   # 7 days

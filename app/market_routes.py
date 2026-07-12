@@ -18,7 +18,7 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/market")
 
-BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
+BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 TTL = 900  # seconds — market feeds change slowly; 15-min cache keeps loads fast
 

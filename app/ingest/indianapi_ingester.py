@@ -30,7 +30,7 @@ Base.metadata.create_all(bind=engine)
 # Developer plan (v2) base. The old "stock." base mis-resolves some tickers
 # (e.g. BAJAJ-AUTO → Bajaj Finance, LT/M&M → nothing); "dev." resolves them
 # correctly. Override with INDIANAPI_BASE if needed.
-BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
+BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 RATE_SLEEP = 1.1
 
