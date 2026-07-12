@@ -184,3 +184,116 @@ def test_metric_plausibility_gate():
     assert abs(_plausible(0.072, 0.01, 0.25) - 0.072) < 1e-9
     assert _plausible(None, 0.01, 0.25) is None
     assert _plausible(0.40, 0.01, 0.25) is None    # >25% = misfiled too
+
+
+def test_statement_integrity_gate():
+    """Serving-time gate: misfiled quarterly/mis-scaled lines must never render
+    under an annual column (LICHSGFIN screenshot bug), and Reuters-negative
+    cost lines display as magnitudes."""
+    from app.financials import _sanitize_statements
+
+    # LICHSGFIN-shaped: FY25 from the annual INC block (negative interest),
+    # FY26 poisoned by quarterly supplement lines + misfiled ₹51cr interest.
+    nested = {
+        2025: {"PL": {"interest_expense": -19515.04, "pbt": 6878.86,
+                      "tax": 1436.16, "pat": 5442.7}},
+        2026: {"PL": {"interest_income": 6938.0, "interest_expense": 51.31,
+                      "nii": 6936.0, "other_income": 24.0, "total_income": 6960.0,
+                      "opex": 4879.0, "pbt": 7103.47, "tax": 1499.23, "pat": 5604.24}},
+    }
+    _sanitize_statements(nested, financial=True)
+    # FY26 supplement block dropped (total_income < pbt, ii < pbt, ie collapse)
+    for k in ("interest_income", "interest_expense", "nii", "other_income",
+              "total_income", "opex"):
+        assert k not in nested[2026]["PL"], k
+    # annual figures from /stock survive
+    assert nested[2026]["PL"]["pat"] == 5604.24
+    # FY25 interest expense now a magnitude
+    assert nested[2025]["PL"]["interest_expense"] == 19515.04
+
+    # A clean lender year passes untouched
+    clean = {2026: {"PL": {"interest_income": 27000.0, "interest_expense": 19000.0,
+                           "nii": 8000.0, "other_income": 300.0, "total_income": 8300.0,
+                           "opex": 900.0, "pbt": 7100.0, "pat": 5600.0}}}
+    _sanitize_statements(clean, financial=True)
+    assert clean[2026]["PL"]["interest_income"] == 27000.0
+
+    # Non-financial: revenue collapsing >80% while PAT holds = misfiled period
+    nf = {
+        2025: {"PL": {"revenue": 50000.0, "pat": 4000.0}},
+        2026: {"PL": {"revenue": 6000.0, "pat": 4200.0, "pbt": 5500.0}},
+    }
+    _sanitize_statements(nf, financial=False)
+    assert "revenue" not in nf[2026]["PL"]
+    assert nf[2026]["PL"]["pat"] == 4200.0
+    # ...but a real revenue collapse WITH a matching PAT collapse is kept
+    real = {
+        2025: {"PL": {"revenue": 50000.0, "pat": 4000.0}},
+        2026: {"PL": {"revenue": 6000.0, "pat": 300.0}},
+    }
+    _sanitize_statements(real, financial=False)
+    assert real[2026]["PL"]["revenue"] == 6000.0
+
+
+def test_lender_interest_vs_borrowings_gate():
+    """MUTHOOTFIN bug: Reuters INC files scrap values (₹-1.85cr) as a lender's
+    interest expense against a ₹60,000cr borrowing book — implied cost of funds
+    under 1% is a misfile, publish nothing."""
+    from app.financials import _sanitize_statements
+    nested = {
+        2023: {"PL": {"interest_expense": -1.85, "pbt": 4922.78, "pat": 3669.77},
+               "BS": {"borrowings": 60000.0}},
+        # plausible lender year survives (LICHSGFIN FY25: 7.3% implied CoF)
+        2025: {"PL": {"interest_expense": -19515.04, "pbt": 6878.86},
+               "BS": {"borrowings": 266216.0}},
+    }
+    _sanitize_statements(nested, financial=True)
+    assert "interest_expense" not in nested[2023]["PL"]
+    assert nested[2025]["PL"]["interest_expense"] == 19515.04
+
+
+def test_document_date_normalization():
+    """Ratings without a year must not reach the browser (Date() turns '30 Jun'
+    into 2001); the agency URL carries the real year. Audio-recording
+    announcements attach to the matching concall."""
+    from app.documents_routes import _normalize_docs
+    docs = {
+        "credit_ratings": [
+            {"date": "30 Jun", "title": "Rating update",
+             "url": "https://www.crisil.com/.../LICHousingFinanceLimited_June 30_ 2026_RR_399153.html"},
+            {"date": "6 Jan", "title": "Rating update",
+             "url": "https://www.careratings.com/upload/CompanyFiles/PR/202601130141_LIC.pdf"},
+            {"date": "10 Nov 2025", "title": "Rating update", "url": "https://x/y.pdf"},
+            {"date": "10 Nov 2025", "title": "Rating update", "url": "https://x/y.pdf"},  # dupe
+        ],
+        "concalls": [{"date": "May 2026", "transcript": "t.pdf", "ppt": "p.pdf", "summary": None}],
+        "announcements": [
+            {"title": "Audio Recording of Earnings Conference Call", "date": "2 May - Q4 call",
+             "url": "https://bse/rec.pdf"},
+        ],
+    }
+    out = _normalize_docs(docs)
+    rt = out["credit_ratings"]
+    assert rt[0]["date"] == "30 Jun 2026"
+    assert rt[1]["date"] == "6 Jan 2026"
+    assert rt[2]["date"] == "10 Nov 2025"
+    assert len(rt) == 3                       # dupe collapsed
+    assert out["concalls"][0]["recording"] == "https://bse/rec.pdf"
+
+
+def test_profile_snapshot_fallback(tmp_path):
+    """Budget-exhausted or vendor-down profile requests must serve the last
+    stored snapshot, never an empty shell (July 2026 quota burn)."""
+    from app import profile_routes
+
+    class _Ins:
+        data = {"profile_snapshot": {
+            "fetched_at": 1.0,   # ancient — stale, so live path is attempted
+            "payload": {"ticker": "LICHSGFIN", "description": "Housing lender."}}}
+    snap = profile_routes._load_snapshot(_Ins())
+    assert snap["payload"]["description"] == "Housing lender."
+    # a malformed blob never raises
+    class _Bad:
+        data = {"profile_snapshot": "garbage"}
+    assert profile_routes._load_snapshot(_Bad()) is None
+    assert profile_routes._load_snapshot(None) is None

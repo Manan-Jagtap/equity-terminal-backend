@@ -400,6 +400,45 @@ elif _flag("RUN_FUNDAMENTALS_BACKFILL"):
         log.info("Fundamentals backfill done. Remove RUN_FUNDAMENTALS_BACKFILL now.")
     except Exception as e:
         log.error(f"Fundamentals backfill failed: {type(e).__name__}: {e}")
+elif _flag("RUN_PROFILE_SNAPSHOTS"):
+    # One-off / monthly: persist a Business-tab profile snapshot for every
+    # visible name that lacks a fresh one, so profile pages survive vendor
+    # quota exhaustion (July 2026: 10k/month burned, every profile empty).
+    # Budget-guarded per name (~5 calls each); stops cleanly at the ceiling.
+    log.info("RUN_PROFILE_SNAPSHOTS set — persisting company profile snapshots…")
+    try:
+        import time as _t
+        from app.database import SessionLocal
+        from app import models, api_budget
+        from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+        from app.profile_routes import company_profile, _load_snapshot, _SNAP_TTL_DAYS
+        s = SessionLocal()
+        done = skipped = 0
+        try:
+            for tk in sorted(VISIBLE_UNIVERSE):
+                co = s.query(models.Company).filter_by(ticker=tk).first()
+                if co is None:
+                    continue
+                ins = s.query(models.CompanyInsight).filter_by(company_id=co.id).first()
+                snap = _load_snapshot(ins)
+                if snap and _t.time() - (snap.get("fetched_at") or 0) < _SNAP_TTL_DAYS * 86400:
+                    skipped += 1
+                    continue
+                if api_budget.would_exceed(s, 5):
+                    log.info(f"Profile snapshots: budget ceiling at {done} done — stopping.")
+                    break
+                try:
+                    company_profile(tk, db=s)   # route handler persists the snapshot
+                    done += 1
+                except Exception as e:
+                    log.warning(f"  {tk}: {type(e).__name__}: {e}")
+                _t.sleep(1.0)                   # stay polite to the vendor
+        finally:
+            s.close()
+        log.info(f"Profile snapshots done: {done} fetched, {skipped} already fresh. "
+                 "Remove RUN_PROFILE_SNAPSHOTS now.")
+    except Exception as e:
+        log.error(f"Profile snapshots failed: {type(e).__name__}: {e}")
 elif _flag("RUN_DHAN_REPAIR"):
     # One-off: fix the 2026-07-04 UTC-shifted-date poisoning END TO END.
     # 1) wipe + refill companies whose history holds Sunday-dated rows (the

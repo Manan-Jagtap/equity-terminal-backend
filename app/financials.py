@@ -118,6 +118,79 @@ def _items_for_template(template_code: str) -> list[tuple[str, str]]:
     return pl + _BS_COMMON + _CF_COMMON
 
 
+# ── Serving-time integrity gate ──────────────────────────────────────────────
+# The DB holds statement lines written by different vendors and parsers over
+# time (the Reuters-style INC block, /statement supplements, quarterly-results
+# parsers). A misfiled quarterly figure or a wrongly-scaled vendor value must
+# never render under an annual fiscal-year column. Every rule below is an
+# identity that holds for ANY real annual statement, so the gate can only
+# remove impossible cells — it never touches a plausible one.
+
+# Cost rows are magnitudes in every published convention (Screener, annual
+# reports); the Reuters INC block delivers them negative. P&L only — cash-flow
+# outflows keep their sign.
+_PL_COST_LINES = ("interest_expense", "opex", "provisions", "depreciation",
+                  "raw_material")
+
+# Lines written by the lender P&L supplement — dropped as a block when a
+# year fails an identity, because they arrive together from one payload.
+_FIN_SUPP_LINES = ("interest_income", "interest_expense", "nii",
+                   "other_income", "total_income", "opex", "provisions")
+
+
+def _sanitize_statements(nested: dict, financial: bool) -> None:
+    years = sorted(nested.keys())
+    for y in years:
+        pl = nested[y].get("PL")
+        if not pl:
+            continue
+        for k in _PL_COST_LINES:
+            v = pl.get(k)
+            if v is not None and v < 0:
+                pl[k] = abs(v)
+
+    for i, y in enumerate(years):
+        pl = nested[y].get("PL")
+        if not pl:
+            continue
+        pbt = pl.get("pbt")
+        prev = nested[years[i - 1]].get("PL", {}) if i else {}
+        bad = False
+        if financial:
+            # The Reuters INC block files a non-operating scrap value as a
+            # lender's interest expense (MUTHOOTFIN: ₹-1.85cr against ₹60,000cr
+            # of borrowings). Same gate as metrics cost_of_funds: an implied
+            # cost of funds under 1% on a real borrowing book is a misfile.
+            ie0 = pl.get("interest_expense")
+            bor = nested[y].get("BS", {}).get("borrowings")
+            if ie0 is not None and bor and bor > 0 and abs(ie0) < 0.01 * bor:
+                pl.pop("interest_expense", None)
+            ii, ti, ie = pl.get("interest_income"), pl.get("total_income"), pl.get("interest_expense")
+            # Total income funds PBT; a lender's gross top line exceeds PBT.
+            if ti is not None and pbt is not None and ti < pbt:
+                bad = True
+            if ii is not None and pbt is not None and ii < pbt:
+                bad = True
+            # A going lender's interest bill / top line cannot collapse >80% YoY.
+            for cur, pv in ((ie, prev.get("interest_expense")),
+                            (ii, prev.get("interest_income"))):
+                if cur is not None and pv and cur < 0.2 * abs(pv):
+                    bad = True
+            if bad:
+                for k in _FIN_SUPP_LINES:
+                    pl.pop(k, None)
+        else:
+            # Revenue collapsing >80% YoY while PAT holds is a misfiled period,
+            # not a business event.
+            rev, prev_rev = pl.get("revenue"), prev.get("revenue")
+            pat, prev_pat = pl.get("pat"), prev.get("pat")
+            if (rev is not None and prev_rev and rev < 0.2 * prev_rev
+                    and pat is not None and prev_pat and abs(pat) > 0.5 * abs(prev_pat)):
+                for k in ("revenue", "total_income", "other_income", "raw_material",
+                          "gross_profit", "ebitda", "ebitda_margin", "opex"):
+                    pl.pop(k, None)
+
+
 # ── Main formatter ────────────────────────────────────────────────────────────
 
 def build_financials_response(
@@ -145,6 +218,8 @@ def build_financials_response(
     # returned 7–10). Keep only the 5 most recent so statements are consistent.
     years_available = sorted(nested.keys())[-5:]
     nested = {y: nested[y] for y in years_available}
+
+    _sanitize_statements(nested, financial)
 
     # Compute derived margins inline where possible
     for yr, stmts in nested.items():

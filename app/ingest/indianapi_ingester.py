@@ -844,18 +844,34 @@ def _financial_pl_supplement(s, co, year):
         # annual statement.
         ii = vals.get("interest_income")
         ie = vals.get("interest_expense")
-        pat_row = (s.query(models.HistoricalFinancial)
-                     .filter_by(company_id=co.id, fiscal_year=year,
-                                statement_type="PL", line_item="pat").first())
-        pat_annual = pat_row.value if pat_row else None
+
+        def _year_line(fy, line):
+            row = (s.query(models.HistoricalFinancial)
+                     .filter_by(company_id=co.id, fiscal_year=fy,
+                                statement_type="PL", line_item=line).first())
+            return row.value if row else None
+
+        pat_annual = _year_line(year, "pat")
+        pbt_annual = _year_line(year, "pbt")
+        ie_prev = _year_line(year - 1, "interest_expense")
+        # LICHSGFIN bug: /statement returned Q4 figures plus a misfiled ₹51cr
+        # interest expense, and the old pat-only check let them through as FY
+        # lines. Tightened: the top line must also exceed PBT, and the interest
+        # bill cannot collapse >80% vs the prior fiscal year.
         if ii is None or (ie is not None and ii <= ie) or \
-           (pat_annual is not None and ii <= pat_annual):
+           (pat_annual is not None and ii <= pat_annual) or \
+           (pbt_annual is not None and ii <= pbt_annual) or \
+           (ie is not None and ie_prev and ie < 0.2 * abs(ie_prev)):
             continue   # not annual-scale (or no interest income) → try next stat
 
         if "interest_income" in vals and "interest_expense" in vals:
             vals["nii"] = vals["interest_income"] - vals["interest_expense"]
         if "nii" in vals and "other_income" in vals:
             vals["total_income"] = vals["nii"] + vals["other_income"]
+        # Post-derivation identity: annual total income must cover PBT.
+        ti = vals.get("total_income")
+        if ti is not None and pbt_annual is not None and ti < pbt_annual:
+            continue
         for canon, v in vals.items():
             existing = (s.query(models.HistoricalFinancial)
                           .filter_by(company_id=co.id, fiscal_year=year,
@@ -874,18 +890,25 @@ def _insurer_statements(s, co):
     import datetime
     year = datetime.date.today().year
     wrote = 0
-    for stat in ("quarter_results", "balancesheet"):
+    # profit_loss is the annual Screener-style P&L; quarter_results is a single
+    # QUARTER. Writing quarterly P&L lines under a fiscal-year column is exactly
+    # the LICHSGFIN class of inaccuracy, so quarter_results may only contribute
+    # point-in-time BALANCE-SHEET lines, never P&L.
+    for stat in ("profit_loss", "quarter_results", "balancesheet"):
         r = _get_safe("/statement", {"stock_name": ticker, "stats": stat})
         if not isinstance(r, dict):
             continue
         for raw_key, (stmt, canon) in _STMT_FACT_MAP.items():
+            if stat == "quarter_results" and stmt == "PL":
+                continue
             v = _num(r.get(raw_key))
             if v is not None:
                 _upsert_hist(s, co.id, year, stmt, canon, v)
                 wrote += 1
-        rev, pat = _num(r.get("sales")), _num(r.get("net_profit"))
-        if rev is not None: _upsert_fact(s, co.id, year, K.REVENUE, rev)
-        if pat is not None: _upsert_fact(s, co.id, year, K.NET_PROFIT, pat)
+        if stat != "quarter_results":
+            rev, pat = _num(r.get("sales")), _num(r.get("net_profit"))
+            if rev is not None: _upsert_fact(s, co.id, year, K.REVENUE, rev)
+            if pat is not None: _upsert_fact(s, co.id, year, K.NET_PROFIT, pat)
     return wrote
 
 

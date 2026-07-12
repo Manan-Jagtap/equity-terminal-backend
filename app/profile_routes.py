@@ -24,9 +24,11 @@ KEY = os.getenv("INDIANAPI_KEY", "").strip()
 TTL = 6 * 3600  # profiles change slowly
 
 _cache: dict[str, tuple[float, object]] = {}
+_out_calls = 0          # actual vendor HTTP hits since process start (budget)
 
 
 def _get(path, params, ttl=TTL):
+    global _out_calls
     ck = path + str(params)
     now = time.time()
     hit = _cache.get(ck)
@@ -35,6 +37,7 @@ def _get(path, params, ttl=TTL):
     if not KEY:
         return None
     try:
+        _out_calls += 1
         r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                          params=params, timeout=25)
         data = r.json() if r.status_code == 200 else None
@@ -277,37 +280,110 @@ def company_ratios_live(ticker: str, db: Session = Depends(get_db)):
     return _periodic_response(co, "ratios", n=8)
 
 
+_SNAP_TTL_DAYS = 7      # profiles change slowly; weekly refresh per name
+
+
+def _load_snapshot(ins):
+    if ins is not None and isinstance(ins.data, dict):
+        snap = ins.data.get("profile_snapshot")
+        if isinstance(snap, dict) and isinstance(snap.get("payload"), dict):
+            return snap
+    return None
+
+
 @router.get("/{ticker}/profile")
 def company_profile(ticker: str, db: Session = Depends(get_db)):
+    """Snapshot-first Business-tab profile.
+
+    The old behaviour hit IndianAPI 5× per page view behind a 6-hour in-memory
+    cache and NO budget guard — browsing alone could burn the whole 10k/month
+    quota (it did, in July 2026: every profile served empty for days). Now the
+    last good payload is persisted per company in the CompanyInsight blob and
+    served for a week; the vendor is consulted only when the snapshot is stale
+    AND the monthly budget allows, and a vendor failure degrades to the
+    snapshot instead of an empty shell."""
     co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
     if not co:
         raise HTTPException(404, f"Unknown ticker {ticker}")
 
     name = ticker.upper()
-    # Warm all 5 upstream calls concurrently (~3s vs ~15s sequential); the parse
-    # helpers below then hit the in-memory cache instantly.
-    _warm = [("/stock", {"name": name}), ("/concalls", {"stock_name": name}),
-             ("/annual_reports", {"stock_name": name}), ("/credit_ratings", {"stock_name": name}),
-             ("/recent_announcements", {"stock_name": name})]
-    try:
-        with ThreadPoolExecutor(max_workers=5) as ex:
-            list(ex.map(lambda c: _get(c[0], c[1]), _warm))
-    except Exception:
-        pass
-    stock = _get("/stock", {"name": name}) or {}
-    prof = stock.get("companyProfile") or {}
+    ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
+    snap = _load_snapshot(ins)
+    now = time.time()
+    if snap and now - (snap.get("fetched_at") or 0) < _SNAP_TTL_DAYS * 86400:
+        return snap["payload"]
 
-    return {
-        "ticker": co.ticker,
-        "name": co.name,
-        "description": prof.get("companyDescription"),
-        "key_facts": _key_facts(stock),
-        "leadership": _leadership(stock),
-        "shareholding": _shareholding(stock),
-        "shareholding_trend": _shareholding_trend(stock),
-        "corporate_actions": _corporate_actions(stock),
-        "concalls": _concalls(name),
-        "annual_reports": _annual_reports(name),
-        "credit_ratings": _credit_ratings(name),
-        "announcements": _announcements(name),
+    from app import api_budget
+
+    payload = None
+    if not api_budget.would_exceed(db, 5):
+        before = _out_calls
+        # Warm all 5 upstream calls concurrently (~3s vs ~15s sequential); the
+        # parse helpers below then hit the in-memory cache instantly.
+        _warm = [("/stock", {"name": name}), ("/concalls", {"stock_name": name}),
+                 ("/annual_reports", {"stock_name": name}), ("/credit_ratings", {"stock_name": name}),
+                 ("/recent_announcements", {"stock_name": name})]
+        try:
+            with ThreadPoolExecutor(max_workers=5) as ex:
+                list(ex.map(lambda c: _get(c[0], c[1]), _warm))
+        except Exception:
+            pass
+        stock = _get("/stock", {"name": name}) or {}
+        prof = stock.get("companyProfile") or {}
+
+        payload = {
+            "ticker": co.ticker,
+            "name": co.name,
+            "description": prof.get("companyDescription"),
+            "key_facts": _key_facts(stock),
+            "leadership": _leadership(stock),
+            "shareholding": _shareholding(stock),
+            "shareholding_trend": _shareholding_trend(stock),
+            "corporate_actions": _corporate_actions(stock),
+            "concalls": _concalls(name),
+            "annual_reports": _annual_reports(name),
+            "credit_ratings": _credit_ratings(name),
+            "announcements": _announcements(name),
+        }
+        try:
+            api_budget.record_usage(db, _out_calls - before)
+        except Exception:
+            pass
+
+        got_data = bool(prof) or any(
+            payload.get(k) for k in ("leadership", "shareholding", "concalls",
+                                     "annual_reports", "credit_ratings", "announcements"))
+        if got_data:
+            try:
+                if ins is None:
+                    ins = models.CompanyInsight(company_id=co.id, data={})
+                    db.add(ins)
+                data = dict(ins.data or {})
+                data["profile_snapshot"] = {"fetched_at": now, "payload": payload}
+                ins.data = data
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(ins, "data")
+                db.commit()
+            except Exception:
+                db.rollback()
+            return payload
+
+    # Vendor failed or budget exhausted → last known good beats an empty shell.
+    if snap:
+        out = dict(snap["payload"])
+        out["as_of"] = _dt_iso(snap.get("fetched_at"))
+        return out
+    return payload or {
+        "ticker": co.ticker, "name": co.name, "description": None,
+        "key_facts": _key_facts({}), "leadership": [], "shareholding": [],
+        "shareholding_trend": [], "corporate_actions": [], "concalls": [],
+        "annual_reports": [], "credit_ratings": [], "announcements": [],
     }
+
+
+def _dt_iso(ts):
+    try:
+        import datetime
+        return datetime.datetime.utcfromtimestamp(float(ts)).strftime("%Y-%m-%d")
+    except Exception:
+        return None
