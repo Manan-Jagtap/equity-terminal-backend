@@ -41,7 +41,11 @@ def logo(ticker: str, db: Session = Depends(get_db)):
         _CACHE[t] = None
         raise HTTPException(404, "no ticker_id for logo")
 
-    for url in (f"{BASE}/logo/{tid}.png", f"{BASE}/logo/{tid}"):
+    # The production IndianAPI host dropped /logo/{id}; the vendor's own
+    # payloads (peerCompanyList imageUrl) point at this CDN keyed by the same
+    # ticker_id — the identical artwork the licensed feed serves elsewhere.
+    for url in (f"https://www.livemint.com/lm-img/markets/logo/{tid}.png",
+                f"{BASE}/logo/{tid}.png"):
         try:
             r = requests.get(url, headers={"X-API-Key": KEY, "x-api-key": KEY}, timeout=15)
             ct = r.headers.get("content-type", "")
