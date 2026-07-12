@@ -554,3 +554,45 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
 
 def _public(data):
     return {k: v for k, v in data.items() if k != "series"}
+
+
+@app.get("/api/isin-map")
+def isin_map():
+    """ISIN → ticker for the whole universe (from stored profile snapshots).
+    Broker exports (Groww/Zerodha console) identify rows by ISIN + truncated
+    display names — ISIN is the only unambiguous key. Cached in-process 1h."""
+    import time as _time
+    from app.database import SessionLocal
+    global _ISIN_CACHE
+    try:
+        ts, data = _ISIN_CACHE
+    except NameError:
+        ts, data = 0, None
+    if data is not None and _time.time() - ts < 3600:
+        return data
+    import re as _re
+    def _norm(n):
+        n = _re.sub(r"\b(ltd|limited|company|corp|corporation|industries|enterprises|the|and|of|india)\b\.?",
+                    " ", (n or "").lower().replace("&", " and "))
+        return " ".join(_re.split(r"[^a-z0-9]+", n)).strip()
+    s = SessionLocal()
+    try:
+        out, names = {}, {}
+        for co in s.query(models.Company).all():
+            nm = _norm(co.name)
+            if nm:
+                names[nm] = co.ticker
+        rows = (s.query(models.Company, models.CompanyInsight)
+                  .join(models.CompanyInsight,
+                        models.CompanyInsight.company_id == models.Company.id).all())
+        for co, ins in rows:
+            d = ins.data or {}
+            isin = (((d.get("profile_snapshot") or {}).get("payload") or {})
+                    .get("key_facts") or {}).get("isin")
+            if isin:
+                out[str(isin).strip().upper()] = co.ticker
+    finally:
+        s.close()
+    payload = {"count": len(out), "map": out, "names": names}
+    _ISIN_CACHE = (_time.time(), payload)
+    return payload
