@@ -205,6 +205,30 @@ def _indianapi_news(ticker: str, name: str = "") -> tuple[list[dict], str | None
     return [], last_err
 
 
+_NAME_NOISE = re.compile(r"\b(ltd|limited|india|industries|company|corp|corporation|enterprises)\b\.?", re.I)
+
+
+def _match_terms(ticker: str, name: str) -> list[str]:
+    """Terms that actually identify the company. The old first-word substring
+    match made "LIC" hit pub-LIC-sector / po-LIC-y articles, filling LIC
+    Housing's News tab with Navy stories. Use the ticker plus the name's first
+    TWO meaningful words, matched at word boundaries."""
+    base = _NAME_NOISE.sub(" ", (name or "").lower())
+    words = [w for w in re.split(r"[^a-z0-9&]+", base) if len(w) > 1]
+    terms = [ticker.lower()]
+    if len(words) >= 2:
+        terms.append(f"{words[0]} {words[1]}")
+    elif words:
+        terms.append(words[0])
+    return [t for t in terms if len(t) > 2]
+
+
+def _mentions(text: str, terms: list[str]) -> bool:
+    low = (text or "").lower()
+    return any(re.search(r"(?<![a-z0-9])" + re.escape(t).replace(r"\ ", r"\s+") + r"(?![a-z0-9])", low)
+               for t in terms)
+
+
 def _market_news_for(ticker: str, name: str) -> tuple[list[dict], str | None]:
     """Fallback: scan general market news for any mention of the company, so the
     News tab is never empty even for low-coverage names."""
@@ -221,9 +245,9 @@ def _market_news_for(ticker: str, name: str) -> tuple[list[dict], str | None]:
     except Exception as e:
         return [], str(e)[:80]
     arts = data if isinstance(data, list) else (data.get("news") or data.get("data") or [])
-    terms = [t.lower() for t in [ticker, ((name or "").split() or [""])[0]] if len(t) > 2]
+    terms = _match_terms(ticker, name)
     matched = [a for a in arts if isinstance(a, dict)
-               and any(t in (str(a.get("title", "")) + " " + str(a.get("summary", ""))).lower() for t in terms)]
+               and _mentions(str(a.get("title", "")) + " " + str(a.get("summary", "")), terms)]
     items = _parse_news_items(matched)
     return (items, None) if items else ([], "no_market_match")
 

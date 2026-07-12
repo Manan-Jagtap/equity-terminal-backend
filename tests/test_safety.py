@@ -366,3 +366,21 @@ def test_ownership_keeps_every_category():
     assert out["promoter"]["pct"] == 45.2
     assert out["government"]["pct"] == 1.5
     assert out["other"]["pct"] == 3.3
+
+
+def test_market_news_matching_is_word_bounded():
+    """'LIC' must not match 'public'/'policy': the fallback that fills a
+    company's News tab from general market news matches whole identifiers."""
+    from app.news_routes import _match_terms, _mentions
+    terms = _match_terms("LICHSGFIN", "LIC Housing Finance Ltd.")
+    assert "lic housing" in terms and "lichsgfin" in terms
+    # substring traps that used to match
+    assert not _mentions("Public sector banks rally on policy hopes", terms)
+    assert not _mentions("Navy key protector of republic's interests", terms)
+    # genuine mentions match
+    assert _mentions("LIC Housing Finance Q4 profit rises 12%", terms)
+    assert _mentions("Brokerages raise LICHSGFIN target price", terms)
+    # single-word names stay word-bounded (Titan ≠ titanium)
+    t2 = _match_terms("TITAN", "Titan Company Ltd.")
+    assert not _mentions("Titanium prices surge on aerospace demand", t2)
+    assert _mentions("Titan reports strong jewellery sales", t2)
