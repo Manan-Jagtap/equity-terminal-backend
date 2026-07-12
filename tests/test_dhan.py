@@ -130,3 +130,28 @@ def test_resolve_index_aliases_exact_and_fuzzy():
     assert r("NIFTY Midcap 100", idx) == "36"    # space-insensitive
     assert r("SENSEX", idx) is None              # BSE — honestly unresolvable
     assert r("", idx) is None and r("NIFTY 50", {}) is None
+
+
+def test_ltp_quote_parses_segments(monkeypatch):
+    from app.dhan import client
+    fake = {"data": {"NSE_EQ": {"11536": {"last_price": 4520.5}, "1333": {"last_price": None}},
+                     "IDX_I": {"13": {"last_price": 26412.3}}}, "status": "success"}
+    monkeypatch.setattr(client, "_post", lambda *a, **k: fake)
+    out = client.ltp_quote({"NSE_EQ": ["11536", "1333"], "IDX_I": [13]})
+    assert out == {"NSE_EQ": {"11536": 4520.5}, "IDX_I": {"13": 26412.3}}
+
+
+def test_ltp_quote_empty_and_unconfigured(monkeypatch):
+    from app.dhan import client
+    assert client.ltp_quote({}) == {}
+    monkeypatch.setattr(client, "_post", lambda *a, **k: None)
+    assert client.ltp_quote({"NSE_EQ": [1]}) is None
+
+
+def test_market_open_ist_window():
+    import datetime as dt
+    from app.live_prices import market_open, IST
+    assert market_open(dt.datetime(2026, 7, 6, 10, 0, tzinfo=IST))       # Mon 10:00
+    assert not market_open(dt.datetime(2026, 7, 6, 8, 59, tzinfo=IST))   # pre-open
+    assert not market_open(dt.datetime(2026, 7, 6, 15, 31, tzinfo=IST))  # post-close
+    assert not market_open(dt.datetime(2026, 7, 5, 11, 0, tzinfo=IST))   # Sunday

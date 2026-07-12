@@ -186,3 +186,31 @@ def test_signup_rejects_domain_that_refuses_mail(monkeypatch):
     monkeypatch.setattr(email_check, "_domain_accepts_mail", lambda d, timeout=3.0: False)
     r = _signup("ghost@no-such-domain-xyz.example")
     assert r.status_code == 400 and "doesn't appear to accept email" in r.json()["detail"]
+
+
+# ── Account deletion (DPDP erasure) ──────────────────────────────────────────
+def _auth_hdr(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_delete_account_erases_everything():
+    r = _signup("todelete@example.com")
+    tok = r.json()["token"]
+    # seed a couple of personal rows
+    client.post("/api/screens", json={"name": "s1", "data": {"q": "x"}}, headers=_auth_hdr(tok))
+    # wrong confirmation → 400, account intact
+    bad = client.request("DELETE", "/api/auth/account",
+                         json={"confirm_email": "wrong@example.com"}, headers=_auth_hdr(tok))
+    assert bad.status_code == 400
+    # correct confirmation → gone
+    ok = client.request("DELETE", "/api/auth/account",
+                        json={"confirm_email": "todelete@example.com"}, headers=_auth_hdr(tok))
+    assert ok.status_code == 200 and ok.json()["deleted"] is True
+    # token now dead; user + rows gone
+    assert client.get("/api/auth/me", headers=_auth_hdr(tok)).status_code == 401
+    s = SessionLocal()
+    try:
+        assert s.query(models.User).filter_by(email="todelete@example.com").count() == 0
+        assert s.query(models.AuthEvent).filter_by(email="todelete@example.com").count() == 0
+    finally:
+        s.close()

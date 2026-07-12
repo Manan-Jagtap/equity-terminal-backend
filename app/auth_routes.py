@@ -120,3 +120,30 @@ def login(body: LoginBody, request: Request, db: Session = Depends(get_db)):
 @router.get("/me")
 def me(user: models.User = Depends(get_current_user)):
     return {"user": _user_payload(user)}
+
+
+class DeleteAccountBody(BaseModel):
+    confirm_email: str
+
+
+@router.delete("/account")
+def delete_account(body: DeleteAccountBody,
+                   user: models.User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """DPDP right-to-erasure: permanently removes the account and ALL personal
+    data — watchlist, portfolio, saved scenarios/screens, and the auth-event
+    ledger rows for this user. Requires the user to re-type their email (a
+    stolen token alone shouldn't be able to silently destroy an account's
+    data without knowing the address it belongs to)."""
+    if (body.confirm_email or "").strip().lower() != (user.email or "").lower():
+        raise HTTPException(400, "Email confirmation doesn't match this account")
+    uk = f"u{user.id}"
+    for model in (models.WatchlistItem, models.PortfolioHolding,
+                  models.SavedScenario, models.SavedScreen):
+        db.query(model).filter_by(user_key=uk).delete(synchronize_session=False)
+    db.query(models.AuthEvent).filter(
+        (models.AuthEvent.user_id == user.id) | (models.AuthEvent.email == user.email)
+    ).delete(synchronize_session=False)
+    db.query(models.User).filter_by(id=user.id).delete(synchronize_session=False)
+    db.commit()
+    return {"ok": True, "deleted": True}

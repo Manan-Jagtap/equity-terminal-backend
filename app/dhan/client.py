@@ -158,6 +158,38 @@ def historical_daily(security_id, from_date: str, to_date: str,
     return rows_from_candles(data)
 
 
+# ── Batch LTP (Market Quote API) ─────────────────────────────────────────────
+# One REST call prices up to 1000 instruments — the whole visible universe plus
+# the headline indices in a single request. This is what makes near-real-time
+# prices possible WITHOUT WebSockets (the recorder keeps its connection budget).
+_quote_rl = _RateLimiter(1.1)      # Quote APIs: 1 request/second
+
+
+def ltp_quote(id_map: dict) -> dict | None:
+    """id_map: {"NSE_EQ": [securityIds...], "IDX_I": [...]} (ints or strs).
+    Returns {"NSE_EQ": {"11536": 4520.5, ...}, "IDX_I": {...}} or None when
+    unconfigured. Raises on HTTP errors (caller decides)."""
+    body = {seg: [int(i) for i in ids] for seg, ids in id_map.items() if ids}
+    if not body:
+        return {}
+    data = _post("/marketfeed/ltp", body, _quote_rl,
+                 extra_headers={"client-id": client_id()})
+    if data is None:
+        return None
+    out = {}
+    for seg, quotes in ((data.get("data") or {}).items()):
+        seg_out = {}
+        for sid, q in (quotes or {}).items():
+            px = (q or {}).get("last_price")
+            if px is not None:
+                try:
+                    seg_out[str(sid)] = float(px)
+                except (TypeError, ValueError):
+                    pass
+        out[seg] = seg_out
+    return out
+
+
 # ── Option chain ─────────────────────────────────────────────────────────────
 def _leg(x: dict) -> dict:
     x = x or {}

@@ -129,13 +129,13 @@ def run_prices():
 
 
 def run_intraday_prices():
-    """Intraday spot-price refresh via IndianAPI (the yfinance batch path was
-    abandoned — Yahoo blocks Railway's datacenter IP, so it returned 0/50 every
-    run). IndianAPI works server-side but costs ~50 calls per run, so this fires
-    at most every 90 min and only during NSE market hours (9:15-15:35 IST =
-    03:45-10:05 UTC, Mon-Fri) to stay inside the monthly quota. After the price
-    update, a CHEAP mos/verdict refresh (no DCF re-run — intrinsic doesn't move
-    with price)."""
+    """Intraday spot-price refresh. Primary path: ONE Dhan batch-LTP call marks
+    every visible name (500 snapshots, 1 request, zero IndianAPI quota — this
+    replaced the 50-name IndianAPI poll and freed ~4,400 calls/month for the
+    rolling fundamentals cohort). IndianAPI per-name polling remains only as
+    the fallback when Dhan is unconfigured. Fires every 90 min during NSE
+    hours; the /api/live endpoint gives clients ~12s freshness in between.
+    After the price update, a CHEAP mos/verdict refresh (no DCF re-run)."""
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     if now.weekday() >= 5:
@@ -144,10 +144,22 @@ def run_intraday_prices():
     if not (3 * 60 + 45 <= mins <= 10 * 60 + 5):   # 03:45–10:05 UTC
         return
     try:
-        n = run_intraday()
+        from app.dhan import client as _dhan
+        if _dhan.configured():
+            from app.live_prices import update_snapshots_from_live
+            from app.database import SessionLocal
+            s = SessionLocal()
+            try:
+                n = update_snapshots_from_live(s)
+            finally:
+                s.close()
+            src = "Dhan batch LTP"
+        else:
+            n = run_intraday()
+            src = "IndianAPI fallback"
         if n:
             refresh_mos()                          # cheap: mos/verdict only
-        log.info(f"Intraday price refresh: {n} prices updated (IndianAPI).")
+        log.info(f"Intraday price refresh: {n} prices updated ({src}).")
     except Exception as e:
         log.error(f"Intraday price refresh failed: {e}")
 

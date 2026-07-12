@@ -64,6 +64,15 @@ def dhan_status():
     return out
 
 
+@router.get("/live")
+def live_prices():
+    """Near-real-time prices for the visible universe + headline indices.
+    Served from a ~12s cache during market hours — all clients share one
+    upstream Dhan batch-LTP call per window. Poll every ~15s client-side."""
+    from app.live_prices import snapshot
+    return snapshot()
+
+
 _IDX_HIST_CACHE: dict = {}
 _IDX_HIST_TTL = 3600.0
 
