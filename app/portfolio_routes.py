@@ -127,7 +127,7 @@ def _item(holding: models.PortfolioHolding, price, val: models.Valuation | None,
     qty, avg_cost = holding.qty or 0.0, holding.avg_cost or 0.0
     value = (qty * price) if price is not None else None
     cost = qty * avg_cost
-    return {
+    out = {
         "id": holding.id,
         "ticker": co.ticker, "name": co.name, "sector": co.sector,
         "qty": qty, "avg_cost": avg_cost,
@@ -141,6 +141,17 @@ def _item(holding: models.PortfolioHolding, price, val: models.Valuation | None,
         "intrinsic": (val.intrinsic if val else None),
         **_term_fields(holding),
     }
+    # Per-position XIRR: annualised total return (price + dividends) over the
+    # actual holding period. Under 7 days the annualisation is noise → None.
+    days, v, c = out.get("holding_days"), out.get("value"), out.get("cost")
+    if days and days >= 7 and v and c and c > 0:
+        try:
+            out["xirr"] = ((v + (out.get("div_income") or 0.0)) / c) ** (365.0 / days) - 1
+        except (OverflowError, ZeroDivisionError):
+            out["xirr"] = None
+    else:
+        out["xirr"] = None
+    return out
 
 
 def _build_items(db: Session, uk: str) -> list[dict]:
@@ -168,6 +179,26 @@ def list_portfolio(user: models.User = Depends(get_current_user),
     uk = f"u{user.id}"
     items = _build_items(db, uk)
     totals = compute_totals(items)
+    # Book XIRR from the real purchase dates: one outflow per position at its
+    # buy date, one terminal inflow at today's value + dividends received.
+    try:
+        import datetime as _dt
+        from app.portfolio_risk import xirr as _xirr
+        flows, terminal = [], 0.0
+        for i in items:
+            if not (i.get("cost") and i.get("value")):
+                continue
+            bd = i.get("buy_date")
+            d = _dt.date.fromisoformat(bd) if bd else _dt.date.today()
+            flows.append((d, -i["cost"]))
+            terminal += i["value"] + (i.get("div_income") or 0.0)
+        if flows and terminal:
+            flows.append((_dt.date.today(), terminal))
+            totals["xirr"] = _xirr(flows)
+        else:
+            totals["xirr"] = None
+    except Exception:
+        totals["xirr"] = None
     return {"items": items, "totals": totals}
 
 

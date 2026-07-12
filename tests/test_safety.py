@@ -563,3 +563,23 @@ def test_manager_v3_levels_and_intel():
     exit_a = next(a for a in m["actions"] if a["ticker"] == "AAA")
     assert exit_a["levels"]["target"] == 60.0            # model fair value
     assert any("institutions cut" in x for x in exit_a["reasons"])
+
+
+def test_holding_and_book_xirr():
+    """Per-position XIRR annualises capital + dividends over the REAL holding
+    period; sub-week positions stay None (annualisation noise)."""
+    import datetime as dt
+    from app.portfolio_routes import _item
+
+    class Co:
+        ticker, name, sector = "AAA", "Alpha", "IT"
+    class H:
+        id, qty, avg_cost = 1, 10.0, 100.0
+        company = Co()
+        buy_date = dt.date.today() - dt.timedelta(days=365)
+        added_at = None
+    it = _item(H(), price=121.0, val=None, actions=None)
+    assert abs(it["xirr"] - 0.21) < 0.01              # 21% over exactly a year
+    class H2(H):
+        buy_date = dt.date.today() - dt.timedelta(days=3)
+    assert _item(H2(), price=121.0, val=None, actions=None)["xirr"] is None
