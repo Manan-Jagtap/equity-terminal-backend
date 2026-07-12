@@ -79,3 +79,32 @@ def coverage(db: Session = Depends(get_db), _admin: models.User = Depends(requir
             "gaps": [r for r in rows
                      if r["statements"] < 4 or not r["has_insight"]],
             "rows": rows}
+
+
+@router.get("/dhan-totp")
+def dhan_totp_check(_admin: models.User = Depends(require_admin)):
+    """Owner-only TOTP sanity check: shows the code OUR server derives from
+    DHAN_TOTP_SECRET right now, so the owner can hold it next to their
+    authenticator app. Match → the stored secret is right (suspect PIN or an
+    unfinished TOTP activation on web.dhan.co). Mismatch → re-copy the secret.
+    Never returns the secret itself; a 30-second one-time code is worthless
+    on its own."""
+    import time
+    from app.dhan import auth
+    if not auth.enabled():
+        return {"enabled": False,
+                "message": "DHAN_CLIENT_ID / DHAN_PIN / DHAN_TOTP_SECRET not all set."}
+    _, _, sec = auth._creds()
+    now = time.time()
+    return {
+        "enabled": True,
+        "server_code": auth.totp_now(sec),
+        "seconds_left": int(30 - now % 30),
+        "secret_len": len(sec),
+        "how_to": "Open your authenticator's Dhan API entry NOW. If its code "
+                  "differs from server_code, the secret saved on Railway is not "
+                  "the one Dhan issued — re-copy it. If codes MATCH but token "
+                  "minting still fails, the API TOTP setup on web.dhan.co was "
+                  "not completed (it must be confirmed with a code) or the PIN "
+                  "is wrong.",
+    }
