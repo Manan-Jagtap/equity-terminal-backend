@@ -359,6 +359,31 @@ elif _flag("RUN_DHAN_BACKFILL"):
         log.info("Dhan backfill done. Remove RUN_DHAN_BACKFILL from Variables now.")
     except Exception as e:
         log.error(f"Dhan backfill failed: {type(e).__name__}: {e}")
+elif _flag("RUN_FUNDAMENTALS_BACKFILL"):
+    # One-off: full statements+facts+insights ingest for EXACTLY the visible
+    # names whose Financials or Analyst & Forward tabs would be empty (fewer
+    # than 4 statement rows, or no insight blob). The budget pre-flight in
+    # run() sizes the batch and refuses overruns. Remove the flag after.
+    log.info("RUN_FUNDAMENTALS_BACKFILL set — filling empty Financials/Analyst tabs…")
+    try:
+        from app.coverage import needs_fundamentals
+        from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+        from app.database import SessionLocal
+        s = SessionLocal()
+        try:
+            targets = needs_fundamentals(s, VISIBLE_UNIVERSE)
+        finally:
+            s.close()
+        if not targets:
+            log.info("Fundamentals backfill: nothing missing — all tabs covered.")
+        else:
+            log.info(f"Fundamentals backfill: {len(targets)} names "
+                     f"({targets[0]}…{targets[-1]})")
+            indianapi_run(tickers=targets, insights=True)
+            run_compute()
+        log.info("Fundamentals backfill done. Remove RUN_FUNDAMENTALS_BACKFILL now.")
+    except Exception as e:
+        log.error(f"Fundamentals backfill failed: {type(e).__name__}: {e}")
 elif _flag("RUN_DHAN_REPAIR"):
     # One-off: fix the 2026-07-04 UTC-shifted-date poisoning END TO END.
     # 1) wipe + refill companies whose history holds Sunday-dated rows (the

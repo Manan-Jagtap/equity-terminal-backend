@@ -65,3 +65,17 @@ def list_auth_events(limit: int = 100,
         "user_agent": r.user_agent,
         "at": r.created_at.isoformat() if r.created_at else None,
     } for r in rows]}
+
+
+@router.get("/coverage")
+def coverage(db: Session = Depends(get_db), _admin: models.User = Depends(require_admin)):
+    """Per-name, per-tab data-coverage matrix for the visible universe — which
+    tab is empty for which company, and the summary counts. The fundamentals
+    backfill targets exactly the names this flags."""
+    from app.coverage import coverage_rows, summary
+    from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+    rows = coverage_rows(db, VISIBLE_UNIVERSE)
+    return {"summary": summary(rows),
+            "gaps": [r for r in rows
+                     if r["statements"] < 4 or not r["has_insight"]],
+            "rows": rows}
