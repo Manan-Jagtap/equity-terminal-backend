@@ -150,3 +150,13 @@ def test_plausible_mos_untouched():
     assert r["mos"] is None or r["mos"] <= 2.0 or r["verdict"] == "LOW CONF"
     if r["mos"] is not None and 0 < r["mos"] <= 2.0:
         assert r["verdict"] != "LOW CONF" or r["confidence"]["score"] < 0.5
+
+
+def test_cagr_sign_flip_returns_none_not_complex():
+    # (negative/positive) ** (1/3) is a COMPLEX number in Python — it crashed
+    # /financials with a 500 for names transitioning profit→loss.
+    from app.metrics import _cagr
+    assert _cagr(100.0, -50.0, 3) is None
+    assert _cagr(-100.0, 50.0, 3) is None
+    r = _cagr(100.0, 150.0, 3)
+    assert isinstance(r, float) and r > 0

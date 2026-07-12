@@ -190,7 +190,10 @@ def build_financials_response(
         def cagr(key: str, stmt: str) -> float | None:
             v0 = nested[oldest][stmt].get(key)
             v1 = nested[latest][stmt].get(key)
-            if v0 and v1 and v0 > 0 and n > 0:
+            # BOTH ends must be positive: a sign flip makes the fractional
+            # power return a COMPLEX number (crashed /financials with a 500
+            # for 11 loss-transition names — multi-agent audit finding).
+            if v0 and v1 and v0 > 0 and v1 > 0 and n > 0:
                 return (v1 / v0) ** (1 / n) - 1
             return None
 

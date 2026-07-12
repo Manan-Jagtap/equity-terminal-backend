@@ -103,7 +103,8 @@ def _pct_change(new, old):
     return (new - old) / abs(old)
 
 def _cagr(v0, v1, n):
-    if v0 is None or v1 is None or v0 <= 0 or n <= 0:
+    # Both ends must be positive — a sign flip yields a complex number.
+    if v0 is None or v1 is None or v0 <= 0 or v1 <= 0 or n <= 0:
         return None
     return (v1 / v0) ** (1 / n) - 1
 
