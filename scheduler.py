@@ -419,6 +419,10 @@ elif _flag("RUN_DHAN_BACKFILL"):
             try:
                 stats = backfill_prices(s, _tickers)
                 log.info(f"Dhan backfill result: {stats}")
+                # Mark snapshots to the fresh closes too — history without the
+                # snapshot sync left wider-tier names priced 9 days stale.
+                from app.dhan.backfill import sync_snapshots_from_history as _sync_hist
+                log.info(f"Snapshot sync: {_sync_hist(s, _tickers)}")
             finally:
                 s.close()
             run_compute(visible=True)   # recompute so charts/verdicts see fresh history
