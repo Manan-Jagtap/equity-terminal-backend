@@ -120,8 +120,10 @@ def _to_universe(row) -> str | None:
 
 
 # Curated, ordered set of headline indices for the dashboard strip.
+# NSE indices only — SENSEX is BSE and the Dhan NSE master can't resolve it,
+# so it rendered as a permanently blank card.
 KEY_INDICES = [
-    "NIFTY 50", "NIFTY Bank", "SENSEX", "NIFTY Next 50", "NIFTY IT",
+    "NIFTY 50", "NIFTY Bank", "NIFTY Next 50", "NIFTY IT",
     "NIFTY Auto", "NIFTY Pharma", "NIFTY FMCG", "NIFTY Metal",
     "NIFTY FINANCIAL SERVICES", "NIFTY Midcap 100", "India VIX",
 ]
@@ -148,9 +150,11 @@ def _indices():
     for nm in KEY_INDICES:
         key = " ".join(nm.upper().split())
         lv, vd = live.get(key), vendor.get(key)
+        price = _num(lv) or _num((vd or {}).get("price"))
+        if price is None:
+            continue     # no feed has it → no blank card (owner directive)
         out.append({
-            "name": nm,
-            "price": _num(lv) or _num((vd or {}).get("price")),
+            "name": nm, "price": price,
             "pct":   _num((vd or {}).get("percentChange")),
             "net":   _num((vd or {}).get("netChange")),
             "date":  (vd or {}).get("date"), "time": (vd or {}).get("time"),

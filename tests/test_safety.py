@@ -511,3 +511,28 @@ def test_term_fields_classification():
         added_at = dt.datetime.now() - dt.timedelta(days=100)
     t2 = _term_fields(H2())
     assert t2["term"] == "short" and t2["days_to_lt"] == 265 and t2["date_source"] == "added"
+
+
+def test_manager_report_convictions_and_note():
+    from app.portfolio_routes import build_analysis, compute_totals, manager_report
+    items = [
+        {"ticker": "AAA", "name": "Alpha", "sector": "IT", "value": 60000.0, "cost": 40000.0,
+         "mos": -0.40, "verdict": "REDUCE", "term": "short", "days_to_lt": 40, "confidence": "HIGH"},
+        {"ticker": "BBB", "name": "Beta", "sector": "Banks", "value": 40000.0, "cost": 25000.0,
+         "mos": 0.30, "verdict": "BUY", "term": "long", "days_to_lt": 0, "confidence": "HIGH"},
+    ]
+    compute_totals(items)
+    uni = [{"ticker": "DDD", "name": "Delta", "sector": "Pharma", "mos": 0.45,
+            "verdict": "BUY", "confidence": "HIGH"}]
+    analysis = build_analysis(items, uni)
+    m = manager_report(items, analysis, mom_by={"AAA": "below", "DDD": "above"},
+                       target_by={"AAA": 0.35})
+    exit_a = next(a for a in m["actions"] if a["ticker"] == "AAA")
+    add_d = next(a for a in m["actions"] if a["ticker"] == "DDD")
+    # exit conviction beats a fresh add; momentum reasons attached; sized in ₹
+    assert exit_a["conviction"] > add_d["conviction"]
+    assert any("50-DMA" in x for x in exit_a["reasons"])
+    assert exit_a["size_inr"] == round((0.6 - 0.35) * 100000)
+    assert add_d["size_inr"] == round(0.03 * 100000)
+    assert m["aum"] == 100000.0
+    assert "Concentration" in m["note"] or "positions worth" in m["note"]

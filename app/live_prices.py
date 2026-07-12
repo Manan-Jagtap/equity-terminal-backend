@@ -19,7 +19,8 @@ from .dhan import client, instruments
 
 # Headline indices on the live ticker (display name → resolver input).
 INDEX_NAMES = ["NIFTY 50", "NIFTY Bank", "NIFTY FINANCIAL SERVICES",
-               "NIFTY Next 50", "NIFTY Midcap 100", "India VIX"]
+               "NIFTY Next 50", "NIFTY Midcap 100", "NIFTY IT", "NIFTY Auto",
+               "NIFTY Pharma", "NIFTY FMCG", "NIFTY Metal", "India VIX"]
 
 _TTL_OPEN = 12.0          # one upstream call per 12s while the market trades
 _TTL_CLOSED = 300.0

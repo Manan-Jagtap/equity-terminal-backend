@@ -343,9 +343,9 @@ def build_analysis(items: list[dict], universe: list[dict]) -> dict:
     # ── Strategist: mechanical, reasoned suggestions ─────────────────────────
     recs: list[dict] = []
 
-    def rec(action, ticker, name, reasons, priority):
+    def rec(action, ticker, name, reasons, priority, mos=None):
         recs.append({"action": action, "ticker": ticker, "name": name,
-                     "reasons": reasons, "priority": priority})
+                     "reasons": reasons, "priority": priority, "mos": mos})
 
     for i in sorted(live, key=lambda x: -(x.get("value") or 0)):
         w = (i["value"] / total) if total else 0
@@ -363,7 +363,8 @@ def build_analysis(items: list[dict], universe: list[dict]) -> dict:
                 reasons.append(f"turns LONG-TERM in {i['days_to_lt']}d "
                                f"(LTCG 12.5% vs STCG 20%) — weigh exit timing against the tax step-down")
             rec("REVIEW EXIT" if verdict in ("SELL", "REDUCE") else "REVIEW TRIM",
-                i["ticker"], i["name"], reasons, 1 if verdict == "SELL" else 2)
+                i["ticker"], i["name"], reasons, 1 if verdict == "SELL" else 2,
+                mos=i.get("mos"))
 
     held = {i["ticker"] for i in items}
     port_secs = {s["sector"] for s in sectors}
@@ -380,14 +381,14 @@ def build_analysis(items: list[dict], universe: list[dict]) -> dict:
             [f"model verdict BUY at MoS {u['mos']*100:+.0f}%",
              ("outside the book's current sectors — diversifies"
               if u in diversifiers else "within a sector already held")],
-            3)
+            3, mos=u.get("mos"))
 
     for i in live:
         verdict = "REDUCE" if i.get("verdict") == "TRIM" else i.get("verdict")
         if verdict == "BUY" and (i.get("mos") or 0) >= 0.25 and (i["value"] / total if total else 0) < 0.05:
             rec("TOP-UP CANDIDATE", i["ticker"], i["name"],
                 [f"held at only {(i['value']/total)*100:.1f}% weight while the model"
-                 f" still sees MoS {i['mos']*100:+.0f}%"], 3)
+                 f" still sees MoS {i['mos']*100:+.0f}%"], 3, mos=i.get("mos"))
 
     recs.sort(key=lambda r: r["priority"])
     return {
@@ -424,4 +425,126 @@ def portfolio_analysis(user: models.User = Depends(get_current_user),
     holdings = (db.query(models.PortfolioHolding).filter_by(user_key=uk)
                   .join(models.Company).all())
     analysis["risk"] = _risk_block(db, holdings)
+
+    # Momentum overlay (price vs 50-DMA) for every ticker the manager touches,
+    # and inverse-vol target weights for rupee-sized rebalancing.
+    import datetime as _dt
+    touch = {r["ticker"] for r in analysis.get("recommendations", [])}
+    mom_by: dict[str, str] = {}
+    if touch:
+        try:
+            cid_by = {c.ticker: c.id for c in
+                      db.query(models.Company).filter(models.Company.ticker.in_(touch)).all()}
+            cutoff = (_dt.date.today() - _dt.timedelta(days=120)).isoformat()
+            rows = (db.query(models.HistoricalPrice)
+                      .filter(models.HistoricalPrice.company_id.in_(list(cid_by.values())),
+                              models.HistoricalPrice.date >= cutoff)
+                      .order_by(models.HistoricalPrice.date).all())
+            closes: dict[int, list] = {}
+            for hp in rows:
+                if hp.close is not None:
+                    closes.setdefault(hp.company_id, []).append(hp.close)
+            for tk, cid in cid_by.items():
+                ser = closes.get(cid) or []
+                if len(ser) >= 50:
+                    mom_by[tk] = "above" if ser[-1] >= sum(ser[-50:]) / 50 else "below"
+        except Exception:
+            db.rollback()
+    target_by: dict[str, float] = {}
+    try:
+        from app.signals import ranked_visible
+        from app.factors import portfolio_xray
+        ranked = {(r["ticker"] or "").upper(): r for r in ranked_visible(db)}
+        xr_items = [{"ticker": i["ticker"], "value": i.get("value"),
+                     "volatility": (ranked.get(i["ticker"]) or {}).get("volatility")}
+                    for i in items if i.get("value")]
+        portfolio_xray(xr_items)
+        target_by = {i["ticker"]: i.get("suggested_weight") for i in xr_items
+                     if i.get("suggested_weight") is not None}
+    except Exception:
+        db.rollback()
+    analysis["manager"] = manager_report(items, analysis, mom_by, target_by)
     return analysis
+
+
+# ── Fund Manager report ──────────────────────────────────────────────────────
+
+def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None,
+                   target_by: dict | None = None) -> dict:
+    """The strategist's recommendations upgraded to a fund-manager brief:
+    conviction-scored actions with rupee sizing against inverse-vol target
+    weights, a momentum overlay, and a written PM note. Pure — unit-testable.
+    Same rule as everything here: mechanical restatement of published data,
+    educational, the owner decides."""
+    live = [i for i in items if i.get("value")]
+    total = sum(i["value"] for i in live) or 0.0
+    mom_by = mom_by or {}
+    target_by = target_by or {}
+    by_ticker = {i["ticker"]: i for i in live}
+
+    actions = []
+    for r in analysis.get("recommendations", []):
+        a = dict(r)
+        i = by_ticker.get(r["ticker"])
+        conviction = 40
+        verdict = (i or {}).get("verdict") or ""
+        mos = (i or {}).get("mos")
+        if r["action"].startswith("REVIEW"):
+            conviction += 25 if verdict == "SELL" else 15 if verdict in ("REDUCE", "TRIM") else 0
+            if mos is not None:
+                conviction += min(25, int(abs(min(mos, 0)) * 50))       # richer → stronger
+            w = (i["value"] / total) if (i and total) else 0
+            if w > 0.30:
+                conviction += 10
+            mom = mom_by.get(r["ticker"])
+            if mom == "below":
+                conviction += 5
+                a["reasons"] = a["reasons"] + ["trading below its 50-DMA"]
+            # rupee sizing: bring the position to its inverse-vol target
+            tgt = target_by.get(r["ticker"])
+            if i and total and tgt is not None and w > tgt:
+                a["size_inr"] = round((w - tgt) * total)
+                a["size_note"] = f"to its risk-balanced target of {tgt*100:.0f}%"
+        elif r["action"].startswith(("ADD", "TOP-UP")):
+            rmos = r.get("mos")
+            if rmos is not None:
+                conviction += min(30, int(max(rmos, 0) * 40))
+            mom = mom_by.get(r["ticker"])
+            if mom == "below":
+                conviction -= 5
+                a["reasons"] = a["reasons"] + ["below its 50-DMA — no hurry on entry"]
+            elif mom == "above":
+                conviction += 5
+            if total:
+                a["size_inr"] = round(0.03 * total)
+                a["size_note"] = "a starter tranche (~3% of book; scale on conviction)"
+        a["conviction"] = max(10, min(95, conviction))
+        actions.append(a)
+    actions.sort(key=lambda x: (-x["conviction"], x.get("priority", 9)))
+
+    # PM note — composed strictly from the numbers above.
+    conc = analysis.get("concentration") or {}
+    term = analysis.get("term") or {}
+    vm = analysis.get("verdict_mix") or {}
+    buy_w = vm.get("BUY") or 0
+    risk_w = (vm.get("REDUCE") or 0) + (vm.get("SELL") or 0)
+    lines = []
+    if total:
+        lines.append(f"The book runs {conc.get('n', 0)} positions worth ₹{total:,.0f}.")
+    if conc.get("top1") is not None and conc["top1"] > 0.30:
+        lines.append(f"Concentration is the first conversation: the largest position is "
+                     f"{conc['top1']*100:.0f}% of the book.")
+    if risk_w > 0.25:
+        lines.append(f"{risk_w*100:.0f}% of value sits in names the model now rates "
+                     f"REDUCE/SELL — review the exit queue first.")
+    elif buy_w > 0.5:
+        lines.append(f"{buy_w*100:.0f}% of value is in names the model still rates BUY — "
+                     f"the book is broadly aligned with the research.")
+    soon = (term.get("turning_lt_soon") or [])
+    if soon:
+        lines.append(f"{len(soon)} position{'s' if len(soon) != 1 else ''} turn"
+                     f"{'' if len(soon) != 1 else 's'} long-term within 90 days — "
+                     f"sequence any trims after the LTCG step-down where the thesis allows.")
+    if not lines:
+        lines.append("No structural flags: sizing, alignment and terms all read clean.")
+    return {"actions": actions[:10], "note": " ".join(lines), "aum": total}
