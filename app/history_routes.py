@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
-from app.corporate_actions import adjust_price_series
 
 router = APIRouter(prefix="/api/companies")
 
@@ -56,8 +55,8 @@ def _latest_facts(db: Session, company_id: int) -> dict:
 def price_history(ticker: str, db: Session = Depends(get_db)):
     """5 years of daily OHLCV prices, back-adjusted for splits & bonuses.
 
-    Raw closes are stored as-reported; the split/bonus back-adjustment is applied
-    on read (app.corporate_actions.adjust_price_series) so the line is continuous
+    Closes are stored as Dhan serves them — ALREADY split/bonus-adjusted by the
+    vendor — so the line is continuous
     across corporate actions instead of showing a fake 50%/80% cliff. Dividends
     are NOT applied to the price line (they belong in total-return math)."""
     co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
@@ -81,7 +80,11 @@ def price_history(ticker: str, db: Session = Depends(get_db)):
             "source": "historical_prices",
             "adjusted": has_sb,
             "count": len(raw),
-            "data": adjust_price_series(raw, actions),
+            # Dhan's historical API serves SPLIT-ADJUSTED closes already —
+            # applying our corporate-action ledger on top double-adjusted every
+            # name with a split (fake x2-x10 up-cliffs at the ex-date, found by
+            # the 500-name audit: CESC x10.45, COFORGE x5.07). Serve as-is.
+            "data": raw,
         }
 
     # Fallback to 1yr PricePoint (index-based, no dates → cannot back-adjust)

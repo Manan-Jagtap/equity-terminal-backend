@@ -40,19 +40,15 @@ def catalyst_by(db, min_points: int = 2) -> dict:
 
 def _adjusted_closes_by(db, days: int = 420) -> dict:
     """Split/bonus-adjusted closes per company from the Dhan HistoricalPrice
-    series, windowed to the trailing ~420 calendar days — enough for canonical
-    12-1 momentum and a 252-day vol window without loading 5 years for the
-    whole universe. Adjustment uses the same corporate-action ledger the chart
-    does, so a split inside the window can't fake a -50% momentum print."""
+    series (vendor split-adjusted), windowed to the trailing ~420 calendar days
+    — enough for canonical 12-1 momentum and a 252-day vol window without
+    loading 5 years for the whole universe."""
     import datetime as _dt
-    from .corporate_actions import price_factor
     cutoff = (_dt.date.today() - _dt.timedelta(days=days)).isoformat()
-    acts: dict[int, list] = {}
+    # Dhan's series is ALREADY split/bonus-adjusted by the vendor — do not
+    # apply the corporate-action ledger again (double adjustment faked
+    # momentum cliffs on every name with a split; caught by the 500-name audit).
     try:
-        for a in db.query(models.CorporateAction).all():
-            if a.action_type in ("split", "bonus") and a.ratio:
-                acts.setdefault(a.company_id, []).append(
-                    {"action_type": a.action_type, "ex_date": a.ex_date, "ratio": a.ratio})
         rows = (db.query(models.HistoricalPrice)
                   .filter(models.HistoricalPrice.date >= cutoff)
                   .order_by(models.HistoricalPrice.company_id,
@@ -62,8 +58,7 @@ def _adjusted_closes_by(db, days: int = 420) -> dict:
         return {}
     out: dict[int, list] = {}
     for hp in rows:
-        f = price_factor(hp.date, acts.get(hp.company_id)) if acts.get(hp.company_id) else 1.0
-        out.setdefault(hp.company_id, []).append(hp.close * f)
+        out.setdefault(hp.company_id, []).append(hp.close)
     return out
 
 

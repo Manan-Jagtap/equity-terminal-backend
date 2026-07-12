@@ -177,12 +177,7 @@ def _risk_block(db: Session, holdings) -> dict | None:
         return None
     cids = {h.company_id: h for h in holdings}
     cutoff = (_dt.date.today() - _dt.timedelta(days=400)).isoformat()
-    acts: dict[int, list] = {}
-    for a in (db.query(models.CorporateAction)
-                .filter(models.CorporateAction.company_id.in_(list(cids))).all()):
-        if a.action_type in ("split", "bonus") and a.ratio:
-            acts.setdefault(a.company_id, []).append(
-                {"action_type": a.action_type, "ex_date": a.ex_date, "ratio": a.ratio})
+    # Dhan's series is already vendor split-adjusted — no ledger re-adjustment.
     closes_by: dict[str, dict] = {}
     price_rows = (db.query(models.HistoricalPrice)
                     .filter(models.HistoricalPrice.company_id.in_(list(cids)),
@@ -192,8 +187,7 @@ def _risk_block(db: Session, holdings) -> dict | None:
         h = cids.get(hp.company_id)
         if not h or hp.close is None:
             continue
-        f = price_factor(hp.date, acts.get(hp.company_id)) if acts.get(hp.company_id) else 1.0
-        closes_by.setdefault((h.company.ticker or "").upper(), {})[hp.date] = hp.close * f
+        closes_by.setdefault((h.company.ticker or "").upper(), {})[hp.date] = hp.close
 
     price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
     hold_rows, cashflows, total_value = [], [], 0.0

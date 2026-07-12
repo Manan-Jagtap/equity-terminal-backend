@@ -35,7 +35,20 @@ def dhan_status():
     from app.dhan import client, instruments
     tok_cid = client._client_id_from_token()
     env_cid = __import__("os").getenv("DHAN_CLIENT_ID", "").strip()
+    # Token expiry from the JWT's own exp claim — Dhan tokens rotate ~daily and
+    # a stale one is the first suspect whenever 401/808s appear.
+    tok_exp = None
+    try:
+        import base64 as _b64, json as _json, datetime as _dtt
+        body = client.access_token().split(".")[1]
+        body += "=" * (-len(body) % 4)
+        exp = _json.loads(_b64.urlsafe_b64decode(body)).get("exp")
+        if exp:
+            tok_exp = _dtt.datetime.fromtimestamp(int(exp), _dtt.timezone.utc).isoformat()
+    except Exception:
+        pass
     out = {"configured": client.configured(),
+           "token_expires_utc": tok_exp,
            "has_client_id": bool(client.client_id()),
            # Which id the client actually sends, and whether the env var agrees
            # with the token's own claim (a mismatch here was the option-chain 401).
