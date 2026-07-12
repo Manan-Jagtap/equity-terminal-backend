@@ -92,6 +92,13 @@ FINANCIAL = (TemplateCode.NBFC, TemplateCode.BANK, TemplateCode.INSURANCE)
 
 
 # ── Safe arithmetic helpers ───────────────────────────────────────────────
+def _plausible(v, lo, hi):
+    """Publish a computed ratio only inside a plausible band — outside it, the
+    inputs are misfiled at the vendor and an authoritative-looking number is
+    worse than none (the LICHSGFIN cost-of-funds 0.0% rule)."""
+    return v if (v is not None and lo <= v <= hi) else None
+
+
 def _div(a, b):
     if a is None or b is None or b == 0:
         return None
@@ -422,14 +429,13 @@ METRICS: list[Metric] = [
            ), fmt_scale=100, good_dir="low"),
 
     Metric("cost_of_funds",   "Cost of Funds (approx)", "NBFC / Banking", "pct", FINANCIAL,
-           lambda c: _div(c.get("int_l"), c["borrowings"]) if c.get("int_l") else None,
+           lambda c: _plausible(_div(c.get("int_l"), c["borrowings"]), 0.01, 0.25),
            fmt_scale=100, good_dir="low",
            note="Interest expense / avg borrowings"),
 
     Metric("nim_spread",      "NIM − CoF Spread",     "NBFC / Banking", "pct", FINANCIAL,
-           lambda c: (
-               (c["nim"] or 0) - (_div(c.get("int_l"), c["borrowings"]) or 0)
-           ) if c["nim"] else None,
+           lambda c: (lambda cof: c["nim"] - cof if (c.get("nim") and cof is not None) else None)(
+               _plausible(_div(c.get("int_l"), c["borrowings"]), 0.01, 0.25)),
            fmt_scale=100, good_dir="high"),
 
     Metric("aum_growth_yoy",  "AUM Growth (YoY)",     "NBFC / Banking", "pct", FINANCIAL,
@@ -463,8 +469,6 @@ METRICS: list[Metric] = [
     Metric("mcap_cr",         "Market Cap (₹ cr)",    "Market", "cr", ALL_TEMPLATES_TUPLE,
            lambda c: c["market_cap"], good_dir="none"),
 
-    Metric("price_52w_vs",    "52W Price",            "Market", "inr", ALL_TEMPLATES_TUPLE,
-           lambda c: c["price"], good_dir="none"),
 ]
 
 # Registry index for fast lookup

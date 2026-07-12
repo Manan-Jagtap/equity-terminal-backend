@@ -174,3 +174,13 @@ def test_drop_bad_ticks_removes_v_spikes_keeps_real_moves():
     # Normal series untouched; short series untouched
     assert len(drop_bad_ticks(mk([100, 101, 102]))) == 3
     assert len(drop_bad_ticks(mk([100, 101]))) == 2
+
+
+def test_metric_plausibility_gate():
+    from app.metrics import _plausible, _div
+    # LICHSGFIN case: misfiled Rs.51cr interest vs Rs.2.66L cr borrowings → 0.019%
+    assert _plausible(_div(51.0, 266216.0), 0.01, 0.25) is None
+    # Real lender CoF ~7% passes
+    assert abs(_plausible(0.072, 0.01, 0.25) - 0.072) < 1e-9
+    assert _plausible(None, 0.01, 0.25) is None
+    assert _plausible(0.40, 0.01, 0.25) is None    # >25% = misfiled too
