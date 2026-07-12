@@ -160,6 +160,16 @@ class MarketSnapshot(Base):
 
 
 # ── NEW: analyst / forward / Screener-style insight blob (IndianAPI v2) ──────
+class KVStore(Base):
+    """Tiny shared key→JSON store for cross-service state (e.g. the active
+    auto-renewed Dhan token, shared so backend + scheduler mint ONE token)."""
+    __tablename__ = "kv_store"
+    id         = Column(Integer, primary_key=True)
+    key        = Column(String(64), unique=True, nullable=False, index=True)
+    value      = Column(JSON, nullable=False, default=dict)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class CompanyInsight(Base):
     """
     One JSON blob per company holding everything the valuation engine doesn't:

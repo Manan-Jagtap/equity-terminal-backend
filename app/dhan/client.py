@@ -26,7 +26,14 @@ BASE = "https://api.dhan.co/v2"
 
 
 def access_token() -> str:
-    return os.getenv("DHAN_ACCESS_TOKEN", "").strip()
+    """Active token: the self-renewing TOTP-minted token when auto-auth is
+    configured (it can't silently expire), else the env DHAN_ACCESS_TOKEN.
+    Auto comes FIRST deliberately — a stale manual token left in the env must
+    not shadow a fresh auto one (that inversion caused the July 2026 outage
+    to persist)."""
+    from app.dhan import auth as _auth
+    tok = _auth.auto_token() if _auth.enabled() else ""
+    return tok or os.getenv("DHAN_ACCESS_TOKEN", "").strip()
 
 
 def _client_id_from_token() -> str:
@@ -92,11 +99,24 @@ def _post(path: str, body: dict, rl: _RateLimiter, extra_headers: dict | None = 
     if extra_headers:
         headers.update({k: v for k, v in extra_headers.items() if v})
     resp = None
+    auth_retried = False
     for attempt in range(retries):
         rl.wait()
         resp = httpx.post(BASE + path, headers=headers, json=body, timeout=timeout)
         if resp.status_code == 200:
             return resp.json()
+        # Self-heal on auth failure: the auto-managed token may have been
+        # rotated by the other service, or just expired — mint/reload once
+        # and retry with the fresh one before giving up.
+        if resp.status_code == 401 and not auth_retried:
+            auth_retried = True
+            from app.dhan import auth as _auth
+            if _auth.enabled():
+                _auth.invalidate(bad_token=tok)
+                tok = access_token()
+                if tok:
+                    headers["access-token"] = tok
+                    continue
         if resp.status_code in _RETRYABLE and attempt < retries - 1:
             ra = resp.headers.get("Retry-After")
             try:

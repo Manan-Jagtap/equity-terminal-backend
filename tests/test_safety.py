@@ -424,3 +424,26 @@ def test_market_rows_map_to_universe_only():
     mr._uni_cache["by_name"][mr._norm_name("Sun Pharmaceutical Industries Ltd.")] = "SUNPHARMA"
     assert mr._to_universe({"company": "Sun Pharmaceutical Industries"}) == "SUNPHARMA"
     mr._uni_cache.update(ts=0, by_ticker={}, by_name={})
+
+
+def test_dhan_totp_rfc6238():
+    """RFC 6238 test vector (SHA-1, T=59s → 287082) — the stdlib TOTP must
+    match the spec exactly or every minted token request fails."""
+    import base64
+    from app.dhan.auth import totp_now
+    secret = base64.b32encode(b"12345678901234567890").decode()
+    assert totp_now(secret, at=59) == "287082"
+    assert totp_now(secret, at=1111111109) == "081804"
+    assert totp_now(secret, at=1234567890) == "005924"
+
+
+def test_dhan_auto_auth_disabled_without_creds(monkeypatch):
+    """Without the three env vars the auto path stays inert and the env token
+    keeps working exactly as before."""
+    from app.dhan import auth, client
+    for k in ("DHAN_CLIENT_ID", "DHAN_PIN", "DHAN_TOTP_SECRET"):
+        monkeypatch.delenv(k, raising=False)
+    assert auth.enabled() is False
+    assert auth.auto_token() == ""
+    monkeypatch.setenv("DHAN_ACCESS_TOKEN", "envtok")
+    assert client.access_token() == "envtok"
