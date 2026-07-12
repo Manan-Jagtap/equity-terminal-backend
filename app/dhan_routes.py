@@ -61,6 +61,24 @@ def dhan_status():
                 out["option_chain_probe"] = {"ok": exp is not None, "expiries": len(exp or [])}
             except Exception as e:
                 out["option_chain_probe"] = {"ok": False, "error": _dhan_error(e)}
+            # Market-quote (batch LTP) auth matrix: the live-price feed 401'd
+            # while the chain authenticated — probe each client-id variant so
+            # Dhan tells us exactly which one this endpoint family wants.
+            import os as _os
+            variants = {"token_claim": client._client_id_from_token(),
+                        "env": _os.getenv("DHAN_CLIENT_ID", "").strip(),
+                        "none": None}
+            ltp = {}
+            for label, cid in variants.items():
+                try:
+                    r = client._post("/marketfeed/ltp", {"NSE_EQ": [int(sid)]},
+                                     client._quote_rl,
+                                     extra_headers=({"client-id": cid} if cid else None))
+                    got = ((r or {}).get("data") or {}).get("NSE_EQ") or {}
+                    ltp[label] = {"ok": bool(got)}
+                except Exception as e:
+                    ltp[label] = {"ok": False, "error": _dhan_error(e)[:120]}
+            out["ltp_probe"] = ltp
     return out
 
 
