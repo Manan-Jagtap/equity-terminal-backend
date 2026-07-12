@@ -1074,7 +1074,9 @@ EXCLUDED_TICKERS = {"INDIGO"}
 # daily EOD, weekly full, valuation precompute, screener scope) uses UNIVERSE,
 # not bare NIFTY_50 — so adding a ticker here is the only step needed to
 # onboard it (the scheduler auto-creates + ingests missing members on boot).
-EXTRA_TICKERS = {"FEDFINA"}
+# Owner-portfolio names outside the Nifty 500 — onboarded so the book is
+# fully covered (boot auto-classifies sector/template and ingests).
+EXTRA_TICKERS = {"FEDFINA", "RATEGAIN", "IDEAFORGE"}
 UNIVERSE = (NIFTY_50 | EXTRA_TICKERS) - EXCLUDED_TICKERS
 
 # ── Nifty Next 50 — the second visibility tranche ────────────────────────────
