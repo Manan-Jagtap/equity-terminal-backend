@@ -32,11 +32,16 @@ import httpx
 _GEN_URL = "https://auth.dhan.co/app/generateAccessToken"
 
 _lock = threading.Lock()
-_mem: dict = {"token": "", "exp": 0.0}
+_mem: dict = {"token": "", "exp": 0.0, "next_try": 0.0}
 
 # Regenerate when this close to expiry — long enough that a token handed to a
 # long request doesn't die mid-flight, short enough to stay fresh.
 _EARLY = 30 * 60
+
+# After a FAILED mint, back off before trying again. Without this, the 15s
+# live-price poll re-attempted generateAccessToken on every request and
+# tripped Dhan's "Too many attempts" lockout within minutes.
+_FAIL_COOLDOWN = 10 * 60
 
 
 def _creds() -> tuple[str, str, str]:
@@ -140,13 +145,18 @@ def auto_token() -> str:
         with _lock:
             _mem.update(token=tok, exp=exp)
         return tok
-    new_tok, new_exp = _generate()
-    if new_tok:
-        _write_store(new_tok, new_exp)
+    with _lock:
+        cooling = now < _mem["next_try"]
+    if not cooling:
+        new_tok, new_exp = _generate()
+        if new_tok:
+            _write_store(new_tok, new_exp)
+            with _lock:
+                _mem.update(token=new_tok, exp=new_exp, next_try=0.0)
+            return new_tok
         with _lock:
-            _mem.update(token=new_tok, exp=new_exp)
-        return new_tok
-    # Generation failed — serve whatever is still technically alive.
+            _mem["next_try"] = now + _FAIL_COOLDOWN
+    # Generation failed or cooling down — serve whatever is still alive.
     if tok and exp > now:
         with _lock:
             _mem.update(token=tok, exp=exp)

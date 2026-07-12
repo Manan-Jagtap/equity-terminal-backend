@@ -447,3 +447,20 @@ def test_dhan_auto_auth_disabled_without_creds(monkeypatch):
     assert auth.auto_token() == ""
     monkeypatch.setenv("DHAN_ACCESS_TOKEN", "envtok")
     assert client.access_token() == "envtok"
+
+
+def test_dhan_mint_failure_cooldown(monkeypatch):
+    """A failed mint must back off, not retry on every live-price poll —
+    hammering generateAccessToken tripped Dhan's lockout on day one."""
+    from app.dhan import auth
+    monkeypatch.setenv("DHAN_CLIENT_ID", "1000000001")
+    monkeypatch.setenv("DHAN_PIN", "123456")
+    monkeypatch.setenv("DHAN_TOTP_SECRET", "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
+    calls = {"n": 0}
+    monkeypatch.setattr(auth, "_generate", lambda: (calls.__setitem__("n", calls["n"] + 1), ("", 0.0))[1])
+    monkeypatch.setattr(auth, "_read_store", lambda: ("", 0.0))
+    auth._mem.update(token="", exp=0.0, next_try=0.0)
+    for _ in range(5):
+        assert auth.auto_token() == ""
+    assert calls["n"] == 1          # one attempt, then cooldown
+    auth._mem.update(token="", exp=0.0, next_try=0.0)
