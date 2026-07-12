@@ -384,3 +384,18 @@ def test_market_news_matching_is_word_bounded():
     t2 = _match_terms("TITAN", "Titan Company Ltd.")
     assert not _mentions("Titanium prices surge on aerospace demand", t2)
     assert _mentions("Titan reports strong jewellery sales", t2)
+
+
+def test_recent_news_items_parse():
+    """Production /stock recentNews shape parses into the tab's item shape."""
+    from app.news_routes import _recent_news_items
+    rn = [{"id": "1", "headline": "LIC Housing cuts home loan rates",
+           "date": "12 Jul 2026", "timeToRead": "2 min",
+           "url": "https://x/1", "listimage": "img"},
+          {"headline": "", "url": "https://x/2"},          # no title → dropped
+          "garbage"]
+    out = _recent_news_items(rn)
+    assert len(out) == 1
+    assert out[0]["title"] == "LIC Housing cuts home loan rates"
+    assert out[0]["published"].startswith("2026-07-12")
+    assert out[0]["url"] == "https://x/1"

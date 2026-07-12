@@ -169,10 +169,37 @@ def _parse_news_items(arts: list) -> list[dict]:
     return items
 
 
+def _recent_news_items(rn: list) -> list[dict]:
+    """The production /stock payload's recentNews shape:
+    {id, headline, date ('12 Jul 2026' / ISO), timeToRead, url, listimage}."""
+    items = []
+    for a in (rn or [])[:25]:
+        if not isinstance(a, dict):
+            continue
+        title = (a.get("headline") or a.get("title") or "").strip()
+        if not title:
+            continue
+        raw = str(a.get("date") or "").strip()
+        ts, pub = 0, raw
+        for fmt in ("%d %b %Y", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+            try:
+                dt = datetime.strptime(raw[:19] if "T" in raw else raw, fmt)
+                ts, pub = dt.timestamp(), dt.strftime("%Y-%m-%dT%H:%M:%S")
+                break
+            except Exception:
+                continue
+        items.append({"title": title, "source": a.get("source", "IndianAPI"),
+                      "url": a.get("url", ""), "published": pub,
+                      "summary": a.get("summary", ""), "type": "news", "_ts": ts})
+    return items
+
+
 def _indianapi_news(ticker: str, name: str = "") -> tuple[list[dict], str | None]:
-    """IndianAPI company news. Tries the ticker, then the full company name,
-    then a suffix-stripped name — some companies (M&M, BAJAJ-AUTO, banks) match
-    by name where the symbol returns nothing, so this gives news for all."""
+    """IndianAPI company news. The production host has no /company_news and its
+    /news endpoint ignores stock_name (general feed) — the COMPANY-specific
+    stories live in the /stock payload's recentNews block. Try the ticker,
+    then the full name, then a suffix-stripped name (M&M, BAJAJ-AUTO and some
+    banks match by name where the symbol returns nothing)."""
     key = os.getenv("INDIANAPI_KEY", "").strip()
     if not key:
         return [], "no_key"
@@ -188,9 +215,9 @@ def _indianapi_news(ticker: str, name: str = "") -> tuple[list[dict], str | None
     last_err = "no_results"
     for q in cands:
         try:
-            r = requests.get(_INDIANAPI_BASE + "/company_news",
+            r = requests.get(_INDIANAPI_BASE + "/stock",
                              headers={"X-API-Key": key, "x-api-key": key},
-                             params={"stock_name": q}, timeout=20)
+                             params={"name": q}, timeout=25)
             if r.status_code != 200:
                 last_err = f"http_{r.status_code}"
                 continue
@@ -198,8 +225,8 @@ def _indianapi_news(ticker: str, name: str = "") -> tuple[list[dict], str | None
         except Exception as e:
             last_err = str(e)[:80]
             continue
-        arts = data if isinstance(data, list) else (data.get("news") or data.get("data") or [])
-        items = _parse_news_items(arts)
+        arts = (data or {}).get("recentNews") if isinstance(data, dict) else None
+        items = _recent_news_items(arts)
         if items:
             return items, None
     return [], last_err
