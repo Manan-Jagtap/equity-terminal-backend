@@ -84,12 +84,20 @@ def snapshot() -> dict:
         with _lock:
             _cache.update(ts=now, data=data)
         return data
-    except Exception:
+    except Exception as e:
         with _lock:
             if _cache["data"] is not None:
                 return _cache["data"]
+        # Surface the real reason (Dhan error bodies included) — a silent
+        # "temporarily unavailable" cost us a diagnosis cycle once already.
+        try:
+            import httpx
+            detail = (f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+                      if isinstance(e, httpx.HTTPStatusError) else f"{type(e).__name__}: {str(e)[:200]}")
+        except Exception:
+            detail = f"{type(e).__name__}: {str(e)[:200]}"
         return {"available": False, "live": False, "prices": {}, "indices": {},
-                "message": "Live feed temporarily unavailable."}
+                "message": f"Live feed error — {detail}"}
 
 
 def update_snapshots_from_live(db) -> int:
