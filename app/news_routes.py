@@ -10,6 +10,7 @@ No Yahoo Finance, no Marketaux — fully removed.
 GET /api/companies/{ticker}/news
 """
 from __future__ import annotations
+import html as _html
 import os, re, json, time, ssl, urllib.request
 from datetime import datetime, timezone
 
@@ -158,7 +159,7 @@ def _parse_news_items(arts: list) -> list[dict]:
             except Exception:
                 continue
         items.append({
-            "title":   a.get("title", ""),
+            "title":   _html.unescape(a.get("title", "") or ""),
             "source":  a.get("source", "IndianAPI"),
             "url":     a.get("article_link") or a.get("url", ""),
             "published": pub,
@@ -176,7 +177,7 @@ def _recent_news_items(rn: list) -> list[dict]:
     for a in (rn or [])[:25]:
         if not isinstance(a, dict):
             continue
-        title = (a.get("headline") or a.get("title") or "").strip()
+        title = _html.unescape((a.get("headline") or a.get("title") or "").strip())
         if not title:
             continue
         raw = str(a.get("date") or "").strip()
