@@ -25,6 +25,26 @@ from . import concepts as K
 
 Base.metadata.create_all(bind=engine)
 
+# create_all never ALTERs existing tables — additive columns need a nudge.
+# Idempotent and dialect-tolerant: failures (column exists) are expected.
+def _additive_migrations():
+    from sqlalchemy import text
+    stmts = [
+        "ALTER TABLE portfolio_holdings ADD COLUMN buy_date DATE",
+    ]
+    with engine.connect() as conn:
+        for stmt in stmts:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+_additive_migrations()
+
 app = FastAPI(title="Equity Research Terminal API", version="2.0")
 
 from app.history_routes import router as history_router

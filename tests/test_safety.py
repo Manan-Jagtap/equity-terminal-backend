@@ -464,3 +464,50 @@ def test_dhan_mint_failure_cooldown(monkeypatch):
         assert auth.auto_token() == ""
     assert calls["n"] == 1          # one attempt, then cooldown
     auth._mem.update(token="", exp=0.0, next_try=0.0)
+
+
+def test_portfolio_analysis_and_strategist():
+    """Pure analysis math: allocation, concentration, LTCG terms, and the
+    strategist's mechanical suggestions with exit/tax reasoning."""
+    from app.portfolio_routes import build_analysis, compute_totals
+    items = [
+        {"ticker": "AAA", "name": "Alpha", "sector": "IT", "value": 60000.0, "cost": 40000.0,
+         "mos": -0.40, "verdict": "REDUCE", "term": "short", "days_to_lt": 40, "confidence": "HIGH"},
+        {"ticker": "BBB", "name": "Beta", "sector": "Banks", "value": 30000.0, "cost": 25000.0,
+         "mos": 0.30, "verdict": "BUY", "term": "long", "days_to_lt": 0, "confidence": "HIGH"},
+        {"ticker": "CCC", "name": "Gamma", "sector": "Banks", "value": 10000.0, "cost": 9000.0,
+         "mos": 0.05, "verdict": "HOLD", "term": "short", "days_to_lt": 200, "confidence": "MED"},
+    ]
+    compute_totals(items)
+    universe = [
+        {"ticker": "DDD", "name": "Delta", "sector": "Pharma", "mos": 0.45, "verdict": "BUY", "confidence": "HIGH"},
+        {"ticker": "EEE", "name": "Eps", "sector": "IT", "mos": 0.30, "verdict": "BUY", "confidence": "LOW"},  # LOW conf → excluded
+        {"ticker": "AAA", "name": "Alpha", "sector": "IT", "mos": 0.50, "verdict": "BUY", "confidence": "HIGH"},  # held → excluded
+    ]
+    a = build_analysis(items, universe)
+    assert a["concentration"]["n"] == 3 and abs(a["concentration"]["top1"] - 0.6) < 1e-9
+    assert a["sectors"][0]["sector"] == "IT"
+    assert a["term"]["long"]["n"] == 1 and a["term"]["short"]["n"] == 2
+    assert a["term"]["turning_lt_soon"][0]["ticker"] == "AAA"
+    acts = {(r["action"], r["ticker"]) for r in a["recommendations"]}
+    assert ("REVIEW EXIT", "AAA") in acts          # REDUCE verdict + 60% weight
+    assert ("ADD CANDIDATE", "DDD") in acts        # BUY, high MoS, new sector
+    assert not any(r["ticker"] == "EEE" for r in a["recommendations"])  # LOW conf never suggested
+    aaa = next(r for r in a["recommendations"] if r["ticker"] == "AAA")
+    assert any("LONG-TERM in 40d" in x for x in aaa["reasons"])         # LTCG timing note
+    assert "Not investment advice" in a["disclaimer"]
+
+
+def test_term_fields_classification():
+    import datetime as dt
+    from app.portfolio_routes import _term_fields
+    class H:
+        buy_date = dt.date.today() - dt.timedelta(days=400)
+        added_at = None
+    t = _term_fields(H())
+    assert t["term"] == "long" and t["days_to_lt"] == 0 and t["date_source"] == "buy_date"
+    class H2:
+        buy_date = None
+        added_at = dt.datetime.now() - dt.timedelta(days=100)
+    t2 = _term_fields(H2())
+    assert t2["term"] == "short" and t2["days_to_lt"] == 265 and t2["date_source"] == "added"

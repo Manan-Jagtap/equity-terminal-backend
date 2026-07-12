@@ -284,6 +284,10 @@ class PortfolioHolding(Base):
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
     qty        = Column(Float, nullable=False)
     avg_cost   = Column(Float, nullable=False)
+    # Actual purchase date (user-supplied) — drives the short-/long-term
+    # classification (India: 12 months for listed equity). added_at remains
+    # the row-creation proxy for rows without one.
+    buy_date   = Column(Date, nullable=True)
     added_at   = Column(DateTime, server_default=func.now())
     company    = relationship("Company")
     __table_args__ = (UniqueConstraint("user_key", "company_id", name="uq_portfolio_user_company"),)
