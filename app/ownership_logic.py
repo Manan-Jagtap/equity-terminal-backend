@@ -46,7 +46,11 @@ def _classify(name):
         return "dii"
     if "public" in n or "retail" in n or "non institution" in n or "non-institution" in n:
         return "public"
-    return None
+    if "government" in n or "president of india" in n or n.strip() == "goi":
+        return "government"
+    # Keep everything the vendor reports — unmatched categories (e.g. the
+    # explicit "Other" bucket some names carry) must not silently vanish.
+    return "other"
 
 
 def ownership_snapshot(stock: dict | None) -> dict | None:
@@ -80,7 +84,7 @@ def ownership_snapshot(stock: dict | None) -> dict | None:
     prev = dates[-2] if len(dates) >= 2 else None
 
     out = {"as_of": latest}
-    for b in ("promoter", "fii", "dii", "mf", "public"):
+    for b in ("promoter", "fii", "dii", "mf", "public", "government", "other"):
         bd = bucket_dates.get(b)
         cur = bd.get(latest) if bd else None
         pv = bd.get(prev) if (bd and prev) else None

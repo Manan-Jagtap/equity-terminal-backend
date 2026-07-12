@@ -134,6 +134,30 @@ def financial_history(ticker: str, db: Session = Depends(get_db)):
     return resp
 
 
+def _gate_ratio_series(data: dict) -> None:
+    """Plausibility-gate the Screener-style ratio series before serving. A
+    percent ratio beyond ±500% or a days-metric outside [-1000, 3000] is a
+    vendor misfile (wrong unit or wrong line), not information. Negative days
+    ARE legal (negative working-capital businesses), so the floor is generous.
+    Gated per CELL — one bad period never hides the rest of the series."""
+    ratios = data.get("ratios")
+    if not isinstance(ratios, dict):
+        return
+    for label, series in list(ratios.items()):
+        if not isinstance(series, dict):
+            continue
+        lab = str(label).lower()
+        if "%" in lab or "percent" in lab:
+            lo, hi = -500.0, 500.0
+        elif "day" in lab or "cycle" in lab:
+            lo, hi = -1000.0, 3000.0
+        else:
+            continue
+        for period, v in list(series.items()):
+            if isinstance(v, (int, float)) and not (lo <= v <= hi):
+                series[period] = None
+
+
 @router.get("/{ticker}/insights")
 def company_insights(ticker: str, db: Session = Depends(get_db)):
     """Analyst consensus, peer comps, price target, forward estimates, and
@@ -151,6 +175,7 @@ def company_insights(ticker: str, db: Session = Depends(get_db)):
         return {"ticker": co.ticker, "has_data": False, "price": price}
 
     data = dict(row.data)
+    _gate_ratio_series(data)
 
     # Forward EPS trajectory + next-FY forward P/E (confirmed Refinitiv shape).
     eps_est = _eps_estimates(data.get("forecasts"))

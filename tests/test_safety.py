@@ -297,3 +297,72 @@ def test_profile_snapshot_fallback(tmp_path):
         data = {"profile_snapshot": "garbage"}
     assert profile_routes._load_snapshot(_Bad()) is None
     assert profile_routes._load_snapshot(None) is None
+
+
+def test_metric_bands_gate_impossible_values():
+    """Every published metric carries a plausibility band — misfiled vendor
+    inputs (wrong period/unit/line) must yield absence, not authority."""
+    from app.metrics import METRIC_BY_KEY
+
+    def v(key, ctx):
+        return METRIC_BY_KEY[key].compute(ctx)
+
+    base = dict.fromkeys(
+        ["price","shares","market_cap","equity","pat_l","pat_p","pat_3","rev_l","rev_p","rev_3",
+         "nii_l","nii_p","nii_3","ebit_l","ebitda_l","pbt_l","int_l","total_assets","borrowings",
+         "cash","lt_debt","net_debt","op_cf","capex","fcf","div_paid","provisions","aum","gnpa",
+         "nnpa","crar","nim","roa","n_years"])
+    # ROE on a face-value share-capital denominator (equity ₹10cr, PAT ₹5,000cr → 500x)
+    assert v("roe", {**base, "pat_l": 5000.0, "equity": 10.0}) is None
+    # ...but a real 34% ROE passes
+    assert abs(v("roe", {**base, "pat_l": 3400.0, "equity": 10000.0}) - 0.34) < 1e-9
+    # GNPA of 90% is a decimal-vs-percent misfile
+    assert v("gnpa_pct", {**base, "gnpa": 0.9}) is None
+    assert v("gnpa_pct", {**base, "gnpa": 0.021}) == 0.021
+    # Negative P/E (loss year) is meaningless — absent, not published
+    assert v("pe_ratio", {**base, "price": 100.0, "pat_l": -50.0, "shares": 10.0}) is None
+    # Interest cover exploding off a misfiled ₹1cr interest line
+    assert v("interest_cover", {**base, "ebit_l": 9000.0, "int_l": 1.0}) is None
+    # NIM of 45% is a misfile
+    assert v("nim_metric", {**base, "nim": 0.45}) is None
+
+    # The fabricated metrics are gone / honest now
+    assert "spread" not in METRIC_BY_KEY
+    # credit_cost publishes ONLY from reported provisions
+    assert v("credit_cost", {**base, "pat_l": 1000.0, "aum": 50000.0}) is None
+    assert abs(v("credit_cost", {**base, "provisions": 500.0, "aum": 50000.0}) - 0.01) < 1e-9
+
+
+def test_ratio_series_gate():
+    """Vendor Screener-style ratio cells outside physical bands null out
+    per-cell; sane cells (incl. legal negative days) survive."""
+    from app.history_routes import _gate_ratio_series
+    data = {"ratios": {
+        "ROCE %": {"Mar 2024": 23.0, "Mar 2025": 8500.0},
+        "Working Capital Days": {"Mar 2024": -45.0, "Mar 2025": 250000.0},
+        "Cash Conversion Cycle": {"Mar 2024": 120.0},
+    }}
+    _gate_ratio_series(data)
+    r = data["ratios"]
+    assert r["ROCE %"]["Mar 2024"] == 23.0
+    assert r["ROCE %"]["Mar 2025"] is None
+    assert r["Working Capital Days"]["Mar 2024"] == -45.0
+    assert r["Working Capital Days"]["Mar 2025"] is None
+    assert r["Cash Conversion Cycle"]["Mar 2024"] == 120.0
+
+
+def test_ownership_keeps_every_category():
+    """'Other' and 'Government' vendor buckets must not silently vanish."""
+    from app.ownership_logic import ownership_snapshot
+    stock = {"shareholding": [
+        {"displayName": "Promoter", "categories": [
+            {"holdingDate": "2026-03-31", "percentage": "45.2"}]},
+        {"displayName": "Government", "categories": [
+            {"holdingDate": "2026-03-31", "percentage": "1.5"}]},
+        {"displayName": "Other", "categories": [
+            {"holdingDate": "2026-03-31", "percentage": "3.3"}]},
+    ]}
+    out = ownership_snapshot(stock)
+    assert out["promoter"]["pct"] == 45.2
+    assert out["government"]["pct"] == 1.5
+    assert out["other"]["pct"] == 3.3

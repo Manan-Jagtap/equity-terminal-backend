@@ -108,7 +108,8 @@ def _shareholding_trend(stock):
             if d not in seen:
                 seen.add(d); date_order.append(d)
             series.setdefault(name, {})[d] = p
-    periods = date_order[-6:]
+    # Keep EVERY period the vendor reports — the tab renders the full history.
+    periods = date_order
     rows = [{"name": n, "values": [series[n].get(d) for d in periods]} for n in series]
     return {"periods": periods, "rows": rows}
 

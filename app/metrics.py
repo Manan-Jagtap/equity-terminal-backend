@@ -50,12 +50,22 @@ class Metric:
     good_dir:  str = "high" # "high" = higher is better, "low" = lower is better, "none"
     fmt_scale: float = 1.0  # multiply before formatting (e.g. 100 for pct display)
     note:      str | None = None
+    # Plausibility band (lo, hi) in the metric's NATIVE scale. A value outside
+    # it means the vendor misfiled an input (wrong period, wrong unit, wrong
+    # line) — publish nothing rather than an authoritative-looking wrong number.
+    # None on either side leaves that side unbounded.
+    band:      tuple | None = None
 
     def compute(self, ctx: dict) -> float | None:
         try:
-            return self.fn(ctx)
+            v = self.fn(ctx)
         except Exception:
             return _NA
+        if v is not None and self.band is not None:
+            lo, hi = self.band
+            if (lo is not None and v < lo) or (hi is not None and v > hi):
+                return _NA
+        return v
 
     def format(self, value: float | None) -> str:
         if value is None:
@@ -180,6 +190,8 @@ def build_context(company, facts: dict, hist: dict, price: float,
     cash         = bs(latest_yr, "cash")
     lt_debt      = bs(latest_yr, "lt_debt")
 
+    provisions_l = pl(latest_yr, "provisions")
+
     op_cf   = cf(latest_yr, "operating_cf")
     capex   = cf(latest_yr, "capex")
     fcf     = cf(latest_yr, "fcf")
@@ -209,6 +221,7 @@ def build_context(company, facts: dict, hist: dict, price: float,
         "borrowings": borrowings, "cash": cash, "lt_debt": lt_debt,
         "net_debt": net_debt,
         "op_cf": op_cf, "capex": capex, "fcf": fcf, "div_paid": div_paid,
+        "provisions": provisions_l,
         "aum": aum, "gnpa": gnpa, "nnpa": nnpa, "crar": crar,
         "nim": nim, "roa": roa,
         "n_years": len(years),
@@ -220,94 +233,91 @@ METRICS: list[Metric] = [
 
     # ── GROWTH ──────────────────────────────────────────────────────────────
     Metric("pat_growth_yoy",  "PAT Growth (YoY)",     "Growth", "pct", ALL_TEMPLATES_TUPLE,
-           lambda c: _pct_change(c["pat_l"], c["pat_p"]), fmt_scale=100),
+           lambda c: _pct_change(c["pat_l"], c["pat_p"]), fmt_scale=100, band=(-30, 30)),
 
     Metric("pat_cagr_3y",     "PAT CAGR (3Y)",        "Growth", "pct", ALL_TEMPLATES_TUPLE,
-           lambda c: _cagr(c["pat_3"], c["pat_l"], 3), fmt_scale=100),
+           lambda c: _cagr(c["pat_3"], c["pat_l"], 3), fmt_scale=100, band=(-0.95, 3.0)),
 
     Metric("rev_growth_yoy",  "Revenue Growth (YoY)", "Growth", "pct", NON_FIN,
-           lambda c: _pct_change(c["rev_l"], c["rev_p"]), fmt_scale=100),
+           lambda c: _pct_change(c["rev_l"], c["rev_p"]), fmt_scale=100, band=(-0.95, 20)),
 
     Metric("rev_cagr_3y",     "Revenue CAGR (3Y)",    "Growth", "pct", NON_FIN,
-           lambda c: _cagr(c["rev_3"], c["rev_l"], 3), fmt_scale=100),
+           lambda c: _cagr(c["rev_3"], c["rev_l"], 3), fmt_scale=100, band=(-0.95, 3.0)),
 
     Metric("nii_growth_yoy",  "NII Growth (YoY)",     "Growth", "pct", FINANCIAL,
-           lambda c: _pct_change(c["nii_l"], c["nii_p"]), fmt_scale=100),
+           lambda c: _pct_change(c["nii_l"], c["nii_p"]), fmt_scale=100, band=(-0.95, 20)),
 
     Metric("nii_cagr_3y",     "NII CAGR (3Y)",        "Growth", "pct", FINANCIAL,
-           lambda c: _cagr(c["nii_3"], c["nii_l"], 3), fmt_scale=100),
+           lambda c: _cagr(c["nii_3"], c["nii_l"], 3), fmt_scale=100, band=(-0.95, 3.0)),
 
     # ── PROFITABILITY ────────────────────────────────────────────────────────
     Metric("roe",             "Return on Equity",     "Profitability", "pct", ALL_TEMPLATES_TUPLE,
-           lambda c: _div(c["pat_l"], c["equity"]), fmt_scale=100),
+           lambda c: _div(c["pat_l"], c["equity"]), fmt_scale=100, band=(-2.0, 2.0)),
 
     Metric("roa",             "Return on Assets",     "Profitability", "pct", ALL_TEMPLATES_TUPLE,
-           lambda c: c["roa"] or _div(c["pat_l"], c["total_assets"]), fmt_scale=100),
+           lambda c: c["roa"] or _div(c["pat_l"], c["total_assets"]), fmt_scale=100, band=(-0.5, 0.6)),
 
     Metric("pat_margin",      "PAT Margin",           "Profitability", "pct", NON_FIN,
-           lambda c: _div(c["pat_l"], c["rev_l"]), fmt_scale=100),
+           lambda c: _div(c["pat_l"], c["rev_l"]), fmt_scale=100, band=(-5.0, 1.0)),
 
     Metric("ebit_margin",     "EBIT Margin",          "Profitability", "pct", NON_FIN,
-           lambda c: _div(c["ebit_l"], c["rev_l"]), fmt_scale=100),
+           lambda c: _div(c["ebit_l"], c["rev_l"]), fmt_scale=100, band=(-5.0, 1.0)),
 
     Metric("ebitda_margin",   "EBITDA Margin",        "Profitability", "pct", NON_FIN,
-           lambda c: _div(c["ebitda_l"], c["rev_l"]), fmt_scale=100),
+           lambda c: _div(c["ebitda_l"], c["rev_l"]), fmt_scale=100, band=(-5.0, 1.0)),
 
     Metric("nim_metric",      "Net Interest Margin",  "Profitability", "pct", FINANCIAL,
-           lambda c: c["nim"], fmt_scale=100),
+           lambda c: c["nim"], fmt_scale=100, band=(0.005, 0.20)),
 
-    Metric("spread",          "Interest Spread",      "Profitability", "pct", FINANCIAL,
-           lambda c: (c["nim"] * 1.2) if c["nim"] else None, fmt_scale=100,
-           note="Approx = NIM × 1.2 when spread not directly available"),
 
     # ── RETURNS ─────────────────────────────────────────────────────────────
     Metric("roce",            "Return on Capital Employed", "Returns", "pct", NON_FIN,
            lambda c: _div(c["ebit_l"],
                (c["equity"] or 0) + (c["borrowings"] or 0) - (c["cash"] or 0)),
-           fmt_scale=100),
+           fmt_scale=100, band=(-1.0, 1.5)),
 
     Metric("roic",            "Return on Invested Capital", "Returns", "pct", NON_FIN,
            lambda c: _div(c["pat_l"],
                (c["equity"] or 0) + (c["lt_debt"] or 0)),
-           fmt_scale=100),
+           fmt_scale=100, band=(-1.0, 1.5)),
 
     # ── LIQUIDITY ────────────────────────────────────────────────────────────
     Metric("cash_cr",         "Cash & Equivalents",   "Liquidity", "cr", ALL_TEMPLATES_TUPLE,
-           lambda c: c["cash"], good_dir="high"),
+           lambda c: c["cash"], good_dir="high", band=(0, None)),
 
     Metric("interest_cover",  "Interest Coverage",    "Liquidity", "x", NON_FIN,
            lambda c: _div(c["ebit_l"], c["int_l"]),
-           good_dir="high", note="EBIT / Interest Expense"),
+           good_dir="high", note="EBIT / Interest Expense", band=(-50, 500)),
 
     Metric("op_cf_cover",     "Operating CF / PAT",   "Liquidity", "x", ALL_TEMPLATES_TUPLE,
            lambda c: _div(c["op_cf"], c["pat_l"]),
-           note="Cash conversion quality; >1 preferred"),
+           note="Cash conversion quality; >1 preferred", band=(-20, 20)),
 
     # ── LEVERAGE ─────────────────────────────────────────────────────────────
     Metric("debt_equity",     "Debt / Equity",        "Leverage", "x", NON_FIN,
            lambda c: _div(c["borrowings"], c["equity"]),
-           good_dir="low"),
+           good_dir="low", band=(0, 20)),
 
     Metric("net_debt_equity", "Net Debt / Equity",    "Leverage", "x", NON_FIN,
            lambda c: _div(c["net_debt"], c["equity"]),
-           good_dir="low"),
+           good_dir="low", band=(-10, 20)),
 
     Metric("net_debt_ebitda", "Net Debt / EBITDA",    "Leverage", "x", NON_FIN,
            lambda c: _div(c["net_debt"], c["ebitda_l"]),
-           good_dir="low", note="<2x conservative; >4x stretched"),
+           good_dir="low", note="<2x conservative; >4x stretched", band=(-50, 50)),
 
     Metric("leverage_ratio",  "Leverage Ratio",       "Leverage", "x", FINANCIAL,
            lambda c: _div(c["total_assets"], c["equity"]),
-           good_dir="none", note="Total Assets / Equity; typical NBFC 4-8x"),
+           good_dir="none", note="Total Assets / Equity; typical NBFC 4-8x", band=(1.0, 40)),
 
     Metric("crar_metric",     "CRAR",                 "Leverage", "pct", FINANCIAL,
            lambda c: c["crar"], fmt_scale=100, good_dir="high",
-           note="Capital adequacy; RBI minimum 15% for NBFCs"),
+           note="Capital adequacy; RBI minimum 15% for NBFCs", band=(0.05, 0.60)),
 
     # ── EFFICIENCY ───────────────────────────────────────────────────────────
     Metric("asset_turnover",  "Asset Turnover",       "Efficiency", "x", NON_FIN,
            lambda c: _div(c["rev_l"], c["total_assets"]),
-           note="Revenue / Total Assets"),
+           note="Revenue / Total Assets", band=(0, 10)),
 
     Metric("rev_per_employee","Revenue / Employee",   "Efficiency", "cr", (TemplateCode.IT_SERVICES,),
            lambda c: None,   # placeholder — needs headcount data
@@ -315,7 +325,7 @@ METRICS: list[Metric] = [
 
     Metric("aum_per_cr_equity","AUM / Equity",        "Efficiency", "x", FINANCIAL,
            lambda c: _div(c["aum"], c["equity"]),
-           note="Capital deployment efficiency for NBFCs"),
+           note="Capital deployment efficiency for NBFCs", band=(0, 25)),
 
     # ── CASH FLOW ────────────────────────────────────────────────────────────
     Metric("fcf_cr",          "Free Cash Flow",       "Cash Flow", "cr", ALL_TEMPLATES_TUPLE,
@@ -328,15 +338,15 @@ METRICS: list[Metric] = [
            lambda c: _div(
                c["fcf"] or ((c["op_cf"] or 0) + (c["capex"] or 0) if c["op_cf"] else None),
                c["market_cap"]
-           ), fmt_scale=100, good_dir="high"),
+           ), fmt_scale=100, good_dir="high", band=(-0.5, 0.5)),
 
     Metric("capex_intensity",  "CapEx / Revenue",     "Cash Flow", "pct", NON_FIN,
            lambda c: abs(_div(c["capex"], c["rev_l"])) if c["capex"] else None,
-           fmt_scale=100, good_dir="low"),
+           fmt_scale=100, good_dir="low", band=(0, 2.0)),
 
     Metric("div_payout",      "Dividend Payout",      "Cash Flow", "pct", ALL_TEMPLATES_TUPLE,
            lambda c: abs(_div(c["div_paid"], c["pat_l"])) if c["div_paid"] else None,
-           fmt_scale=100, good_dir="none"),
+           fmt_scale=100, good_dir="none", band=(0, 5.0)),
 
     # ── PER SHARE ────────────────────────────────────────────────────────────
     Metric("eps",             "Earnings Per Share",   "Per Share", "inr", ALL_TEMPLATES_TUPLE,
@@ -358,46 +368,46 @@ METRICS: list[Metric] = [
     # ── VALUATION ────────────────────────────────────────────────────────────
     Metric("pe_ratio",        "P/E Ratio",            "Valuation", "x", ALL_TEMPLATES_TUPLE,
            lambda c: _div(c["price"], _div(c["pat_l"], c["shares"])),
-           good_dir="low", note="Lower vs peers is attractive"),
+           good_dir="low", note="Lower vs peers is attractive", band=(0, 1000)),
 
     Metric("pb_ratio",        "P/B Ratio",            "Valuation", "x", ALL_TEMPLATES_TUPLE,
            lambda c: _div(c["price"], _div(c["equity"], c["shares"])),
-           good_dir="none"),
+           good_dir="none", band=(0.01, 150)),
 
     Metric("ps_ratio",        "P/S Ratio",            "Valuation", "x", NON_FIN,
            lambda c: _div(c["market_cap"], c["rev_l"]),
-           good_dir="low"),
+           good_dir="low", band=(0, 500)),
 
     Metric("ev_ebitda",       "EV / EBITDA",          "Valuation", "x", NON_FIN,
            lambda c: _div(
                (c["market_cap"] or 0) + (c["net_debt"] or 0),
                c["ebitda_l"]
-           ), good_dir="low"),
+           ), good_dir="low", band=(0, 500)),
 
     Metric("ev_ebit",         "EV / EBIT",            "Valuation", "x", NON_FIN,
            lambda c: _div(
                (c["market_cap"] or 0) + (c["net_debt"] or 0),
                c["ebit_l"]
-           ), good_dir="low"),
+           ), good_dir="low", band=(0, 500)),
 
     Metric("p_aum",           "Price / AUM",          "Valuation", "pct", FINANCIAL,
            lambda c: _div(c["market_cap"], c["aum"]),
            fmt_scale=100, good_dir="low",
-           note="Market cap as % of AUM; key NBFC valuation metric"),
+           note="Market cap as % of AUM; key NBFC valuation metric", band=(0.001, 3.0)),
 
     Metric("earnings_yield",  "Earnings Yield",       "Valuation", "pct", ALL_TEMPLATES_TUPLE,
            lambda c: _div(_div(c["pat_l"], c["shares"]), c["price"]),
-           fmt_scale=100, good_dir="high"),
+           fmt_scale=100, good_dir="high", band=(-0.5, 0.5)),
 
     # ── CAPITAL STRUCTURE ────────────────────────────────────────────────────
     Metric("total_assets_cr", "Total Assets",         "Capital Structure", "cr", ALL_TEMPLATES_TUPLE,
-           lambda c: c["total_assets"], good_dir="none"),
+           lambda c: c["total_assets"], good_dir="none", band=(0, None)),
 
     Metric("equity_cr",       "Net Worth",            "Capital Structure", "cr", ALL_TEMPLATES_TUPLE,
            lambda c: c["equity"], good_dir="none"),
 
     Metric("borrowings_cr",   "Total Borrowings",     "Capital Structure", "cr", ALL_TEMPLATES_TUPLE,
-           lambda c: c["borrowings"], good_dir="none"),
+           lambda c: c["borrowings"], good_dir="none", band=(0, None)),
 
     Metric("net_debt_cr",     "Net Debt",             "Capital Structure", "cr", ALL_TEMPLATES_TUPLE,
            lambda c: c["net_debt"], good_dir="none"),
@@ -407,36 +417,35 @@ METRICS: list[Metric] = [
 
     # ── BANKING / NBFC SPECIFIC ──────────────────────────────────────────────
     Metric("aum_cr",          "AUM",                  "NBFC / Banking", "cr", FINANCIAL,
-           lambda c: c["aum"], good_dir="high"),
+           lambda c: c["aum"], good_dir="high", band=(0, None)),
 
     Metric("gnpa_pct",        "GNPA Ratio",           "NBFC / Banking", "pct", FINANCIAL,
            lambda c: c["gnpa"], fmt_scale=100, good_dir="low",
-           note="<2% excellent; 2-4% acceptable; >4% elevated"),
+           note="<2% excellent; 2-4% acceptable; >4% elevated", band=(0, 0.5)),
 
     Metric("nnpa_pct",        "NNPA Ratio",           "NBFC / Banking", "pct", FINANCIAL,
            lambda c: c["nnpa"], fmt_scale=100, good_dir="low",
-           note="Should be <1% for well-provisioned NBFC"),
+           note="Should be <1% for well-provisioned NBFC", band=(0, 0.4)),
 
     Metric("pcr",             "Provision Coverage",   "NBFC / Banking", "pct", FINANCIAL,
            lambda c: (1 - _div(c["nnpa"], c["gnpa"])) if c["gnpa"] and c["nnpa"] else None,
            fmt_scale=100, good_dir="high",
-           note="(1 − NNPA/GNPA) × 100; >70% adequate"),
+           note="(1 − NNPA/GNPA) × 100; >70% adequate", band=(0, 1.0)),
 
     Metric("credit_cost",     "Implied Credit Cost",  "NBFC / Banking", "pct", FINANCIAL,
-           lambda c: _div(
-               _get(c, "provisions") or (_div(c["pat_l"], 0.9) - c["pat_l"]),
-               c["aum"]
-           ), fmt_scale=100, good_dir="low"),
+           lambda c: _div(c.get("provisions"), c["aum"]),
+           fmt_scale=100, good_dir="low",
+           note="Provisions / AUM — published only when provisions are reported", band=(0, 0.15)),
 
     Metric("cost_of_funds",   "Cost of Funds (approx)", "NBFC / Banking", "pct", FINANCIAL,
-           lambda c: _plausible(_div(c.get("int_l"), c["borrowings"]), 0.01, 0.25),
+           lambda c: _div(c.get("int_l"), c["borrowings"]),
            fmt_scale=100, good_dir="low",
-           note="Interest expense / avg borrowings"),
+           note="Interest expense / avg borrowings", band=(0.01, 0.25)),
 
     Metric("nim_spread",      "NIM − CoF Spread",     "NBFC / Banking", "pct", FINANCIAL,
            lambda c: (lambda cof: c["nim"] - cof if (c.get("nim") and cof is not None) else None)(
                _plausible(_div(c.get("int_l"), c["borrowings"]), 0.01, 0.25)),
-           fmt_scale=100, good_dir="high"),
+           fmt_scale=100, good_dir="high", band=(-0.05, 0.20)),
 
     Metric("aum_growth_yoy",  "AUM Growth (YoY)",     "NBFC / Banking", "pct", FINANCIAL,
            lambda c: None,   # needs prior-year AUM — requires multi-year NBFC fact storage
