@@ -71,10 +71,20 @@ def snapshot() -> dict:
                 "message": "Live prices need the Dhan feed."}
     try:
         eq, idx = _instrument_maps()
-        quotes = client.ltp_quote({"NSE_EQ": list(eq.values()),
-                                   "IDX_I": list(idx.values())}) or {}
-        eq_q = quotes.get("NSE_EQ") or {}
-        idx_q = quotes.get("IDX_I") or {}
+        # Dhan caps marketfeed/ltp at 1000 instruments per request — beyond the
+        # Nifty Total Market the equity list alone exceeds it, so chunk and
+        # merge (the client's own rate limiter paces consecutive calls).
+        eq_ids = list(eq.values())
+        eq_q: dict = {}
+        idx_q: dict = {}
+        CHUNK = 900
+        for i in range(0, max(len(eq_ids), 1), CHUNK):
+            body = {"NSE_EQ": eq_ids[i:i + CHUNK]}
+            if i == 0:
+                body["IDX_I"] = list(idx.values())
+            quotes = client.ltp_quote(body) or {}
+            eq_q.update(quotes.get("NSE_EQ") or {})
+            idx_q.update(quotes.get("IDX_I") or {})
         data = {
             "available": True,
             "live": is_open,

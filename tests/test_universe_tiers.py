@@ -74,3 +74,13 @@ def test_totalmarket_tier():
     assert len(tm) == len(n500) + len(NIFTY_MICROCAP_250)
     assert 740 <= len(tm) <= 760                       # ~750 official names
     assert not (NIFTY_MICROCAP_250 & n500)             # dedupe holds
+
+
+def test_top1000_tier():
+    """~1000 names: Total Market + AMFI-ranked next 250, all deduped."""
+    from app.ingest.indianapi_ingester import _TIERS, AMFI_NEXT_250
+    tm, k = _TIERS["totalmarket"], _TIERS["top1000"]
+    assert tm < k
+    assert len(k) == len(tm) + len(AMFI_NEXT_250)
+    assert not (AMFI_NEXT_250 & tm)
+    assert 990 <= len(k) <= 1010

@@ -1160,7 +1160,7 @@ NIFTY_500_REST = {
 
 
 # The VISIBLE universe: what the terminal exposes + recomputes daily, selected
-# by the UNIVERSE_TIER env var (nifty100 | nifty250 | nifty500 | totalmarket). Names beyond
+# by the UNIVERSE_TIER env var (nifty100 | nifty250 | nifty500 | totalmarket | top1000). Names beyond
 # CORE_UNIVERSE get their prices from the daily Dhan top-up + snapshot sync
 # (100k calls/day) — NOT IndianAPI — so widening the tier costs no IndianAPI
 # quota. Fundamentals for wider tiers refresh on bootstrap/weekly-full only;
@@ -1214,12 +1214,62 @@ _MICROCAP_250_RAW = {
 NIFTY_MICROCAP_250 = (_MICROCAP_250_RAW - CORE_UNIVERSE - NIFTY_MIDCAP_150
                       - NIFTY_500_REST)
 
+
+
+# Ranks beyond the Nifty Total Market, by the OFFICIAL AMFI half-yearly
+# average-market-cap ranking (AverageMarketCapitalization30Jun2026.xlsx,
+# portal.amfiindia.com, fetched 2026-07-13): the next 250 NSE-listed names
+# not already covered — includes real large businesses the NSE indices
+# skip on free-float/liquidity rules (e.g. P&G Hygiene). Floor ≈ ₹2,631cr.
+AMFI_NEXT_250 = {
+    "63MOONS", "AEROFLEX", "AGI", "AGIIL", "AJAXENGG", "AJMERA", "AMAGI", "ARSSBL",
+    "ARTEMISMED", "ASHIANA", "ASTRAZEN", "AUTOAXLES", "AVANTEL", "AYE", "BAGMANE",
+    "BAJAJCON", "BAJAJHIND", "BALMLAWRIE", "BANARISUG", "BANSALWIRE", "BASF",
+    "BBL", "BHAGCHEM", "BHARATCOAL", "BIRET", "BLISSGVS", "BOROLTD", "BOSCH-HCIL",
+    "CARERATING", "CARRARO", "CARYSIL", "CEIGALL", "CENTUM", "CHEMPLASTS",
+    "CLEANMAX", "CMPDI", "CMRGREEN", "CYIENTDLM", "DALMIASUG", "DBCORP", "DCAL",
+    "DDEVPLSTIK", "DEEPINDS", "DHANUKA", "DODLA", "DREDGECORP", "E2E",
+    "EASEMYTRIP", "EBGNG", "EFCIL", "EMBASSY", "EMUDHRA", "EPIGRAL", "ESABINDIA",
+    "FCL", "FDC", "FINEORG", "FLAIR", "FOSECOIND", "FRACTAL", "FUSION",
+    "GALAXYSURF", "GANESHHOU", "GARFIBRES", "GATEWAY", "GENUSPOWER", "GLOBUSSPR",
+    "GOLDIAM", "GOODLUCK", "GOPAL", "GREENLAM", "GREENPLY", "GRINDWELL", "GRINFRA",
+    "GRMOVER", "GUFICBIO", "GUJALKALI", "GUJGASLTD", "GUJTHEM", "GULFOILLUB",
+    "GVPIL", "HAPPYFORGE", "HARSHA", "HATSUN", "HEIDELBERG", "HIRECT", "HNDFDS",
+    "HUBTOWN", "IBULLSLTD", "ICRA", "INDIQUBE", "INDOSTAR", "INDOTHAI",
+    "INDRAMEDCO", "INGERRAND", "INNOVACAP", "INTERARCH", "IOLCP", "ISGEC", "ITDC",
+    "JINDALPOLY", "JKIL", "JSWHL", "JTEKTINDIA", "JUBLCPL", "JUNIPER", "KALPATARU",
+    "KDDL", "KINGFA", "KIOCL", "KIRLOSIND", "KISSHT", "KKCL", "KMEW", "KOLTEPATIL",
+    "KRISHANA", "KRT", "KSHINTL", "KSL", "KWIL", "LGBBROSLTD", "LMW", "LUMAXIND",
+    "LUXIND", "MAHLIFE", "MAHLOG", "MAITHANALL", "MANINDS", "MANINFRA", "MARATHON",
+    "MARINE", "MASFIN", "MAXESTATES", "MBAPL", "MEDIASSIST", "METROBRAND", "MHRIL",
+    "MIDWESTLTD", "MINDSPACE", "MOSCHIP", "MPSLTD", "MUTHOOTMF", "NACLIND",
+    "NAVNETEDUL", "NEPHROPLUS", "NIITMTS", "NORTHARC", "NRBBEARING", "NSIL",
+    "NXST", "OMNI", "ORCHPHARMA", "ORIENTELEC", "PACEDIGITK", "PAISALO",
+    "PARAGMILK", "PATELENG", "PDSL", "PGHH", "PGHL", "PILANIINVS", "PITTIENG",
+    "POCL", "POKARNA", "POLYPLEX", "POWERICA", "PRECWIRE", "PREMEXPLN",
+    "PRINCEPIPE", "PSB", "PSPPROJECT", "RAJESHEXPO", "RAMKY", "RAMRAT", "RAYMOND",
+    "RAYMONDREL", "RELINFRA", "RESPONIND", "ROLEXRINGS", "ROSSARI", "ROSSTECH",
+    "RPEL", "RPGLIFE", "RPSGVENT", "RPTECH", "RSYSTEMS", "RUSTOMJEE", "SAMBHV",
+    "SANATHAN", "SANDHAR", "SANGHVIMOV", "SANOFI", "SBCL", "SEAMECLTD", "SEDEMAC",
+    "SENORES", "SETL", "SGFIN", "SGMART", "SHADOWFAX", "SHANTIGEAR", "SHARDAMOTR",
+    "SHILCTECH", "SHOPERSTOP", "SHREEJISPG", "SIGMAADV", "SINDHUTRAD", "SIS",
+    "SJS", "SMSPHARMA", "SOTL", "SSWL", "STYLAMIND", "SUNCLAY", "SUNDRMFAST",
+    "SUNFLAG", "SUPRAJIT", "SUVEN", "SWANDEF", "SWARAJENG", "SYMPHONY", "TATVA",
+    "TCI", "TFCILTD", "TIIL", "TRUALT", "TTKPRESTIG", "TURTLEMINT", "TVSHLTD",
+    "TVSSRICHAK", "UEL", "UFLEX", "UNIMECH", "UNIVCABLES", "VADILALIND", "VAML",
+    "VEDPOWER", "VENTIVE", "VESUVIUS", "VINATIORGA", "VISHNU", "VISL", "VOGL",
+    "VRLLOG", "VSTIND", "VSTTILLERS", "WHEELS", "WONDERLA", "WSTCSTPAPR", "ZOTA"
+}
+
 _TIERS = {
     "nifty100": CORE_UNIVERSE,
     "nifty250": CORE_UNIVERSE | NIFTY_MIDCAP_150,
     "nifty500": CORE_UNIVERSE | NIFTY_MIDCAP_150 | NIFTY_500_REST,
     # Nifty Total Market = Nifty 500 + Microcap 250 (official membership only)
     "totalmarket": CORE_UNIVERSE | NIFTY_MIDCAP_150 | NIFTY_500_REST | NIFTY_MICROCAP_250,
+    # ~1000 names: Total Market + the next 250 by official AMFI mcap ranking
+    "top1000": (CORE_UNIVERSE | NIFTY_MIDCAP_150 | NIFTY_500_REST
+                | NIFTY_MICROCAP_250 | AMFI_NEXT_250),
 }
 UNIVERSE_TIER = (os.getenv("UNIVERSE_TIER", "nifty100") or "").strip().lower()
 if UNIVERSE_TIER not in _TIERS:
