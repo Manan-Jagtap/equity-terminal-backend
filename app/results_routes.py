@@ -80,5 +80,18 @@ def upcoming_results(db: Session = Depends(get_db)):
                         "date": d.isoformat(), "days_away": (d - today).days,
                         "results_meeting": is_results,
                         "agenda": agenda[:220]})
-    out.sort(key=lambda r: (r["date"], r["ticker"]))
+    # The exchange often files TWO notices per meeting (a terse "Quarterly
+    # Results" plus the verbose text) — merge per (ticker, date), preferring
+    # the terse agenda and OR-ing the results flag.
+    merged: dict[tuple, dict] = {}
+    for r in out:
+        k = (r["ticker"], r["date"])
+        cur = merged.get(k)
+        if cur is None:
+            merged[k] = r
+        else:
+            cur["results_meeting"] = cur["results_meeting"] or r["results_meeting"]
+            if len(r["agenda"]) < len(cur["agenda"]):
+                cur["agenda"] = r["agenda"]
+    out = sorted(merged.values(), key=lambda r: (r["date"], r["ticker"]))
     return {"count": len(out), "items": out}
