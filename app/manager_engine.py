@@ -41,6 +41,7 @@ log = logging.getLogger("manager_engine")
 EVIDENCE_KEY = "fm_evidence_v1"
 MACRO_KEY = "fm_macro_v1"
 CALIBRATION_KEY = "fm_calibration_v1"
+ENGINE_SCHEMA = 2   # bump when evidence blobs gain fields → boot rebuild fires
 
 # Priors: used until (and blended with) measured ICs from the calibration job.
 # Grouped to sum loosely to 1 across the valuation trio + non-valuation set.
@@ -759,6 +760,7 @@ def build_evidence(db) -> dict:
              f"{(_dt.datetime.utcnow() - t0).total_seconds():.1f}s "
              f"(trust sectors: {len(trust)}, cal as_of: {cal.get('as_of')})")
     return {"as_of": _dt.datetime.utcnow().isoformat(timespec='seconds') + "Z",
+            "schema": ENGINE_SCHEMA,
             "weights": weights, "calibration_as_of": cal.get("as_of"),
             "model_trust": trust, "names": out}
 

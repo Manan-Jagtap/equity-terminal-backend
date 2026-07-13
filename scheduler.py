@@ -738,18 +738,20 @@ else:
     try:
         from app.database import SessionLocal as _SL
         from app import models as _mm
-        from app.manager_engine import EVIDENCE_KEY, CALIBRATION_KEY
+        from app.manager_engine import EVIDENCE_KEY, CALIBRATION_KEY, ENGINE_SCHEMA
         _s = _SL()
         try:
             have_ev = _s.query(_mm.KVStore).filter_by(key=EVIDENCE_KEY).first()
             have_cal = _s.query(_mm.KVStore).filter_by(key=CALIBRATION_KEY).first()
+            ev_schema = ((have_ev.value or {}).get("schema") if have_ev else None)
         finally:
             _s.close()
         if not have_cal:
             log.info("FM v4 boot — no calibration artifact; running the first calibration…")
             run_manager_calibration()
-        if not have_ev:
-            log.info("FM v4 boot — no evidence snapshot; building the first one…")
+        if not have_ev or ev_schema != ENGINE_SCHEMA:
+            log.info(f"FM v4 boot — evidence missing or schema {ev_schema} != "
+                     f"{ENGINE_SCHEMA}; rebuilding…")
             run_manager_evidence()
     except Exception as e:
         log.error(f"FM v4 bootstrap failed: {type(e).__name__}: {e}")
