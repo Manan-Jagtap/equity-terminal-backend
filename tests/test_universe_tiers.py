@@ -64,3 +64,13 @@ if __name__ == "__main__":
     test_excluded_never_visible()
     test_default_tier_is_nifty100()
     print("test_universe_tiers: all passed")
+
+
+def test_totalmarket_tier():
+    """Nifty Total Market = Nifty 500 tier + official Microcap 250 (deduped)."""
+    from app.ingest.indianapi_ingester import _TIERS, NIFTY_MICROCAP_250
+    tm, n500 = _TIERS["totalmarket"], _TIERS["nifty500"]
+    assert n500 < tm                                   # strict superset
+    assert len(tm) == len(n500) + len(NIFTY_MICROCAP_250)
+    assert 740 <= len(tm) <= 760                       # ~750 official names
+    assert not (NIFTY_MICROCAP_250 & n500)             # dedupe holds
