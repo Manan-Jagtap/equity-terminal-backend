@@ -91,6 +91,9 @@ from app.screens_routes import router as screens_router
 app.include_router(screens_router)
 from app.admin_routes import router as admin_router
 app.include_router(admin_router)
+
+from app.ipo_routes import router as ipo_router
+app.include_router(ipo_router)
 from app.onepager import build_onepager
 
 

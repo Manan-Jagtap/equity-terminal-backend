@@ -101,11 +101,11 @@ def run_dhan_topup(days: int = 30):
             return
         s = SessionLocal()
         try:
-            stats = backfill_prices(s, sorted(VISIBLE_UNIVERSE), days=days)
+            stats = backfill_prices(s, universe_tickers(s), days=days)
             # Mark names IndianAPI's core EOD pass doesn't cover (wider tiers)
             # to Dhan's close, so nothing visible drifts on a stale price.
             from app.dhan.backfill import sync_snapshots_from_history
-            sync = sync_snapshots_from_history(s, sorted(VISIBLE_UNIVERSE))
+            sync = sync_snapshots_from_history(s, universe_tickers(s))
         finally:
             s.close()
         log.info(f"Dhan daily top-up: {stats} · snapshot sync: {sync}")
@@ -265,7 +265,7 @@ def run_results_calendar():
             if api_budget.would_exceed(s, len(VISIBLE_UNIVERSE)):
                 log.info("Results calendar: budget pre-flight refused — skipping.")
                 return
-            for tk in sorted(VISIBLE_UNIVERSE):
+            for tk in universe_tickers(s):
                 co = s.query(models.Company).filter_by(ticker=tk).first()
                 if co is None:
                     continue
@@ -293,6 +293,89 @@ def run_results_calendar():
     except Exception as e:
         log.error(f"Results calendar failed: {type(e).__name__}: {e}")
 
+
+
+def universe_tickers(s):
+    """The FULL living universe for refresh jobs: the static tier plus every
+    company already onboarded (monthly refresh adds IPOs/new entrants as DB
+    rows, and they must not fall out of the daily/weekly cycles)."""
+    from app import models
+    from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+    db_tickers = {(c.ticker or "").upper() for c in s.query(models.Company.ticker).all()}
+    return sorted((VISIBLE_UNIVERSE | db_tickers) - {""})
+
+
+def run_universe_refresh():
+    """Monthly: keep the universe current as markets move.
+    1) New IPO listings (vendor /ipo, mainboard only) that clear the tier's
+       ~₹2,600cr mcap floor are onboarded automatically.
+    2) Official index CSVs (niftyindices.com) are re-fetched and any NEW
+       constituents onboarded (index rebalances land in Mar/Sep; the AMFI
+       re-rank lands Jan/Jul and is reviewed with the same run).
+    Removals are LOGGED, never auto-deleted — dropping a company is a human
+    decision. Budget pre-flighted; each onboarding ≈ 10 vendor calls."""
+    import requests as _rq
+    from app.database import SessionLocal
+    from app import models, api_budget
+    from app.ingest.indianapi_ingester import (VISIBLE_UNIVERSE, ingest_company,
+                                               _get_safe, BASE as _IA_BASE, KEY as _IA_KEY)
+    s = SessionLocal()
+    added = []
+    try:
+        have = {(c.ticker or "").upper() for c in s.query(models.Company.ticker).all()}
+
+        # ── 1) IPO graduates ─────────────────────────────────────────────
+        candidates = []
+        try:
+            r = _rq.get(_IA_BASE + "/ipo", headers={"x-api-key": _IA_KEY}, timeout=25)
+            for row in (r.json() or {}).get("listed") or []:
+                sym = str(row.get("symbol") or "").upper().strip()
+                if sym and not row.get("is_sme") and sym not in have:
+                    candidates.append(sym)
+        except Exception as e:
+            log.warning(f"Universe refresh: IPO feed failed — {e}")
+
+        # ── 2) Official index CSV deltas ─────────────────────────────────
+        for url in ("https://niftyindices.com/IndexConstituent/ind_nifty500list.csv",
+                    "https://niftyindices.com/IndexConstituent/ind_niftymicrocap250_list.csv"):
+            try:
+                r = _rq.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=25)
+                if r.status_code != 200:
+                    continue
+                import csv as _csv, io as _io
+                for row in _csv.DictReader(_io.StringIO(r.text)):
+                    sym = (row.get("Symbol") or "").upper().strip()
+                    if sym and sym not in have and sym not in candidates:
+                        candidates.append(sym)
+            except Exception as e:
+                log.warning(f"Universe refresh: {url.rsplit('/',1)[-1]} failed — {e}")
+
+        if not candidates:
+            log.info("Universe refresh: no new entrants this month.")
+            return
+        if api_budget.would_exceed(s, len(candidates) * 10):
+            log.info(f"Universe refresh: {len(candidates)} candidates exceed budget — skipping.")
+            return
+        log.info(f"Universe refresh: onboarding {len(candidates)} new entrants: {candidates[:12]}…")
+        for sym in candidates[:40]:      # hard cap per run — sanity over surprise
+            try:
+                co = s.query(models.Company).filter_by(ticker=sym).first()
+                if co is None:
+                    co = models.Company(ticker=sym, name=sym, sector="",
+                                        shares_outstanding=0, type="nonfinancial")
+                    s.add(co)
+                    s.commit()
+                if ingest_company(s, co, insights=True):
+                    added.append(sym)
+            except Exception as e:
+                log.warning(f"  {sym}: onboarding failed — {type(e).__name__}: {e}")
+                s.rollback()
+        log.info(f"Universe refresh done: {len(added)} onboarded ({added}).")
+        if added:
+            run_compute(visible=True)
+    finally:
+        s.close()
+
 # Daily EOD price refresh — 3:45pm IST = 10:15 UTC, Mon-Fri
 for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
     getattr(schedule.every(), _day).at("10:15").do(run_prices)
@@ -302,6 +385,14 @@ schedule.every().sunday.at("00:30").do(run_full)
 
 # Results calendar (board-meeting dates) — Saturday 04:00 IST = Fri 22:30 UTC
 schedule.every().friday.at("22:30").do(run_results_calendar)
+
+# Universe refresh (IPO graduates + index-rebalance entrants) — monthly, on
+# the first Saturday 03:00 IST (= Fri 21:30 UTC).
+def _monthly_universe_refresh():
+    import datetime as _dt
+    if _dt.date.today().day <= 7:
+        run_universe_refresh()
+schedule.every().friday.at("21:30").do(_monthly_universe_refresh)
 
 # Intraday spot prices — every 90 min; the job self-gates to NSE market hours.
 # IndianAPI (~50 calls/run) since Yahoo blocks datacenter IPs: ~4 runs/market-day
@@ -499,6 +590,10 @@ elif _flag("RUN_PROFILE_SNAPSHOTS"):
                  "Remove RUN_PROFILE_SNAPSHOTS now.")
     except Exception as e:
         log.error(f"Profile snapshots failed: {type(e).__name__}: {e}")
+elif _flag("RUN_UNIVERSE_REFRESH"):
+    log.info("RUN_UNIVERSE_REFRESH set — checking for new entrants…")
+    run_universe_refresh()
+    log.info("Done. Remove RUN_UNIVERSE_REFRESH from Variables now.")
 elif _flag("RUN_RESULTS_CALENDAR"):
     log.info("RUN_RESULTS_CALENDAR set — sweeping board-meeting dates…")
     run_results_calendar()
