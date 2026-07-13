@@ -106,6 +106,30 @@ def search(q: str):
 _RANGES = ("1M", "3M", "6M", "1Y", "3Y", "5Y", "MAX")
 
 
+def _scalarize(v):
+    """Coerce a vendor value to something renderable (str/number) or None.
+    Handles the nested/list shapes the fund-facts feed returns."""
+    if v is None or isinstance(v, (str, int, float)):
+        return v
+    if isinstance(v, dict):
+        for k in ("current", "value", "name", "description"):
+            if isinstance(v.get(k), (str, int, float)):
+                return v[k]
+        return None
+    if isinstance(v, list):
+        parts = []
+        for x in v:
+            if isinstance(x, (str, int, float)):
+                parts.append(str(x))
+            elif isinstance(x, dict):
+                for k in ("name", "description", "value"):
+                    if x.get(k):
+                        parts.append(str(x[k]))
+                        break
+        return ", ".join(parts[:3]) or None
+    return None
+
+
 def _resolve(name):
     """Map a catalog fund name to its vendor scheme record via search.
     The catalog name carries plan suffixes ("… Regular Growth") the vendor
@@ -194,6 +218,11 @@ def detail(name: str, range: str = "1Y"):
                 if v not in (None, "", []):
                     info[out_k] = v
                     break
+        # Vendor ships several of these as nested objects (expense_ratio →
+        # {current, history}) or lists (exit_load → [{description}], managers →
+        # [{name}]). Flatten to a display scalar; drop anything that won't render.
+        info = {k: _scalarize(v) for k, v in info.items()}
+        info = {k: v for k, v in info.items() if v is not None and v != ""}
 
     return {"available": True,
             "name": scheme_name,
