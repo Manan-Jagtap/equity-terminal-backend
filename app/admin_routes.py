@@ -135,3 +135,36 @@ def api_usage(_admin: models.User = Depends(require_admin)):
     finally:
         s.close()
     return {"vendor": vendor, "internal": internal}
+
+
+@router.post("/fm-engine/rebuild")
+def fm_engine_rebuild(calibrate: bool = False,
+                      _admin: models.User = Depends(require_admin),
+                      db: Session = Depends(get_db)):
+    """Rebuild the Fund Manager v4 evidence (and optionally re-run the monthly
+    signal calibration) on demand instead of waiting for the nightly job."""
+    from app.manager_engine import snapshot_evidence
+    out = {"evidence": snapshot_evidence(db)}
+    if calibrate:
+        from app.manager_calibration import run_calibration
+        art = run_calibration(db)
+        out["calibration"] = {"as_of": art.get("as_of"), "ic": art.get("ic"),
+                              "weights": art.get("weights"),
+                              "runtime_s": art.get("runtime_s")}
+    return out
+
+
+@router.get("/fm-engine")
+def fm_engine_state(_admin: models.User = Depends(require_admin),
+                    db: Session = Depends(get_db)):
+    """Full engine state: calibration artifact + evidence/macro summaries."""
+    from app import models as _m
+    from app.manager_engine import CALIBRATION_KEY, load_evidence, load_macro
+    cal = db.query(_m.KVStore).filter_by(key=CALIBRATION_KEY).first()
+    ev = load_evidence(db) or {}
+    return {"calibration": (cal.value if cal else None),
+            "evidence": {"as_of": ev.get("as_of"),
+                         "names": len(ev.get("names") or {}),
+                         "weights": ev.get("weights"),
+                         "model_trust": ev.get("model_trust")},
+            "macro": load_macro(db)}

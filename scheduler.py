@@ -376,9 +376,52 @@ def run_universe_refresh():
     finally:
         s.close()
 
+def run_manager_evidence():
+    """Nightly Fund Manager v4 evidence build: per-name triangulation inputs
+    (forensics, P/E band, consensus, flow, momentum) + the macro regime block
+    → KVStore, so /api/portfolio/analysis stays instant."""
+    try:
+        from app.database import SessionLocal
+        from app.manager_engine import snapshot_evidence
+        s = SessionLocal()
+        try:
+            log.info(f"FM evidence: {snapshot_evidence(s)}")
+        finally:
+            s.close()
+    except Exception as e:
+        log.error(f"FM evidence failed: {type(e).__name__}: {e}")
+
+
+def run_manager_calibration():
+    """Monthly signal-IC calibration on our own 5-yr full-universe history —
+    the Fund Manager's weights come from measured evidence, not vibes."""
+    try:
+        from app.database import SessionLocal
+        from app.manager_calibration import run_calibration
+        s = SessionLocal()
+        try:
+            art = run_calibration(s)
+            log.info(f"FM calibration: ic={art.get('ic')} weights={art.get('weights')}")
+        finally:
+            s.close()
+    except Exception as e:
+        log.error(f"FM calibration failed: {type(e).__name__}: {e}")
+
+
 # Daily EOD price refresh — 3:45pm IST = 10:15 UTC, Mon-Fri
 for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
     getattr(schedule.every(), _day).at("10:15").do(run_prices)
+
+# FM v4 evidence — nightly after the EOD refresh settles (4:45pm IST = 11:15 UTC)
+for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
+    getattr(schedule.every(), _day).at("11:15").do(run_manager_evidence)
+
+# FM v4 calibration — monthly, first Saturday 02:30 IST (= Fri 21:00 UTC)
+def _monthly_manager_calibration():
+    import datetime as _dt
+    if _dt.date.today().day <= 7:
+        run_manager_calibration()
+schedule.every().friday.at("21:00").do(_monthly_manager_calibration)
 
 # Weekly full refresh — 6:00am IST Sunday = 00:30 UTC
 schedule.every().sunday.at("00:30").do(run_full)
@@ -688,6 +731,28 @@ else:
         log.info("Boot recompute complete.")
         snapshot_verdicts()    # day-0 (and post-deploy) track-record entries
         snapshot_signals()     # day-0 alpha + consensus ledgers
+
+    # FM v4 bootstrap: build the evidence/calibration artifacts when absent so
+    # the Fund Manager triangulates from the first request after a deploy —
+    # afterwards the nightly/monthly jobs keep them fresh.
+    try:
+        from app.database import SessionLocal as _SL
+        from app import models as _mm
+        from app.manager_engine import EVIDENCE_KEY, CALIBRATION_KEY
+        _s = _SL()
+        try:
+            have_ev = _s.query(_mm.KVStore).filter_by(key=EVIDENCE_KEY).first()
+            have_cal = _s.query(_mm.KVStore).filter_by(key=CALIBRATION_KEY).first()
+        finally:
+            _s.close()
+        if not have_cal:
+            log.info("FM v4 boot — no calibration artifact; running the first calibration…")
+            run_manager_calibration()
+        if not have_ev:
+            log.info("FM v4 boot — no evidence snapshot; building the first one…")
+            run_manager_evidence()
+    except Exception as e:
+        log.error(f"FM v4 bootstrap failed: {type(e).__name__}: {e}")
 
 while True:
     schedule.run_pending()

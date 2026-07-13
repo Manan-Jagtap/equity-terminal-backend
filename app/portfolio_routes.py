@@ -25,6 +25,29 @@ from app.corporate_actions import price_factor
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 
+@router.get("/engine-status")
+def engine_status(db: Session = Depends(get_db)):
+    """PUBLIC, read-only: Fund Manager v4 engine heartbeat — when evidence was
+    last built, how many names it covers, the macro regime, and the calibration
+    vintage. No user data; safe to expose (and it lets the frontend show the
+    macro strip before any portfolio loads)."""
+    try:
+        from app.manager_engine import load_evidence, load_macro
+        ev, mac = load_evidence(db) or {}, load_macro(db) or {}
+        return {"engine": "v4-triangulated",
+                "evidence_as_of": ev.get("as_of"),
+                "names": len(ev.get("names") or {}),
+                "calibration_as_of": ev.get("calibration_as_of"),
+                "weights": ev.get("weights"),
+                "model_trust_sectors": len(ev.get("model_trust") or {}),
+                "macro": {k: mac.get(k) for k in
+                          ("regime", "breadth_200dma", "breadth_50dma",
+                           "rs_leaders", "rs_laggards", "as_of")} if mac else None}
+    except Exception:
+        db.rollback()
+        return {"engine": "v4-triangulated", "evidence_as_of": None, "names": 0}
+
+
 class HoldingUpsert(BaseModel):
     ticker: str
     qty: float
@@ -521,8 +544,18 @@ def portfolio_analysis(user: models.User = Depends(get_current_user),
                     quote_by[u["ticker"]] = {"price": u.get("price"), "mos": u.get("mos")}
         except Exception:
             db.rollback()
+    # v4 evidence + macro (precomputed nightly; built once on a cold start).
+    evidence = macro = None
+    try:
+        from app.manager_engine import load_evidence, load_macro, snapshot_evidence
+        evidence, macro = load_evidence(db), load_macro(db)
+        if not evidence:
+            snapshot_evidence(db)          # first run after deploy: build + store
+            evidence, macro = load_evidence(db), load_macro(db)
+    except Exception:
+        db.rollback()
     analysis["manager"] = manager_report(items, analysis, mom_by, target_by,
-                                         intel_by, quote_by)
+                                         intel_by, quote_by, evidence, macro)
     return analysis
 
 
@@ -530,12 +563,15 @@ def portfolio_analysis(user: models.User = Depends(get_current_user),
 
 def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None,
                    target_by: dict | None = None, intel_by: dict | None = None,
-                   quote_by: dict | None = None) -> dict:
-    """The strategist's recommendations upgraded to a fund-manager brief:
-    conviction-scored actions with rupee sizing against inverse-vol target
-    weights, a momentum overlay, and a written PM note. Pure — unit-testable.
-    Same rule as everything here: mechanical restatement of published data,
-    educational, the owner decides."""
+                   quote_by: dict | None = None, evidence: dict | None = None,
+                   macro: dict | None = None) -> dict:
+    """The fund-manager brief, v4: conviction comes from TRIANGULATED evidence
+    (model × analyst consensus × own valuation band, forensic quality, flow,
+    results, momentum, macro regime) — never from the DCF alone. Suspect model
+    fair values are set aside and the action says so. Rupee sizing against
+    inverse-vol targets and the LTCG notes carry over from v3. Pure —
+    unit-testable. Same rule as everything here: mechanical restatement of
+    published data, educational, the owner decides."""
     live = [i for i in items if i.get("value")]
     total = sum(i["value"] for i in live) or 0.0
     mom_by = mom_by or {}
@@ -543,6 +579,8 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     intel_by = intel_by or {}
     quote_by = quote_by or {}
     by_ticker = {i["ticker"]: i for i in live}
+    ev_names = (evidence or {}).get("names") or {}
+    ev_weights = (evidence or {}).get("weights") or {}
 
     def _levels(tk, i):
         """Entry band / target / upside from the model's OWN fair value.
@@ -578,55 +616,128 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
             out.append(f"FY EPS {'beat' if sp > 0 else 'missed'} the Street by {abs(sp)*100:.0f}%")
         return out
 
+    from app.manager_engine import (conviction_add, conviction_trim,
+                                    macro_note, PRIOR_WEIGHTS)
+    weights = ev_weights or PRIOR_WEIGHTS
+
+    def _tax_notes(reasons):
+        return [x for x in reasons if "LTCG" in x or "long-term" in x.lower()]
+
+    def _score(action_name: str, tk: str, base_reasons: list[str]):
+        """v4 conviction from evidence; falls back to a v3-style score for a
+        name the nightly evidence build hasn't covered."""
+        ev = ev_names.get(tk)
+        i = by_ticker.get(tk)
+        w_in_book = (i["value"] / total) if (i and total) else None
+        if ev:
+            if action_name.startswith("REVIEW"):
+                cv, rs = conviction_trim(ev, w_in_book, weights, macro)
+            else:
+                cv, rs = conviction_add(ev, weights, macro)
+            return cv, rs + _tax_notes(base_reasons), ev
+        # fallback (thin): old MoS-based path, marked as such
+        cv = 40
+        mos = (i or {}).get("mos")
+        if mos is not None:
+            cv += min(20, int(abs(mos) * 30))
+        return max(10, min(70, cv)), base_reasons + ["evidence pending for this name"], None
+
     actions = []
     for r in analysis.get("recommendations", []):
         a = dict(r)
-        i = by_ticker.get(r["ticker"])
-        conviction = 40
-        verdict = (i or {}).get("verdict") or ""
-        mos = (i or {}).get("mos")
+        tk = r["ticker"]
+        cv, reasons, ev = _score(r["action"], tk, list(r.get("reasons") or []))
+        a["reasons"] = reasons
+        a["conviction"] = cv
+        i = by_ticker.get(tk)
         if r["action"].startswith("REVIEW"):
-            conviction += 25 if verdict == "SELL" else 15 if verdict in ("REDUCE", "TRIM") else 0
-            if mos is not None:
-                conviction += min(25, int(abs(min(mos, 0)) * 50))       # richer → stronger
             w = (i["value"] / total) if (i and total) else 0
-            if w > 0.30:
-                conviction += 10
-            mom = mom_by.get(r["ticker"])
-            if mom == "below":
-                conviction += 5
-                a["reasons"] = a["reasons"] + ["trading below its 50-DMA"]
-            # rupee sizing: bring the position to its inverse-vol target
-            tgt = target_by.get(r["ticker"])
+            tgt = target_by.get(tk)
             if i and total and tgt is not None and w > tgt:
                 a["size_inr"] = round((w - tgt) * total)
                 a["size_note"] = f"to its risk-balanced target of {tgt*100:.0f}%"
-        elif r["action"].startswith(("ADD", "TOP-UP")):
-            rmos = r.get("mos")
-            if rmos is not None:
-                conviction += min(30, int(max(rmos, 0) * 40))
-            mom = mom_by.get(r["ticker"])
-            if mom == "below":
-                conviction -= 5
-                a["reasons"] = a["reasons"] + ["below its 50-DMA — no hurry on entry"]
-            elif mom == "above":
-                conviction += 5
-            if total:
-                a["size_inr"] = round(0.03 * total)
-                a["size_note"] = "a starter tranche (~3% of book; scale on conviction)"
-        # Ownership-flow / results-momentum intelligence (both directions).
-        for reason in _intel_reasons(r["ticker"]):
-            a["reasons"] = a["reasons"] + [reason]
-            iv = intel_by.get(r["ticker"]) or {}
-            good = ((iv.get("inst_delta") or 0) > 0 or (iv.get("pat_yoy") or 0) > 0
-                    or (iv.get("surprise_pct") or 0) > 0)
-            if r["action"].startswith(("ADD", "TOP-UP")):
-                conviction += 4 if good else -4
-            else:
-                conviction += -3 if good else 4
-        a["levels"] = _levels(r["ticker"], by_ticker.get(r["ticker"]))
-        a["conviction"] = max(10, min(95, conviction))
+        elif r["action"].startswith(("ADD", "TOP-UP")) and total:
+            frac = 0.015 if (macro or {}).get("regime") == "risk_off" else 0.03
+            a["size_inr"] = round(frac * total)
+            a["size_note"] = ("a half tranche (~1.5% of book — defensive tape)"
+                              if frac == 0.015 else
+                              "a starter tranche (~3% of book; scale on conviction)")
+        # Levels: honest about a suspect model — quote the consensus target
+        # instead of a fair value the evidence just rejected.
+        lv = _levels(tk, by_ticker.get(tk))
+        if ev and (ev.get("tri") or {}).get("suspect"):
+            ct = (ev.get("consensus") or {}).get("target")
+            price = ev.get("price") or (lv or {}).get("price")
+            lv = ({"price": round(price, 1), "target": round(ct, 1),
+                   "upside_pct": round(ct / price - 1, 4), "basis": "consensus"}
+                  if (ct and price) else {})
+        a["levels"] = lv
+        if ev:
+            a["evidence"] = {
+                "suspect": (ev.get("tri") or {}).get("suspect"),
+                "val_blend": (ev.get("tri") or {}).get("score"),
+                "val_sources": (ev.get("tri") or {}).get("used"),
+                "quality": (ev.get("quality") or {}).get("composite"),
+                "red_flags": (ev.get("quality") or {}).get("red_flags"),
+                "pe_pct_5y": (ev.get("band") or {}).get("pe_pct"),
+                "alpha": ev.get("alpha"),
+            }
         actions.append(a)
+
+    # Evidence-driven ADD candidates the MoS gate alone would never surface —
+    # and, symmetrically, it can no longer surface a red-flagged name.
+    held = {i["ticker"] for i in items}
+    queued = {a["ticker"] for a in actions}
+    port_secs = {s["sector"] for s in (analysis.get("sectors") or [])}
+    cands = []
+    for tk, ev in ev_names.items():
+        if tk in held or tk in queued:
+            continue
+        tri, q, momo = ev.get("tri") or {}, ev.get("quality") or {}, ev.get("momo") or {}
+        if tri.get("score") is None or tri["score"] < 0.15:
+            continue
+        if (q.get("composite") or 0) < 55 or (q.get("red_flags") or []):
+            continue
+        if momo.get("above_200dma") is False and (momo.get("mom_pct") or 50) < 50:
+            continue
+        cv, reasons = conviction_add(ev, weights, macro)
+        # Levels straight from the evidence: the model's fair value when it
+        # survived cross-examination, else the consensus target, else CMP only.
+        price = ev.get("price")
+        fair = (ev.get("model") or {}).get("intrinsic") if not tri.get("suspect") else None
+        ct = (ev.get("consensus") or {}).get("target")
+        if price and fair and fair > 0:
+            lv = {"price": round(price, 1), "target": round(fair, 1),
+                  "entry_below": round(fair / 1.25, 1),
+                  "upside_pct": round(fair / price - 1, 4)}
+        elif price and ct:
+            lv = {"price": round(price, 1), "target": round(ct, 1),
+                  "upside_pct": round(ct / price - 1, 4), "basis": "consensus"}
+        else:
+            lv = {"price": round(price, 1)} if price else {}
+        cands.append({"action": "ADD CANDIDATE", "ticker": tk,
+                      "name": ev.get("name") or tk.title(), "reasons": reasons +
+                      (["outside the book's current sectors — diversifies"]
+                       if ev.get("sector") not in port_secs else
+                       ["within a sector already held"]),
+                      "priority": 3, "conviction": cv,
+                      "levels": lv,
+                      "evidence": {
+                          "suspect": tri.get("suspect"), "val_blend": tri.get("score"),
+                          "val_sources": tri.get("used"),
+                          "quality": q.get("composite"), "red_flags": q.get("red_flags"),
+                          "pe_pct_5y": (ev.get("band") or {}).get("pe_pct"),
+                          "alpha": ev.get("alpha")}})
+    cands.sort(key=lambda x: -x["conviction"])
+    for c in cands[:4]:
+        if total:
+            frac = 0.015 if (macro or {}).get("regime") == "risk_off" else 0.03
+            c["size_inr"] = round(frac * total)
+            c["size_note"] = ("a half tranche (~1.5% of book — defensive tape)"
+                              if frac == 0.015 else
+                              "a starter tranche (~3% of book; scale on conviction)")
+        actions.append(c)
+
     actions.sort(key=lambda x: (-x["conviction"], x.get("priority", 9)))
 
     # PM note — composed strictly from the numbers above.
@@ -652,9 +763,25 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
         lines.append(f"{len(soon)} position{'s' if len(soon) != 1 else ''} turn"
                      f"{'' if len(soon) != 1 else 's'} long-term within 90 days — "
                      f"sequence any trims after the LTCG step-down where the thesis allows.")
+    n_susp = sum(1 for a in actions[:10]
+                 if (a.get("evidence") or {}).get("suspect"))
+    if n_susp:
+        lines.append(f"On {n_susp} name{'s' if n_susp != 1 else ''} the model's fair value "
+                     f"failed cross-examination against consensus and the valuation band — "
+                     f"it was set aside rather than trusted.")
     if not lines:
         lines.append("No structural flags: sizing, alignment and terms all read clean.")
-    return {"actions": actions[:10], "note": " ".join(lines), "aum": total}
+    mnote = macro_note(macro or {})
+    if mnote:
+        lines.insert(0, mnote)
+    return {"actions": actions[:10], "note": " ".join(lines), "aum": total,
+            "macro": {k: (macro or {}).get(k) for k in
+                      ("regime", "breadth_200dma", "breadth_50dma", "nifty",
+                       "rs_leaders", "rs_laggards", "commodities", "as_of")} if macro else None,
+            "engine": {"version": "v4-triangulated",
+                       "evidence_as_of": (evidence or {}).get("as_of"),
+                       "calibration_as_of": (evidence or {}).get("calibration_as_of"),
+                       "weights": weights}}
 
 
 @router.post("/sync-dhan")
