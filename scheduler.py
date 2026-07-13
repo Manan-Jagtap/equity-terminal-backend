@@ -423,6 +423,25 @@ def _monthly_manager_calibration():
         run_manager_calibration()
 schedule.every().friday.at("21:00").do(_monthly_manager_calibration)
 
+
+def run_macro_refresh():
+    """Weekly macro-store refresh from the key-gated API sources (TE/MoSPI).
+    No-op until the owner sets the keys on Railway; the RBI DBIE seed carries
+    the engine either way."""
+    try:
+        from app.database import SessionLocal
+        from app.macro_sources import refresh_all
+        s = SessionLocal()
+        try:
+            log.info(f"Macro refresh: {refresh_all(s)}")
+        finally:
+            s.close()
+    except Exception as e:
+        log.error(f"Macro refresh failed: {type(e).__name__}: {e}")
+
+# Macro sources — Mondays 05:00 IST (Sun 23:30 UTC), before the week opens
+schedule.every().sunday.at("23:30").do(run_macro_refresh)
+
 # Weekly full refresh — 6:00am IST Sunday = 00:30 UTC
 schedule.every().sunday.at("00:30").do(run_full)
 

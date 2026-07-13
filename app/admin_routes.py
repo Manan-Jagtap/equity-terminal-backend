@@ -10,7 +10,7 @@ including when the env var is unset (fail closed, never open).
 """
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -168,3 +168,41 @@ def fm_engine_state(_admin: models.User = Depends(require_admin),
                          "weights": ev.get("weights"),
                          "model_trust": ev.get("model_trust")},
             "macro": load_macro(db)}
+
+
+@router.get("/macro")
+def macro_state(_admin: models.User = Depends(require_admin),
+                db: Session = Depends(get_db)):
+    """Macro store inventory: every series with freshness, plus the summary
+    block the engine consumes and which API keys are live."""
+    import os as _os
+    from app.macro_data import catalog, macro_summary
+    return {"summary": macro_summary(db),
+            "series": catalog(db),
+            "keys": {"tradingeconomics": bool(_os.getenv("TRADINGECONOMICS_KEY", "").strip()),
+                     "mospi": bool(_os.getenv("MOSPI_KEY", "").strip())}}
+
+
+@router.post("/macro/refresh")
+def macro_refresh(_admin: models.User = Depends(require_admin),
+                  db: Session = Depends(get_db)):
+    """Pull the key-gated API sources now instead of waiting for Monday."""
+    from app.macro_sources import refresh_all
+    return refresh_all(db)
+
+
+@router.post("/macro/upload")
+async def macro_upload(file: UploadFile = File(...),
+                       _admin: models.User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    """Re-upload a fresh RBI DBIE macro export (either workbook format the
+    seed came from); every series merges into the overlay, newest-wins."""
+    from io import BytesIO
+    from app.macro_sources import ingest_dbie_xlsx
+    blob = await file.read()
+    if len(blob) > 10 * 1024 * 1024:
+        raise HTTPException(413, "File too large (10 MB max)")
+    try:
+        return ingest_dbie_xlsx(db, BytesIO(blob))
+    except Exception as e:
+        raise HTTPException(400, f"Could not parse workbook: {type(e).__name__}: {e}")

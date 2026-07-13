@@ -42,7 +42,7 @@ def engine_status(db: Session = Depends(get_db)):
                 "model_trust_sectors": len(ev.get("model_trust") or {}),
                 "macro": {k: mac.get(k) for k in
                           ("regime", "breadth_200dma", "breadth_50dma", "breadth_trend",
-                           "vix", "rs_leaders", "rs_laggards", "as_of")} if mac else None}
+                           "vix", "rates", "rs_leaders", "rs_laggards", "as_of")} if mac else None}
     except Exception:
         db.rollback()
         return {"engine": "v4-triangulated", "evidence_as_of": None, "names": 0}
@@ -923,7 +923,7 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     return {"actions": actions[:10], "note": " ".join(lines), "aum": total,
             "macro": {k: (macro or {}).get(k) for k in
                       ("regime", "breadth_200dma", "breadth_50dma", "breadth_trend",
-                       "vix", "nifty", "rs_leaders", "rs_laggards", "commodities",
+                       "vix", "rates", "nifty", "rs_leaders", "rs_laggards", "commodities",
                        "as_of")} if macro else None,
             "engine": {"version": "v4-triangulated",
                        "evidence_as_of": (evidence or {}).get("as_of"),

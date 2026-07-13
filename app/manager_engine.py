@@ -41,7 +41,7 @@ log = logging.getLogger("manager_engine")
 EVIDENCE_KEY = "fm_evidence_v1"
 MACRO_KEY = "fm_macro_v1"
 CALIBRATION_KEY = "fm_calibration_v1"
-ENGINE_SCHEMA = 2   # bump when evidence blobs gain fields → boot rebuild fires
+ENGINE_SCHEMA = 3   # bump when evidence blobs gain fields → boot rebuild fires
 
 # Priors: used until (and blended with) measured ICs from the calibration job.
 # Grouped to sum loosely to 1 across the valuation trio + non-valuation set.
@@ -62,6 +62,11 @@ _NEWS_RED = ("fraud", "scam", "probe", "investigation", "sebi order", "sebi bars
              "enforcement directorate", " ed raid", "cbi", "default", "downgrade",
              "resign", "auditor", "pledge invoked", "insolvency", "nclt", "raid",
              "penalty", "show cause", "whistleblower", "delisting")
+
+# Rate-sensitive sectors: an easing cycle is a tailwind (cheaper funding,
+# demand revival), tightening a headwind. Conservative ±3 tilt.
+_RATE_SENSITIVE = ("bank", "nbfc", "financ", "housing", "realty", "real estate",
+                   "auto", "consumer durable", "infrastructure", "construction")
 
 # Sectors that benefit/suffer when a commodity moves. Coarse and honest —
 # used only for one-line context in the PM note, never for conviction math.
@@ -341,6 +346,12 @@ def conviction_add(ev: dict, weights: dict, macro: dict | None) -> tuple[int, li
             reasons.append(f"{sec} is a sector-momentum laggard right now")
         if macro.get("regime") == "risk_off":
             c -= 6
+        stance = (macro.get("rates") or {}).get("stance")
+        if stance in ("easing", "tightening") and sec \
+                and any(k in sec.lower() for k in _RATE_SENSITIVE):
+            c += 3 if stance == "easing" else -3
+            reasons.append(f"rate-sensitive sector in an {stance} cycle "
+                           f"({'tailwind' if stance == 'easing' else 'headwind'})")
     # A name whose ONLY case is a suspect model never earns high conviction.
     if tri.get("suspect") and (tri.get("score") is None):
         c = min(c, 42.0)
@@ -850,14 +861,27 @@ def macro_regime(db) -> dict:
     except Exception:
         pass
 
+    # Rates / inflation / currency from the macro store (RBI DBIE seed +
+    # API overlays). Every number carries its as-of date — staleness visible.
+    rates = {}
+    try:
+        from app.macro_data import macro_summary
+        rates = macro_summary(db) or {}
+    except Exception as e:
+        log.warning(f"macro: rates summary unavailable ({type(e).__name__})")
+
     # Regime label — deliberately blunt: trend + breadth, nothing exotic.
-    # Elevated VIX (top decile of its own year) shades a would-be risk_on down.
+    # Elevated VIX (top decile of its own year) shades a would-be risk_on down;
+    # so does genuine monetary tightening with hot CPI.
     regime = "neutral"
     if nifty.get("above_200dma") and (breadth200 or 0) >= 0.55:
         regime = "risk_on"
     elif nifty.get("above_200dma") is False and (breadth200 or 1) <= 0.45:
         regime = "risk_off"
     if regime == "risk_on" and vix and (vix.get("pctile_1y") or 0) >= 90:
+        regime = "neutral"
+    if (regime == "risk_on" and rates.get("stance") == "tightening"
+            and ((rates.get("cpi_yoy") or {}).get("pct") or 0) >= 6.0):
         regime = "neutral"
 
     # Breadth history → regime-change detection (KV, self-pruning to ~2 years).
@@ -880,7 +904,7 @@ def macro_regime(db) -> dict:
 
     return {"as_of": _dt.datetime.utcnow().isoformat(timespec='seconds') + "Z",
             "breadth_50dma": breadth50, "breadth_200dma": breadth200,
-            "breadth_trend": trend, "vix": vix,
+            "breadth_trend": trend, "vix": vix, "rates": rates,
             "nifty": nifty, "sector_rs": sec_rs[:12],
             "rs_leaders": leaders, "rs_laggards": laggards,
             "commodities": commodities, "regime": regime}
@@ -910,6 +934,22 @@ def macro_note(macro: dict) -> str:
     vx = macro.get("vix") or {}
     if vx.get("pctile_1y") is not None and vx["pctile_1y"] >= 80:
         bits.append(f"India VIX {vx['last']} — {vx['pctile_1y']:.0f}th percentile of its year, elevated")
+    rt = macro.get("rates") or {}
+    g10 = rt.get("gsec_10y") or {}
+    if g10.get("last") is not None:
+        line = f"10Y G-sec {g10['last']}%"
+        if g10.get("chg_3m_bps") is not None:
+            line += f" ({g10['chg_3m_bps']:+d}bps over 3m)"
+        if rt.get("stance"):
+            line += f" — policy {rt['stance'].replace('_', ' ')}"
+        bits.append(line)
+    cpi = rt.get("cpi_yoy") or {}
+    if cpi.get("pct") is not None:
+        bits.append(f"CPI {cpi['pct']:+.1f}% YoY")
+    ur = rt.get("usdinr") or {}
+    if ur.get("last") is not None and ur.get("chg_3m_pct") is not None and abs(ur["chg_3m_pct"]) >= 1.0:
+        bits.append(f"USDINR {ur['last']} ({ur['chg_3m_pct']:+.1f}% over 3m — "
+                    f"{'rupee weakening' if ur['chg_3m_pct'] > 0 else 'rupee firming'})")
     if macro.get("rs_leaders"):
         bits.append("sector momentum favours " + ", ".join(macro["rs_leaders"]))
     hot = [c for c in (macro.get("commodities") or []) if abs(c.get("pct") or 0) >= 2.0]

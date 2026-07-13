@@ -74,8 +74,14 @@ never manufactures certainty. Honesty is the moat.
       tilt conviction ±5.
 - [x] **DONE — Breadth history** persisted nightly; the macro note now says
       whether breadth is improving or deteriorating, not just where it is.
-- [ ] **NEEDS DATA — Rates & currency** (10Y G-sec yield, USDINR, RBI repo):
-      no licensed series in either vendor today; the single biggest macro gap.
+- [x] **DONE — Rates & currency**: seeded from the owner's RBI DBIE exports
+      (148 series / ~29k points: 10Y G-sec, repo/CRR/SLR, T-bills, CPI/WPI/IIP,
+      USDINR, FX reserves, M3/credit, trade, BoP, GDP, HPI). The engine reads a
+      distilled rates block (stance, 10Y drift, CPI YoY, USDINR, flows) with
+      as-of dates on every number; policy stance tilts rate-sensitive sectors
+      ±3 and hot-CPI tightening blocks risk_on. Refresh: weekly TE/MoSPI pulls
+      once TRADINGECONOMICS_KEY / MOSPI_KEY are set on Railway, or re-upload a
+      DBIE export at POST /api/admin/macro/upload.
 - [x] **DONE — India VIX** (via the Dhan index series, if carried; verified
       at runtime): elevated VIX (>90th pctile of its year) blocks risk_on.
 
@@ -137,7 +143,8 @@ never manufactures certainty. Honesty is the moat.
 
 ---
 
-*Engine: v4-triangulated. Weights: KVStore `fm_calibration_v1` (monthly).
+*Engine: v4-triangulated. Macro store: seed `app/data/macro_seed.json.gz` + KVStore `macro_updates_v1` overlay (admin: GET/POST /api/admin/macro*).
+*Weights: KVStore `fm_calibration_v1` (monthly).
 Evidence: KVStore `fm_evidence_v1` (nightly). Trigger manually via
 POST /api/admin/fm-engine/rebuild?calibrate=true.*
 
