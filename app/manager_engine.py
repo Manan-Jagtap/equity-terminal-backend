@@ -47,13 +47,20 @@ CALIBRATION_KEY = "fm_calibration_v1"
 PRIOR_WEIGHTS = {
     "val_model": 0.16,      # the DCF/RI fair value — one witness, not the judge
     "val_consensus": 0.12,  # analyst mean target
-    "val_band": 0.12,       # own 5-yr P/E percentile
+    "val_band": 0.12,       # own 5-yr P/E+P/B bands + sector-relative multiple
     "quality": 0.22,        # forensics composite
-    "momentum": 0.16,       # 12-1 + DMA state
+    "momentum": 0.16,       # 12-1 + DMA state + 52w-high proximity
     "flow": 0.08,           # institutional/promoter deltas
     "results": 0.08,        # PAT YoY + EPS surprise
     "growth": 0.06,
+    "catalyst": 0.06,       # analyst estimate-revision momentum
 }
+
+# News headline classes that cap an ADD and sharpen a TRIM until reviewed.
+_NEWS_RED = ("fraud", "scam", "probe", "investigation", "sebi order", "sebi bars",
+             "enforcement directorate", " ed raid", "cbi", "default", "downgrade",
+             "resign", "auditor", "pledge invoked", "insolvency", "nclt", "raid",
+             "penalty", "show cause", "whistleblower", "delisting")
 
 # Sectors that benefit/suffer when a commodity moves. Coarse and honest —
 # used only for one-line context in the PM note, never for conviction math.
@@ -81,32 +88,31 @@ def _pct_of(value, series) -> float | None:
     return round(100.0 * below / len(xs), 1)
 
 
-def trailing_pe_band(dated_closes: list[tuple[str, float]],
-                     eps_by_fy: dict[int, float],
-                     shares_note: str = "current") -> dict | None:
-    """Current trailing P/E vs the name's OWN monthly trailing-P/E history.
+def trailing_multiple_band(dated_closes: list[tuple[str, float]],
+                           denom_by_fy: dict[int, float]) -> dict | None:
+    """Current trailing multiple (price / per-share denominator) vs the name's
+    OWN monthly history of that multiple. Works for P/E (denom = EPS) and P/B
+    (denom = book value per share) alike.
 
     dated_closes: [(iso_date, close)] ascending, up to 5y.
-    eps_by_fy:    {fiscal_year: EPS} — PAT / shares outstanding, FY = March-end.
-    A fiscal year's EPS is considered *known* from 1 July of that calendar year
+    denom_by_fy:  {fiscal_year: per-share value} — FY = March-end. A fiscal
+    year's number is considered *known* from 1 July of that calendar year
     (results season + buffer), so the band is point-in-time honest.
 
-    Returns {pe_now, pe_pct, n_obs} or None when the inputs can't support it.
-    Loss-making years yield no P/E observation (a negative P/E isn't a band).
+    Returns {now, pct, n_obs} or None. Non-positive denominators (losses,
+    negative book) yield no observation — a negative multiple isn't a band.
     """
-    if not dated_closes or not eps_by_fy:
+    if not dated_closes or not denom_by_fy:
         return None
 
-    def eps_known_at(d: _dt.date) -> float | None:
-        # FY2024 (Apr'23–Mar'24) is known from 2024-07-01 onward.
+    def known_at(d: _dt.date) -> float | None:
         fy = d.year if (d.month >= 7) else d.year - 1
         for y in (fy, fy - 1):
-            e = eps_by_fy.get(y)
+            e = denom_by_fy.get(y)
             if e is not None and e > 0:
                 return e
         return None
 
-    # Month-end sampling of trailing P/E.
     monthly: list[float] = []
     last_key = None
     for iso, close in dated_closes:
@@ -118,23 +124,61 @@ def trailing_pe_band(dated_closes: list[tuple[str, float]],
         if key == last_key or not close:
             continue
         last_key = key
-        e = eps_known_at(d)
+        e = known_at(d)
         if e:
             monthly.append(close / e)
     if len(monthly) < 12:
         return None
     iso, close = dated_closes[-1]
     try:
-        e_now = eps_known_at(_dt.date.fromisoformat(iso[:10]))
+        e_now = known_at(_dt.date.fromisoformat(iso[:10]))
     except ValueError:
         return None
     if not (e_now and close):
         return None
-    pe_now = close / e_now
-    return {"pe_now": round(pe_now, 1),
-            "pe_pct": _pct_of(pe_now, monthly),
-            "n_obs": len(monthly),
+    now = close / e_now
+    return {"now": round(now, 2), "pct": _pct_of(now, monthly), "n_obs": len(monthly)}
+
+
+def trailing_pe_band(dated_closes, eps_by_fy, shares_note: str = "current"):
+    """Back-compat wrapper: P/E variant of trailing_multiple_band."""
+    b = trailing_multiple_band(dated_closes, eps_by_fy)
+    if not b:
+        return None
+    return {"pe_now": b["now"], "pe_pct": b["pct"], "n_obs": b["n_obs"],
             "shares_basis": shares_note}
+
+
+def news_red_flags(ticker: str, budget_guard=None) -> list[str]:
+    """Headline red-flag screen from the vendor news feed. Budget-guarded and
+    fail-silent: with the API quota exhausted (or the feed down) it returns []
+    — the engine never invents a clean bill of health, it just says nothing."""
+    import os
+    import requests as _rq
+    key = os.getenv("INDIANAPI_KEY", "").strip()
+    if not key:
+        return []
+    if budget_guard and not budget_guard(1):
+        return []
+    base = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
+    try:
+        r = _rq.get(base + "/company_news", headers={"X-API-Key": key},
+                    params={"symbol": ticker}, timeout=10)
+        if r.status_code != 200:
+            return []
+        arr = r.json()
+        arr = arr if isinstance(arr, list) else (arr.get("news") or arr.get("data") or [])
+    except Exception:
+        return []
+    hits = []
+    for it in arr[:20]:
+        title = ((it.get("title") or it.get("headline") or "") if isinstance(it, dict) else str(it)).lower()
+        for kw in _NEWS_RED:
+            if kw in title:
+                hits.append(kw.strip())
+                break
+    # dedupe, keep at most 3 classes
+    return sorted(set(hits))[:3]
 
 
 def triangulate(model_mos, cons_upside, band_pct,
@@ -230,16 +274,39 @@ def conviction_add(ev: dict, weights: dict, macro: dict | None) -> tuple[int, li
         c -= 8
         reasons.append(f"forensic red flag: {f}")
 
+    wm = weights.get("momentum", .16) / 0.16
     if momo.get("above_200dma") and momo.get("above_50dma"):
-        c += 6 * weights.get("momentum", .16) / 0.16
+        c += 6 * wm
         reasons.append("in an uptrend (above 50 & 200-DMA)")
     elif momo.get("above_200dma") is False:
-        c -= 8 * weights.get("momentum", .16) / 0.16
+        c -= 8 * wm
         reasons.append("below its 200-DMA — trend not confirming; no hurry on entry")
     mp = momo.get("mom_pct")
     if mp is not None and mp >= 67:
-        c += 6 * weights.get("momentum", .16) / 0.16
+        c += 6 * wm
         reasons.append(f"12-1 momentum in the top third of the universe")
+    off_hi = momo.get("off_52w_high")
+    if off_hi is not None and off_hi >= -0.05:
+        c += 4 * wm
+        reasons.append("within 5% of its 52-week high — strength, not weakness")
+    vs = momo.get("vol_surge")
+    if vs is not None and vs >= 1.5 and momo.get("above_50dma"):
+        c += 3 * wm
+        reasons.append(f"volume running {vs:.1f}× its yearly average — participation confirms")
+    rs = momo.get("rs_sector")
+    if rs is not None and abs(rs) >= 0.10:
+        c += (4 if rs > 0 else -4) * wm
+        reasons.append(f"{'leading' if rs > 0 else 'lagging'} its own sector by {abs(rs)*100:.0f}pp (12-1)")
+
+    cat = ev.get("catalyst")
+    if cat is not None and abs(cat) >= 0.03:
+        c += (4 if cat > 0 else -4) * weights.get("catalyst", .06) / 0.06
+        reasons.append(f"analyst estimates {'rising' if cat > 0 else 'falling'} "
+                       f"({cat*100:+.0f}pp implied-upside revision)")
+
+    for nf in (ev.get("news_flags") or [])[:2]:
+        c -= 10
+        reasons.append(f"news flag: “{nf}” in recent headlines — review before entry")
 
     d = flow.get("inst_delta")
     if d is not None and abs(d) >= 0.3:
@@ -312,6 +379,17 @@ def conviction_trim(ev: dict, weight_in_book: float | None,
     if momo.get("above_200dma") is False:
         c += 5
         reasons.append("below its 200-DMA")
+    rs = momo.get("rs_sector")
+    if rs is not None and rs <= -0.10:
+        c += 3
+        reasons.append(f"lagging its own sector by {abs(rs)*100:.0f}pp (12-1)")
+    cat = ev.get("catalyst")
+    if cat is not None and cat <= -0.03:
+        c += 3
+        reasons.append(f"analyst estimates falling ({cat*100:+.0f}pp implied-upside revision)")
+    for nf in (ev.get("news_flags") or [])[:2]:
+        c += 6
+        reasons.append(f"news flag: “{nf}” in recent headlines")
     d = flow.get("inst_delta")
     if d is not None and abs(d) >= 0.3:
         c += (-3 if d > 0 else 4)
@@ -329,6 +407,44 @@ def conviction_trim(ev: dict, weight_in_book: float | None,
     if len(reasons) <= (1 if tri.get("suspect") else 0):
         c = min(c, 30.0)
     return int(_clamp(round(c), 5, 95)), reasons
+
+
+def what_would_flip(ev: dict, action: str) -> list[str]:
+    """The 1-2 pieces of evidence closest to flipping this call — stated up
+    front so the user knows what the engine is watching, not just what it
+    concluded. Pure restatement of current margins vs the engine's own gates."""
+    tri = ev.get("tri") or {}
+    q = ev.get("quality") or {}
+    momo = ev.get("momo") or {}
+    out: list[str] = []
+    if action.startswith(("ADD", "TOP-UP")):
+        s = tri.get("score")
+        if s is not None and s < 0.30:
+            out.append(f"valuation blend fading below +15% (now {s*100:+.0f}%)")
+        comp = q.get("composite")
+        if comp is not None and comp < 68:
+            out.append(f"accounting quality slipping below 55 (now {comp:.0f})")
+        if momo.get("above_200dma"):
+            out.append("a decisive close below the 200-DMA")
+        elif momo.get("above_200dma") is False:
+            out.append("already below the 200-DMA — reclaiming it strengthens the case")
+        if not out:
+            out.append("a forensic red flag or adverse headline appearing")
+    else:   # REVIEW TRIM / EXIT
+        s = tri.get("score")
+        if s is not None and s < 0:
+            out.append(f"valuation blend recovering above −10% (now {s*100:+.0f}%)")
+        if momo.get("above_200dma") is False:
+            out.append("price reclaiming its 200-DMA")
+        fl = ev.get("flow") or {}
+        if (fl.get("inst_delta") or 0) < 0:
+            out.append("institutions turning net buyers")
+        res = ev.get("results") or {}
+        if (res.get("pat_yoy") or 0) < 0:
+            out.append("PAT momentum turning positive")
+        if not out:
+            out.append("the position shrinking back inside sizing limits")
+    return out[:2]
 
 
 # ── bulk evidence builder (DB) ───────────────────────────────────────────────
@@ -350,32 +466,35 @@ def _closes_dated_by(db, days: int) -> dict[int, list[tuple[str, float]]]:
 
 
 def _series_for_evidence(db, ids: list[int], chunk: int = 250) -> dict[int, dict]:
-    """Per company: the last ~260 closes (momo/DMA) + a month-end-sampled 5-yr
-    (date, close) series (P/E band). Loaded in company chunks and downsampled
-    immediately so peak memory stays flat regardless of universe size."""
+    """Per company: the last ~260 closes+volumes (momo/DMA/52w/volume-surge) +
+    a month-end-sampled 5-yr (date, close) series (multiple bands). Loaded in
+    company chunks and downsampled immediately so peak memory stays flat
+    regardless of universe size."""
     from app import models
     cutoff = (_dt.date.today() - _dt.timedelta(days=5 * 365 + 30)).isoformat()
     out: dict[int, dict] = {}
     for start in range(0, len(ids), chunk):
         sub = ids[start:start + chunk]
         rows = (db.query(models.HistoricalPrice.company_id, models.HistoricalPrice.date,
-                         models.HistoricalPrice.close)
+                         models.HistoricalPrice.close, models.HistoricalPrice.volume)
                   .filter(models.HistoricalPrice.company_id.in_(sub),
                           models.HistoricalPrice.date >= cutoff)
                   .order_by(models.HistoricalPrice.date).all())
-        dated: dict[int, list[tuple[str, float]]] = {}
-        for cid, date, close in rows:
+        dated: dict[int, list[tuple[str, float, float | None]]] = {}
+        for cid, date, close, vol in rows:
             if close:
-                dated.setdefault(cid, []).append((date, close))
+                dated.setdefault(cid, []).append((date, close, vol))
         for cid, ser in dated.items():
             monthly, last_m = [], None
-            for d, c in ser:
+            for d, c, _v2 in ser:
                 if d[:7] != last_m:
                     last_m = d[:7]
                     monthly.append((d, c))
             if monthly and monthly[-1][0] != ser[-1][0]:
-                monthly.append(ser[-1])           # today's point closes the band
-            out[cid] = {"recent": [c for _, c in ser[-260:]], "monthly": monthly}
+                monthly.append((ser[-1][0], ser[-1][1]))   # today closes the band
+            out[cid] = {"recent": [c for _, c, _v2 in ser[-260:]],
+                        "recent_vol": [v for _, _c, v in ser[-260:] if v],
+                        "monthly": monthly}
         del rows, dated
     return out
 
@@ -460,6 +579,48 @@ def build_evidence(db) -> dict:
         if v is not None and len(xs) >= 8:
             mom_pcts[t] = round(100.0 * sum(1 for x in xs if x <= v) / len(xs), 1)
 
+    # sector context: median 12-1 momentum (for RS-vs-sector) and the sector's
+    # current P/E distribution (for peer-relative valuation)
+    sec_moms: dict[str, list[float]] = {}
+    sec_pes: dict[str, list[float]] = {}
+    sector_of_tk = {}
+    for cid, co in cos.items():
+        tk = (co.ticker or "").upper()
+        sector_of_tk[tk] = co.sector or "Other"
+    for t, r in ranked.items():
+        m = r.get("momentum_ret")
+        if m is not None:
+            sec_moms.setdefault(sector_of_tk.get(t, "Other"), []).append(m)
+    for cid, v in vals.items():
+        pe = getattr(v, "pe", None)
+        if pe and pe > 0:
+            co = cos.get(cid)
+            if co:
+                sec_pes.setdefault(co.sector or "Other", []).append(pe)
+    sec_mom_med = {s: sorted(ms)[len(ms) // 2] for s, ms in sec_moms.items() if len(ms) >= 3}
+
+    # analyst estimate-revision momentum (already computed for the Alpha desk)
+    try:
+        from app.signals import catalyst_by
+        catalysts = catalyst_by(db)
+    except Exception:
+        catalysts = {}
+
+    # news screen budget: bounded shortlist, and only when the vendor budget
+    # allows (fail-silent while the monthly quota is exhausted)
+    try:
+        from app import api_budget
+        _news_budget = {"left": 60}
+
+        def _guard(n):
+            if _news_budget["left"] < n or api_budget.would_exceed(db, n):
+                return False
+            _news_budget["left"] -= n
+            return True
+    except Exception:
+        def _guard(n):
+            return False
+
     series = _series_for_evidence(db, list(cos))
 
     # statements + EPS by FY
@@ -495,29 +656,58 @@ def build_evidence(db) -> dict:
         quality = {"composite": fr.get("composite"), "grade": fr.get("grade"),
                    "red_flags": red[:4]}
 
-        # P/E band (needs EPS by FY + shares)
+        # Valuation bands: own-history P/E and P/B + the sector-relative P/E.
         band = None
         ser = series.get(cid) or {}
         shares = co.shares_outstanding or 0
-        if shares and stm:
-            eps_by_fy = {}
+        monthly = ser.get("monthly") or []
+        pe_b = pb_b = None
+        if shares and stm and monthly:
+            per_share = lambda x: (x * 1e7 / shares if shares > 1e6 else x / shares)
+            eps_by_fy, bvps_by_fy = {}, {}
             for fy, stmts in stm.items():
                 pat = (stmts.get("PL") or {}).get("pat")
                 if pat is not None:
-                    eps_by_fy[fy] = pat * 1e7 / shares if shares > 1e6 else pat / shares
-            monthly = ser.get("monthly") or []
-            if monthly and eps_by_fy:
-                band = trailing_pe_band(monthly, eps_by_fy)
+                    eps_by_fy[fy] = per_share(pat)
+                eq = (stmts.get("BS") or {}).get("net_worth") or (stmts.get("BS") or {}).get("equity")
+                if eq is not None:
+                    bvps_by_fy[fy] = per_share(eq)
+            pe_b = trailing_multiple_band(monthly, eps_by_fy) if eps_by_fy else None
+            pb_b = trailing_multiple_band(monthly, bvps_by_fy) if bvps_by_fy else None
+        sec_pe_pct = None
+        pe_now = getattr(v, "pe", None)
+        peers = sec_pes.get(co.sector or "Other") or []
+        if pe_now and pe_now > 0 and len(peers) >= 6:
+            sec_pe_pct = _pct_of(pe_now, peers)
+        pcts = [p for p in ((pe_b or {}).get("pct"), (pb_b or {}).get("pct"), sec_pe_pct)
+                if p is not None]
+        if pcts:
+            band = {"pe_now": (pe_b or {}).get("now"), "pe_pct": (pe_b or {}).get("pct"),
+                    "pb_pct": (pb_b or {}).get("pct"), "sector_pe_pct": sec_pe_pct,
+                    "combined_pct": round(sum(pcts) / len(pcts), 1),
+                    "n_obs": (pe_b or pb_b or {}).get("n_obs")}
 
-        # momo: DMA states from the last year of closes
+        # momo: DMA states, 52w-high proximity, volume surge, RS vs sector
         closes = ser.get("recent") or []
+        vols = ser.get("recent_vol") or []
         momo = {}
         if len(closes) >= 60:
             momo["above_50dma"] = closes[-1] >= sum(closes[-50:]) / 50
         if len(closes) >= 220:
             momo["above_200dma"] = closes[-1] >= sum(closes[-200:]) / 200
+        if len(closes) >= 200:
+            momo["off_52w_high"] = round(closes[-1] / max(closes) - 1, 4)
+        if len(vols) >= 120:
+            v20 = sum(vols[-20:]) / 20
+            vbase = sum(vols) / len(vols)
+            if vbase > 0:
+                momo["vol_surge"] = round(v20 / vbase, 2)
         if tk in mom_pcts:
             momo["mom_pct"] = mom_pcts[tk]
+        r_mom = (ranked.get(tk) or {}).get("momentum_ret")
+        sec_med = sec_mom_med.get(co.sector or "Other")
+        if r_mom is not None and sec_med is not None:
+            momo["rs_sector"] = round(r_mom - sec_med, 4)
 
         own = (ins.get("ownership") or {})
         res = (ins.get("results") or {})
@@ -532,10 +722,17 @@ def build_evidence(db) -> dict:
         sector_trust = trust.get(getattr(v, "valuation_sector", None) or "")
         tri = triangulate(getattr(v, "mos", None),
                           getattr(v, "analyst_upside", None),
-                          (band or {}).get("pe_pct"),
+                          (band or {}).get("combined_pct"),
                           getattr(v, "confidence", None),
                           getattr(v, "intrinsic", None),
                           weights, sector_trust)
+
+        # headline screen — only for names good enough to surface as actions
+        # (bounded vendor calls; silently empty while the quota is exhausted)
+        news = []
+        if (tri.get("score") is not None and tri["score"] >= 0.15
+                and (quality.get("composite") or 0) >= 55 and not red):
+            news = news_red_flags(tk, budget_guard=_guard)
 
         out[tk] = {
             "ticker": tk, "name": co.name, "sector": co.sector, "price": price,
@@ -544,13 +741,17 @@ def build_evidence(db) -> dict:
                       "intrinsic": getattr(v, "intrinsic", None)},
             "consensus": {"upside": getattr(v, "analyst_upside", None),
                           "rating": getattr(v, "analyst_rating", None),
-                          "target": getattr(v, "analyst_target", None)},
+                          "target": getattr(v, "analyst_target", None),
+                          "low": getattr(v, "analyst_low", None),
+                          "high": getattr(v, "analyst_high", None)},
             "band": band, "quality": quality, "momo": momo,
             "flow": {"inst_delta": (own.get("institutional") or {}).get("delta"),
                      "promoter_delta": (own.get("promoter") or {}).get("delta")},
             "results": {"pat_yoy": res.get("pat_yoy"),
                         "surprise_pct": sur.get("surprise_pct")},
             "growth": growth,
+            "catalyst": catalysts.get(tk),
+            "news_flags": news,
             "alpha": (ranked.get(tk) or {}).get("alpha_score"),
             "tri": tri,
         }
@@ -585,8 +786,10 @@ def macro_regime(db) -> dict:
     breadth50 = round(above50 / n50, 3) if n50 else None
     breadth200 = round(above200 / n200, 3) if n200 else None
 
-    # Nifty trend from the Dhan index series (graceful when unconfigured).
+    # Nifty trend + India VIX from the Dhan index series (graceful when
+    # unconfigured or when the VIX series isn't carried).
     nifty = {}
+    vix = None
     try:
         from app.dhan import client, instruments
         if client.configured():
@@ -603,8 +806,20 @@ def macro_regime(db) -> dict:
                              "above_50dma": last >= sum(idx_closes[-50:]) / 50,
                              "above_200dma": last >= sum(idx_closes[-200:]) / 200,
                              "ret_3m": round(last / idx_closes[-63] - 1, 4) if len(idx_closes) >= 63 else None}
+            for vix_name in ("INDIA VIX", "India VIX", "INDIAVIX"):
+                vsid = instruments.index_security_id(vix_name)
+                if vsid:
+                    to = _dt.date.today()
+                    frm = to - _dt.timedelta(days=380)
+                    vrows = client.historical_daily(vsid, frm.isoformat(), to.isoformat(),
+                                                    exchange_segment="IDX_I", instrument="INDEX")
+                    vc = [r.get("close") for r in (vrows or []) if r.get("close")]
+                    if len(vc) >= 60:
+                        vix = {"last": round(vc[-1], 2),
+                               "pctile_1y": _pct_of(vc[-1], vc)}
+                    break
     except Exception as e:
-        log.warning(f"macro: nifty trend unavailable ({type(e).__name__})")
+        log.warning(f"macro: nifty/vix unavailable ({type(e).__name__})")
 
     # Sector RS: median 12-1 momentum by sector.
     from app.factors import momentum as _momentum
@@ -634,14 +849,36 @@ def macro_regime(db) -> dict:
         pass
 
     # Regime label — deliberately blunt: trend + breadth, nothing exotic.
+    # Elevated VIX (top decile of its own year) shades a would-be risk_on down.
     regime = "neutral"
     if nifty.get("above_200dma") and (breadth200 or 0) >= 0.55:
         regime = "risk_on"
     elif nifty.get("above_200dma") is False and (breadth200 or 1) <= 0.45:
         regime = "risk_off"
+    if regime == "risk_on" and vix and (vix.get("pctile_1y") or 0) >= 90:
+        regime = "neutral"
+
+    # Breadth history → regime-change detection (KV, self-pruning to ~2 years).
+    today_iso = _dt.date.today().isoformat()
+    trend = None
+    try:
+        hist = _kv_get(db, "fm_breadth_history_v1") or {"rows": []}
+        rows_h = [r for r in hist.get("rows", []) if r.get("date") != today_iso]
+        if breadth200 is not None:
+            rows_h.append({"date": today_iso, "b200": breadth200,
+                           "b50": breadth50, "regime": regime})
+        rows_h = rows_h[-500:]
+        _kv_put(db, "fm_breadth_history_v1", {"rows": rows_h})
+        past = [r for r in rows_h[:-1]][-20:]
+        if past and breadth200 is not None and past[0].get("b200") is not None:
+            delta = breadth200 - past[0]["b200"]
+            trend = "improving" if delta >= 0.03 else ("deteriorating" if delta <= -0.03 else "flat")
+    except Exception:
+        db.rollback()
 
     return {"as_of": _dt.datetime.utcnow().isoformat(timespec='seconds') + "Z",
             "breadth_50dma": breadth50, "breadth_200dma": breadth200,
+            "breadth_trend": trend, "vix": vix,
             "nifty": nifty, "sector_rs": sec_rs[:12],
             "rs_leaders": leaders, "rs_laggards": laggards,
             "commodities": commodities, "regime": regime}
@@ -665,7 +902,12 @@ def macro_note(macro: dict) -> str:
         bits.append(f"Nifty {'above' if nif['above_200dma'] else 'below'} its 200-DMA"
                     + (f" ({nif['ret_3m']*100:+.1f}% over 3m)" if nif.get("ret_3m") is not None else ""))
     if b200 is not None:
-        bits.append(f"{b200*100:.0f}% of the universe holds above its 200-DMA")
+        tr = macro.get("breadth_trend")
+        bits.append(f"{b200*100:.0f}% of the universe holds above its 200-DMA"
+                    + (f" ({tr})" if tr and tr != "flat" else ""))
+    vx = macro.get("vix") or {}
+    if vx.get("pctile_1y") is not None and vx["pctile_1y"] >= 80:
+        bits.append(f"India VIX {vx['last']} — {vx['pctile_1y']:.0f}th percentile of its year, elevated")
     if macro.get("rs_leaders"):
         bits.append("sector momentum favours " + ", ".join(macro["rs_leaders"]))
     hot = [c for c in (macro.get("commodities") or []) if abs(c.get("pct") or 0) >= 2.0]
@@ -696,13 +938,52 @@ def _kv_get(db, key: str) -> dict | None:
 
 
 def snapshot_evidence(db) -> dict:
-    """Nightly job: rebuild evidence + macro into KVStore. Returns summary."""
+    """Nightly job: rebuild evidence + macro into KVStore, and append today's
+    top universe-wide ideas to the EngineCall ledger (the engine's own public
+    track record). Returns a summary."""
     ev = build_evidence(db)
     _kv_put(db, EVIDENCE_KEY, ev)
     mac = macro_regime(db)
     _kv_put(db, MACRO_KEY, mac)
+
+    # Ledger: same gates the desk uses, empty-book view, top 15 by conviction.
+    n_ledger = 0
+    try:
+        from app import models
+        from app.database import engine as _engine, Base as _Base
+        _Base.metadata.create_all(bind=_engine)
+        weights = ev.get("weights") or PRIOR_WEIGHTS
+        today = _dt.date.today().isoformat()
+        scored = []
+        for tk, e in (ev.get("names") or {}).items():
+            tri, q, momo = e.get("tri") or {}, e.get("quality") or {}, e.get("momo") or {}
+            if tri.get("score") is None or tri["score"] < 0.15:
+                continue
+            if (q.get("composite") or 0) < 55 or (q.get("red_flags") or []):
+                continue
+            if momo.get("above_200dma") is False and (momo.get("mom_pct") or 50) < 50:
+                continue
+            cv, _ = conviction_add(e, weights, mac)
+            scored.append((cv, tk, e))
+        scored.sort(key=lambda x: -x[0])
+        for cv, tk, e in scored[:15]:
+            row = (db.query(models.EngineCall)
+                     .filter_by(date=today, ticker=tk).first())
+            if not row:
+                db.add(models.EngineCall(
+                    date=today, ticker=tk, action="ADD CANDIDATE",
+                    conviction=cv, price=e.get("price"),
+                    val_blend=(e.get("tri") or {}).get("score"),
+                    quality=(e.get("quality") or {}).get("composite"),
+                    suspect=1 if (e.get("tri") or {}).get("suspect") else 0))
+                n_ledger += 1
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        log.warning(f"engine ledger write failed: {type(e).__name__}: {e}")
+
     return {"names": len(ev.get("names") or {}), "regime": mac.get("regime"),
-            "as_of": ev.get("as_of")}
+            "as_of": ev.get("as_of"), "ledger_added": n_ledger}
 
 
 def load_evidence(db) -> dict | None:

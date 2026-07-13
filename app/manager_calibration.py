@@ -147,6 +147,7 @@ def run_calibration(db) -> dict:
                               "quality", "growth", "accruals")} for dt in snap_dates}
 
     cutoff = (today - _dt.timedelta(days=365 * (LOOKBACK_YEARS + 1) + 60)).isoformat()
+    survivorship = {"full_history": 0, "thin_history": 0, "no_series": len(ids)}
     for start in range(0, len(ids), CHUNK):
         chunk_ids = ids[start:start + CHUNK]
         rows = (db.query(models.HistoricalPrice.company_id, models.HistoricalPrice.date,
@@ -162,6 +163,11 @@ def run_calibration(db) -> dict:
                 cs.append(close)
 
         for cid, (ds, cs) in dated.items():
+            survivorship["no_series"] -= 1
+            if len(cs) >= 950:                      # ~4 trading years
+                survivorship["full_history"] += 1
+            else:
+                survivorship["thin_history"] += 1
             if len(cs) < 300:
                 continue
             # monthly trailing-P/E series for the band signal
@@ -231,21 +237,29 @@ def run_calibration(db) -> dict:
                 if a is not None:
                     cross[dt]["accruals"].append((-a, fwd))  # fewer accruals = good
 
-    # per-signal IC series across dates
-    ic_out: dict[str, dict] = {}
-    for sig in ("momentum", "low_vol", "val_band", "quality", "growth", "accruals"):
-        ics = []
-        for dt in snap_dates:
-            pairs = cross[dt][sig]
-            if len(pairs) >= 30:
-                ic = _spearman([p[0] for p in pairs], [p[1] for p in pairs])
-                if ic is not None:
-                    ics.append(ic)
-        if ics:
-            mean = sum(ics) / len(ics)
-            var = sum((x - mean) ** 2 for x in ics) / len(ics)
-            ic_out[sig] = {"mean": round(mean, 4), "std": round(var ** 0.5, 4),
-                           "n": len(ics)}
+    # per-signal IC series across dates — walk-forward split: the last 10
+    # usable snapshots are held out (OOS) and never touch the weights.
+    oos_dates = set(snap_dates[-10:]) if len(snap_dates) > 16 else set()
+
+    def _ic_stats(dates):
+        stats = {}
+        for sig in ("momentum", "low_vol", "val_band", "quality", "growth", "accruals"):
+            ics = []
+            for dt in dates:
+                pairs = cross[dt][sig]
+                if len(pairs) >= 30:
+                    ic = _spearman([p[0] for p in pairs], [p[1] for p in pairs])
+                    if ic is not None:
+                        ics.append(ic)
+            if ics:
+                mean = sum(ics) / len(ics)
+                var = sum((x - mean) ** 2 for x in ics) / len(ics)
+                stats[sig] = {"mean": round(mean, 4), "std": round(var ** 0.5, 4),
+                              "n": len(ics)}
+        return stats
+
+    ic_out = _ic_stats([d for d in snap_dates if d not in oos_dates])
+    ic_oos = _ic_stats(sorted(oos_dates)) if oos_dates else {}
 
     # weights: scale measured priors by realized IC (floor at 0 → half prior),
     # leave unmeasured priors untouched; load_calibration shrinks 50/50 again.
@@ -262,14 +276,19 @@ def run_calibration(db) -> dict:
     artifact = {
         "as_of": _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
         "snapshots": len(snap_dates), "fwd_tdays": FWD_TDAYS,
+        "oos_snapshots": len(oos_dates),
         "n_names": len(ids),
-        "ic": ic_out, "weights": weights,
+        "ic": ic_out, "ic_oos": ic_oos, "weights": weights,
+        "survivorship": survivorship,
         "unmeasured": ["val_model (scored live via VerdictSnapshot trust)",
                        "val_consensus", "flow", "results — no reconstructable history"],
         "note": ("ICs are Spearman rank correlations of the point-in-time signal vs the "
                  "next 6 months' return, computed monthly across the universe on our own "
-                 "stored history. Weights = priors scaled by realized IC, then shrunk "
-                 "50/50 toward priors at load time."),
+                 "stored history. Weights come from the TRAINING window only; the last "
+                 "10 snapshots are held out and reported as ic_oos. Weights = priors "
+                 "scaled by realized IC, then shrunk 50/50 toward priors at load time. "
+                 "Survivorship: the panel is today's members — names that left the "
+                 "indices aren't in it; treat ICs as modestly optimistic."),
         "runtime_s": round((_dt.datetime.utcnow() - t0).total_seconds(), 1),
     }
     _kv_put(db, CALIBRATION_KEY, artifact)

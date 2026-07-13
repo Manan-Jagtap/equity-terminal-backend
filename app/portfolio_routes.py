@@ -41,11 +41,51 @@ def engine_status(db: Session = Depends(get_db)):
                 "weights": ev.get("weights"),
                 "model_trust_sectors": len(ev.get("model_trust") or {}),
                 "macro": {k: mac.get(k) for k in
-                          ("regime", "breadth_200dma", "breadth_50dma",
-                           "rs_leaders", "rs_laggards", "as_of")} if mac else None}
+                          ("regime", "breadth_200dma", "breadth_50dma", "breadth_trend",
+                           "vix", "rs_leaders", "rs_laggards", "as_of")} if mac else None}
     except Exception:
         db.rollback()
         return {"engine": "v4-triangulated", "evidence_as_of": None, "names": 0}
+
+
+@router.get("/engine-ledger")
+def engine_ledger(days: int = 90, db: Session = Depends(get_db)):
+    """PUBLIC: the engine's own gradeable track record — every nightly
+    top-idea snapshot with its entry price and the realized return to today.
+    Same doctrine as the Track Record page: recorded daily, never backfilled,
+    graded in the open. Educational, not advice."""
+    import datetime as _dt2
+    cutoff = (_dt2.date.today() - _dt2.timedelta(days=max(7, min(days, 365)))).isoformat()
+    try:
+        rows = (db.query(models.EngineCall)
+                  .filter(models.EngineCall.date >= cutoff)
+                  .order_by(models.EngineCall.date.desc(),
+                            models.EngineCall.conviction.desc()).all())
+    except Exception:
+        db.rollback()
+        return {"calls": [], "summary": None}
+    cid_by = {c.ticker: c.id for c in db.query(models.Company).all()}
+    price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    calls, rets = [], []
+    today = _dt2.date.today()
+    for r in rows:
+        p_now = price_by.get(cid_by.get(r.ticker))
+        ret = (p_now / r.price - 1.0) if (p_now and r.price) else None
+        age = (today - _dt2.date.fromisoformat(r.date)).days
+        if ret is not None and age >= 7:
+            rets.append(ret)
+        calls.append({"date": r.date, "ticker": r.ticker, "action": r.action,
+                      "conviction": r.conviction, "entry_price": r.price,
+                      "price_now": p_now, "return_pct": ret, "age_days": age,
+                      "val_blend": r.val_blend, "quality": r.quality})
+    summary = None
+    if rets:
+        summary = {"n_graded": len(rets),
+                   "avg_return": round(sum(rets) / len(rets), 4),
+                   "hit_rate": round(sum(1 for x in rets if x > 0) / len(rets), 3)}
+    return {"calls": calls[:200], "summary": summary,
+            "note": ("Calls at least 7 days old are graded against the current "
+                     "price. Recorded nightly, never backfilled.")}
 
 
 class HoldingUpsert(BaseModel):
@@ -556,7 +596,92 @@ def portfolio_analysis(user: models.User = Depends(get_current_user),
         db.rollback()
     analysis["manager"] = manager_report(items, analysis, mom_by, target_by,
                                          intel_by, quote_by, evidence, macro)
+    _apply_construction_checks(db, items, analysis)
     return analysis
+
+
+def _apply_construction_checks(db, items, analysis):
+    """Portfolio-construction overlay on the manager's ADD ideas: (a) return
+    correlation vs the existing book — a high-corr add is factor duplication,
+    not diversification; (b) sector cap — adding to a ≥30% sector gets called
+    out. Adjusts conviction a notch and says why; never silently reorders."""
+    import datetime as _dt3
+    mgr = (analysis or {}).get("manager") or {}
+    actions = mgr.get("actions") or []
+    adds = [a for a in actions if a["action"].startswith(("ADD", "TOP-UP"))][:8]
+    if not adds:
+        return
+    live = [i for i in items if i.get("value")]
+    total = sum(i["value"] for i in live) or 0.0
+    sec_w = {s["sector"]: (s.get("weight") or 0)
+             for s in (analysis.get("sectors") or [])}
+    # sector cap first (no data needed)
+    for a in adds:
+        sec = a.get("sector")
+        if sec and sec_w.get(sec, 0) >= 0.30:
+            a["conviction"] = max(5, a["conviction"] - 5)
+            a["reasons"] = a.get("reasons", []) + [
+                f"{sec} is already {sec_w[sec]*100:.0f}% of the book — this add concentrates it further"]
+    # correlation vs book (needs ≥3 priced holdings to be meaningful)
+    if len(live) >= 3 and total:
+        try:
+            tks = {a["ticker"] for a in adds} | {i["ticker"] for i in live}
+            cid_by = {c.ticker: c.id for c in
+                      db.query(models.Company).filter(models.Company.ticker.in_(tks)).all()}
+            cutoff = (_dt3.date.today() - _dt3.timedelta(days=380)).isoformat()
+            rows = (db.query(models.HistoricalPrice.company_id, models.HistoricalPrice.date,
+                             models.HistoricalPrice.close)
+                      .filter(models.HistoricalPrice.company_id.in_(list(cid_by.values())),
+                              models.HistoricalPrice.date >= cutoff)
+                      .order_by(models.HistoricalPrice.date).all())
+            px: dict[int, dict[str, float]] = {}
+            for cid, d, c in rows:
+                if c:
+                    px.setdefault(cid, {})[d] = c
+
+            def rets(cid):
+                ser = sorted((px.get(cid) or {}).items())
+                return {d2: (v2 / v1 - 1) for (d1, v1), (d2, v2) in zip(ser, ser[1:]) if v1}
+
+            def corr(ra, rb):
+                common = sorted(set(ra) & set(rb))
+                if len(common) < 60:
+                    return None
+                xa, xb = [ra[d] for d in common], [rb[d] for d in common]
+                ma, mb = sum(xa) / len(xa), sum(xb) / len(xb)
+                num = sum((p - ma) * (q - mb) for p, q in zip(xa, xb))
+                da = sum((p - ma) ** 2 for p in xa) ** 0.5
+                dbm = sum((q - mb) ** 2 for q in xb) ** 0.5
+                return num / (da * dbm) if da and dbm else None
+
+            book_rets = {i["ticker"]: rets(cid_by.get(i["ticker"]))
+                         for i in live if cid_by.get(i["ticker"])}
+            for a in adds:
+                cid = cid_by.get(a["ticker"])
+                if not cid:
+                    continue
+                ra = rets(cid)
+                num = den = 0.0
+                for i in live:
+                    rb = book_rets.get(i["ticker"])
+                    if not rb:
+                        continue
+                    c0 = corr(ra, rb)
+                    if c0 is not None:
+                        num += c0 * i["value"]
+                        den += i["value"]
+                if den:
+                    avg_c = num / den
+                    if avg_c >= 0.65:
+                        a["conviction"] = max(5, a["conviction"] - 4)
+                        a["reasons"] = a.get("reasons", []) + [
+                            f"moves {avg_c:.0%} in step with the current book — duplicates existing risk, adds little diversification"]
+                    elif avg_c <= 0.35:
+                        a["reasons"] = a.get("reasons", []) + [
+                            f"low co-movement with the book ({avg_c:.0%}) — genuine diversification"]
+        except Exception:
+            db.rollback()
+    actions.sort(key=lambda x: (-x["conviction"], x.get("priority", 9)))
 
 
 # ── Fund Manager report ──────────────────────────────────────────────────────
@@ -617,7 +742,23 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
         return out
 
     from app.manager_engine import (conviction_add, conviction_trim,
-                                    macro_note, PRIOR_WEIGHTS)
+                                    macro_note, what_would_flip, PRIOR_WEIGHTS)
+
+    def _range_from(ev, lv):
+        """Attach an honest target range: consensus low/high plus the model FV
+        (when it survived cross-examination) — a corridor, not false precision."""
+        if not (ev and lv and lv.get("target")):
+            return lv
+        cons = ev.get("consensus") or {}
+        pts = [x for x in (cons.get("low"), cons.get("high"), lv.get("target")) if x]
+        if not (ev.get("tri") or {}).get("suspect"):
+            fv = (ev.get("model") or {}).get("intrinsic")
+            if fv and fv > 0:
+                pts.append(fv)
+        if len(pts) >= 2:
+            lv = dict(lv)
+            lv["target_low"], lv["target_high"] = round(min(pts), 1), round(max(pts), 1)
+        return lv
     weights = ev_weights or PRIOR_WEIGHTS
 
     def _tax_notes(reasons):
@@ -671,15 +812,17 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
             lv = ({"price": round(price, 1), "target": round(ct, 1),
                    "upside_pct": round(ct / price - 1, 4), "basis": "consensus"}
                   if (ct and price) else {})
-        a["levels"] = lv
+        a["levels"] = _range_from(ev, lv)
         if ev:
+            a["flip"] = what_would_flip(ev, r["action"])
             a["evidence"] = {
                 "suspect": (ev.get("tri") or {}).get("suspect"),
                 "val_blend": (ev.get("tri") or {}).get("score"),
                 "val_sources": (ev.get("tri") or {}).get("used"),
                 "quality": (ev.get("quality") or {}).get("composite"),
-                "red_flags": (ev.get("quality") or {}).get("red_flags"),
-                "pe_pct_5y": (ev.get("band") or {}).get("pe_pct"),
+                "red_flags": ((ev.get("quality") or {}).get("red_flags") or [])
+                             + [f"news: {n}" for n in (ev.get("news_flags") or [])],
+                "pe_pct_5y": (ev.get("band") or {}).get("combined_pct"),
                 "alpha": ev.get("alpha"),
             }
         actions.append(a)
@@ -720,13 +863,16 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
                       (["outside the book's current sectors — diversifies"]
                        if ev.get("sector") not in port_secs else
                        ["within a sector already held"]),
-                      "priority": 3, "conviction": cv,
-                      "levels": lv,
+                      "priority": 3, "conviction": cv, "sector": ev.get("sector"),
+                      "levels": _range_from(ev, lv),
+                      "flip": what_would_flip(ev, "ADD CANDIDATE"),
                       "evidence": {
                           "suspect": tri.get("suspect"), "val_blend": tri.get("score"),
                           "val_sources": tri.get("used"),
-                          "quality": q.get("composite"), "red_flags": q.get("red_flags"),
-                          "pe_pct_5y": (ev.get("band") or {}).get("pe_pct"),
+                          "quality": q.get("composite"),
+                          "red_flags": (q.get("red_flags") or [])
+                                       + [f"news: {n}" for n in (ev.get("news_flags") or [])],
+                          "pe_pct_5y": (ev.get("band") or {}).get("combined_pct"),
                           "alpha": ev.get("alpha")}})
     cands.sort(key=lambda x: -x["conviction"])
     for c in cands[:4]:
@@ -776,8 +922,9 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
         lines.insert(0, mnote)
     return {"actions": actions[:10], "note": " ".join(lines), "aum": total,
             "macro": {k: (macro or {}).get(k) for k in
-                      ("regime", "breadth_200dma", "breadth_50dma", "nifty",
-                       "rs_leaders", "rs_laggards", "commodities", "as_of")} if macro else None,
+                      ("regime", "breadth_200dma", "breadth_50dma", "breadth_trend",
+                       "vix", "nifty", "rs_leaders", "rs_laggards", "commodities",
+                       "as_of")} if macro else None,
             "engine": {"version": "v4-triangulated",
                        "evidence_as_of": (evidence or {}).get("as_of"),
                        "calibration_as_of": (evidence or {}).get("calibration_as_of"),

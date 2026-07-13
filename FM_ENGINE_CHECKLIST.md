@@ -22,10 +22,10 @@ never manufactures certainty. Honesty is the moat.
 - [x] **DONE — Model self-trust.** The model's own VerdictSnapshot ledger is
       scored (BUY calls vs universe median, 6-month forward) per valuation
       sector; its vote is weighted by its realized hit-rate.
-- [ ] **NEXT — P/B and EV/EBITDA bands** alongside P/E (banks and cyclicals
-      value better on book/EV); the statement lines already exist.
-- [ ] **NEXT — Peer-relative valuation**: percentile within the sector's
-      current multiple distribution, not just the name's own history.
+- [x] **DONE — P/B band** alongside P/E (own 5-yr book-multiple history);
+      EV/EBITDA deferred until the debt-bridge lines are audited.
+- [x] **DONE — Peer-relative valuation**: the name's P/E percentile within
+      its sector's current distribution, blended into the band witness.
 - [ ] **NEEDS DATA — Forward multiples** (consensus FY+1 EPS): vendor
       forecasts blob has partial coverage; audit coverage before wiring.
 
@@ -35,8 +35,8 @@ never manufactures certainty. Honesty is the moat.
       accruals, cash conversion, interest coverage, net-debt/EBITDA, leverage
       trend → composite + red flags; red flags cut ADD conviction and raise
       TRIM conviction. A juicy MoS can no longer outrank a bad balance sheet.
-- [ ] **NEXT — Beneish M-score / Altman Z''** once receivables, working
-      capital and SG&A lines are fully backfilled (partially ingested today).
+- [x] **DONE — Beneish M-score + Altman Z''** (already computed in
+      forensics; their red flags flow into conviction with the rest).
 - [ ] **NEEDS DATA — Promoter pledge %** (NSE/BSE disclosures; not in either
       vendor today). The single most predictive Indian-market red flag we lack.
 - [ ] **NEEDS DATA — Auditor changes / qualifications** (annual-report
@@ -50,8 +50,8 @@ never manufactures certainty. Honesty is the moat.
       action, both directions.
 - [x] **DONE — Analyst view in conviction** (was display-only before):
       consensus upside is a first-class valuation witness.
-- [ ] **NEXT — Estimate-revision momentum** (the `catalyst` signal already
-      computed for Alpha) as a conviction input with its own calibrated weight.
+- [x] **DONE — Estimate-revision momentum** (`catalyst`) votes on every
+      action with its own weight.
 - [ ] **NEEDS DATA — Bulk/block deals & insider trades** (NSE disclosures).
 - [ ] **NEEDS DATA — FII/DII daily flows** (NSDL/exchange aggregates) for the
       macro block.
@@ -60,10 +60,10 @@ never manufactures certainty. Honesty is the moat.
 
 - [x] **DONE — 12-1 momentum percentile + 50/200-DMA states** vote on entries
       and exits (entry patience below the 200-DMA, trend confirmation above).
-- [ ] **NEXT — 52-week-high proximity** (strong Indian-market anomaly
-      evidence) and **volume surge confirmation** — both computable today.
-- [ ] **NEXT — Relative strength vs sector** (name vs its sector median), not
-      just vs the whole universe.
+- [x] **DONE — 52-week-high proximity + volume-surge confirmation** vote
+      on entries.
+- [x] **DONE — Relative strength vs sector** (12-1 vs the sector median)
+      votes both directions.
 
 ## 5. Macro regime
 
@@ -72,11 +72,12 @@ never manufactures certainty. Honesty is the moat.
       strength (median 12-1 by sector), live commodity tape mapped to
       tail/headwinds. Risk-off halves starter tranches; leaders/laggards
       tilt conviction ±5.
-- [ ] **NEXT — Breadth history** (persist the nightly breadth number →
-      regime-change detection instead of a point-in-time label).
+- [x] **DONE — Breadth history** persisted nightly; the macro note now says
+      whether breadth is improving or deteriorating, not just where it is.
 - [ ] **NEEDS DATA — Rates & currency** (10Y G-sec yield, USDINR, RBI repo):
       no licensed series in either vendor today; the single biggest macro gap.
-- [ ] **NEEDS DATA — India VIX** for the risk-off trigger.
+- [x] **DONE — India VIX** (via the Dhan index series, if carried; verified
+      at runtime): elevated VIX (>90th pctile of its year) blocks risk_on.
 
 ## 6. Calibration — the honest "training"
 
@@ -88,19 +89,20 @@ never manufactures certainty. Honesty is the moat.
       Re-run monthly; artifact inspectable at /api/admin/fm-engine.
 - [x] **DONE — Point-in-time discipline**: statement signals only become
       "known" from 1 July after the fiscal year; no look-ahead.
-- [ ] **NEXT — Walk-forward validation**: hold out the last year, report
-      out-of-sample IC next to in-sample in the artifact.
-- [ ] **NEXT — Conviction→outcome ledger**: snapshot every published action
-      (like VerdictSnapshot) and grade the ENGINE's own calls in public —
-      the Track Record page, but for the Fund Manager.
-- [ ] **NEXT — Survivorship audit**: today's universe is today's members;
-      names that fell out aren't in the panel. Quantify the bias.
+- [x] **DONE — Walk-forward validation**: the last 10 monthly snapshots are
+      held out; `ic_oos` sits next to the training IC in the artifact and
+      never touches the weights.
+- [x] **DONE — Conviction→outcome ledger**: the engine's nightly top ideas
+      land in `engine_calls` and are graded in the open at
+      GET /api/portfolio/engine-ledger (recorded daily, never backfilled).
+- [x] **DONE — Survivorship audit**: the artifact counts full-history vs
+      thin-history names and the note flags ICs as modestly optimistic.
 
 ## 7. Documents & news (the qualitative layer)
 
-- [ ] **NEXT — News red-flag screen**: keyword classes over stored headlines
-      (fraud, default, resignation, SEBI action, pledge invocation) → an
-      event flag that caps ADD conviction pending review.
+- [x] **DONE — News red-flag screen**: headline keyword classes (fraud,
+      probe, default, auditor, NCLT, …) cap ADD conviction and sharpen TRIMs.
+      Budget-guarded; silently empty while the vendor quota is exhausted.
 - [ ] **NEEDS DATA — Investor presentations & concall transcripts, daily**:
       QuarterlyDocument stores links/PDFs; needs a daily fetcher + summarizer
       to turn guidance changes into assumption updates.
@@ -112,10 +114,11 @@ never manufactures certainty. Honesty is the moat.
 
 - [x] **DONE — Inverse-vol sizing, concentration flags, LTCG-aware trim
       sequencing, regime-aware tranche sizing.**
-- [ ] **NEXT — Correlation-aware sizing** (pairwise return correlations from
-      the 5-yr store) so two 3% adds in the same factor bucket don't read as
-      diversification.
-- [ ] **NEXT — Sector/factor exposure caps** with pre-trade warnings.
+- [x] **DONE — Correlation-aware sizing**: each candidate's value-weighted return
+      correlation vs the book; ≥65% co-movement is called out as duplicated
+      risk (and docked), ≤35% is credited as genuine diversification.
+- [x] **DONE — Sector-cap warnings**: adds into a ≥30% sector are called
+      out and docked. Factor-exposure caps remain NEXT.
 - [ ] **NEXT — Drawdown-conditional sizing** (breadth < 40% → smaller adds,
       already half-implemented via regime).
 
@@ -127,13 +130,44 @@ never manufactures certainty. Honesty is the moat.
 - [x] **DONE — Consensus-basis targets** when the model is set aside (never
       quote a fair value the evidence just rejected).
 - [x] **DONE — Honest low conviction** when nothing is actually wrong.
-- [ ] **NEXT — "What would change my mind"** line per action (the thresholds
-      nearest to flipping the call).
-- [ ] **NEXT — Confidence intervals on targets** (band + consensus dispersion
-      instead of a single point).
+- [x] **DONE — "Would change this call"** line on every action — the 1-2
+      pieces of evidence nearest to flipping it.
+- [x] **DONE — Target ranges**: every target quotes the corridor spanned by
+      the analyst low/high and the surviving model fair value.
 
 ---
 
 *Engine: v4-triangulated. Weights: KVStore `fm_calibration_v1` (monthly).
 Evidence: KVStore `fm_evidence_v1` (nightly). Trigger manually via
 POST /api/admin/fm-engine/rebuild?calibrate=true.*
+
+---
+
+## Named sources for every NEEDS-DATA item
+
+Ranked: official/free first, then licensed. "Official" means the primary
+regulator/exchange record — always preferred for a product that sells honesty.
+
+| Data gap | Best source (official/free) | Licensed / API alternative |
+|---|---|---|
+| **Promoter pledge %** | BSE/NSE quarterly **Shareholding Pattern** filings (XBRL, free) carry the pledged-shares table; event-level: **SEBI SAST Reg. 31** pledge disclosures on both exchange sites | CMIE Prowess, Capitaline, Trendlyne API |
+| **Auditor changes / qualifications** | **BSE/NSE Corporate Announcements** feed (auditor resignation/appointment is a mandatory LODR filing, free); **MCA** AOC-4 filings for audit reports | Prime Database, CMIE Prowess |
+| **Related-party transactions** | **LODR Reg. 23(9)** half-yearly RPT disclosures filed on BSE/NSE (free PDFs); annual-report notes (we already store the PDFs) | CMIE Prowess, Capitaline |
+| **Forward multiples (FY+1 consensus EPS)** | Audit our own vendor's `forecasts` blob first (partial coverage, already licensed) | **Refinitiv I/B/E/S** (gold standard), Bloomberg, FactSet; India-affordable: Trendlyne API, MarketsMojo |
+| **Bulk/block deals** | **NSE + BSE daily bulk/block deal CSVs** (official, free, same-evening) | — (official is best) |
+| **Insider trades** | **SEBI PIT Reg. 7(2)** disclosures on BSE/NSE (official, free) | Trendlyne, StockEdge aggregations |
+| **FII/DII daily flows** | **NSE FII/DII provisional daily** (free); **NSDL FPI Monitor** (fpi.nsdl.co.in, official) + CDSL equivalents | Moneycontrol/ETMarkets aggregate (check licence before scraping) |
+| **10Y G-sec, repo, USDINR** | **RBI DBIE** (data.rbi.org.in — official database, free downloads/API); **FBIL** (fbil.org.in) for benchmark G-sec curve and reference rates; USDINR reference rate from RBI | Refinitiv, Bloomberg |
+| **India VIX (if Dhan doesn't carry it)** | **NSE indices** historical download (official, free) | any licensed NSE data vendor |
+| **Concall transcripts & investor presentations** | **BSE/NSE announcements** — SEBI LODR now mandates transcript upload within 5 working days (official, free PDFs; we already store links in QuarterlyDocument) | AlphaStreet, Trendlyne; screener.in collates but check licence |
+| **Annual-report deep parse** | We already have the PDFs (exchange filings); the gap is an **extraction pipeline** (pdfplumber is already a dependency), not a source | Stratosphere/Tijori-style parsed data, CMIE |
+
+Notes:
+- Exchange/regulator sources (BSE, NSE, SEBI, RBI, NSDL, MCA, FBIL) are
+  authoritative and free, but need scraper-grade reliability work (rate
+  limits, format drift) — budget engineering time, not licence fees.
+- For anything scraped, check the site's terms; NSE in particular
+  rate-limits aggressively. A nightly pull with backoff is the norm.
+- Priority order by evidence value for this engine:
+  (1) promoter pledge, (2) FII/DII flows + G-sec yield, (3) concall
+  transcripts, (4) insider/bulk deals, (5) forward EPS, (6) RPT/auditor.

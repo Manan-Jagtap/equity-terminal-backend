@@ -432,3 +432,22 @@ class SavedScreen(Base):
     data       = Column(JSON, nullable=False, default=dict)
     created_at = Column(DateTime, server_default=func.now())
     __table_args__ = (UniqueConstraint("user_key", "name", name="uq_screen"),)
+
+
+class EngineCall(Base):
+    """Nightly ledger of the Fund Manager v4 engine's own universe-wide top
+    ideas — its public, gradeable track record. Written by the evidence job
+    with the SAME gates the desk uses (quality, triangulated valuation, trend,
+    no red flags), independent of any user's book, so the engine's judgment
+    can be scored in the open exactly like the model's VerdictSnapshots."""
+    __tablename__ = "engine_calls"
+    id          = Column(Integer, primary_key=True)
+    date        = Column(String(10), nullable=False, index=True)   # "YYYY-MM-DD"
+    ticker      = Column(String(24), nullable=False, index=True)
+    action      = Column(String(24), nullable=False)               # ADD CANDIDATE …
+    conviction  = Column(Integer, nullable=False)
+    price       = Column(Float, nullable=True)
+    val_blend   = Column(Float, nullable=True)
+    quality     = Column(Float, nullable=True)
+    suspect     = Column(Integer, nullable=True)                   # 1/0
+    __table_args__ = (UniqueConstraint("date", "ticker", name="uq_engine_call"),)
