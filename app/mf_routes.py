@@ -97,9 +97,24 @@ def detail(name: str):
     """Everything we have on one scheme: resolve the name to its scheme id via
     search, then pull the portfolio holdings and 1-year NAV history (both on
     the analyst host)."""
-    hits = _get("/mutual_fund_search", {"query": name}, ttl=1800)
-    rows = hits if isinstance(hits, list) else ((hits or {}).get("data") or [])
-    match = rows[0] if rows else None
+    import re as _re
+    # The catalog name carries plan suffixes ("… Regular Growth") the vendor
+    # search chokes on; strip them and fall back to progressively shorter
+    # queries until a scheme matches.
+    cleaned = _re.sub(r"\b(regular|direct|growth|plan|dividend|idcw|payout|reinvestment|option|fund)\b",
+                      " ", name, flags=_re.I)
+    cleaned = " ".join(cleaned.split())
+    words = cleaned.split()
+    tries = [cleaned] + [" ".join(words[:k]) for k in (3, 2)] + [name]
+    match = None
+    for qy in tries:
+        if not qy:
+            continue
+        hits = _get("/mutual_fund_search", {"query": qy}, ttl=1800)
+        rows = hits if isinstance(hits, list) else ((hits or {}).get("data") or [])
+        if rows:
+            match = rows[0]
+            break
     if not match:
         return {"available": False, "name": name}
     sid = match.get("id") or match.get("schemeCode")
