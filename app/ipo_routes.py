@@ -98,3 +98,20 @@ def ipo_board():
     }
     _cache.update(ts=now, data=payload)
     return payload
+
+
+ANALYST_HDR = {"x-api-key": KEY}
+
+
+@router.get("/ipo/detail/{detail_id}")
+def ipo_detail(detail_id: str):
+    """Full detail for one IPO (analyst host /ipo/{id}): pricing, dates,
+    reservation split, day-by-day subscription, registrar, prospectus."""
+    try:
+        r = requests.get(f"{ANALYST_BASE}/ipo/{detail_id}", headers=ANALYST_HDR, timeout=20)
+        if r.status_code == 200:
+            d = r.json()
+            return d.get("data") if isinstance(d, dict) and "data" in d else d
+    except Exception:
+        pass
+    return {"available": False}

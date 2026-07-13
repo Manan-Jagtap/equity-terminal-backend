@@ -18,13 +18,14 @@ from fastapi import APIRouter
 router = APIRouter(prefix="/api/mutual-funds", tags=["mutual-funds"])
 
 BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
+ANALYST_BASE = os.getenv("INDIANAPI_ANALYST_BASE", "https://analyst.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 _TTL = 3 * 3600
 _cache: dict = {}
 
 
-def _get(path, params=None, ttl=_TTL):
-    ck = path + str(params or "")
+def _get(path, params=None, ttl=_TTL, host=None):
+    ck = (host or "") + path + str(params or "")
     now = time.time()
     hit = _cache.get(ck)
     if hit and now - hit[0] < ttl:
@@ -32,7 +33,7 @@ def _get(path, params=None, ttl=_TTL):
     if not KEY:
         return None
     try:
-        r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
+        r = requests.get((host or BASE) + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                          params=params or {}, timeout=25)
         data = r.json() if r.status_code == 200 else None
     except Exception:
@@ -91,9 +92,34 @@ def search(q: str):
     return {"results": out}
 
 
-@router.get("/{scheme_id}")
-def detail(scheme_id: str):
-    det = _get("/mutual_funds_details", {"stock_name": scheme_id})
-    hist = _get("/get_mf_historical_data", {"stock_id": scheme_id, "stats": "3M"})
-    return {"detail": det if isinstance(det, dict) else None,
-            "history": hist if isinstance(hist, (list, dict)) else None}
+@router.get("/detail")
+def detail(name: str):
+    """Everything we have on one scheme: resolve the name to its scheme id via
+    search, then pull the portfolio holdings and 1-year NAV history (both on
+    the analyst host)."""
+    hits = _get("/mutual_fund_search", {"query": name}, ttl=1800)
+    rows = hits if isinstance(hits, list) else ((hits or {}).get("data") or [])
+    match = rows[0] if rows else None
+    if not match:
+        return {"available": False, "name": name}
+    sid = match.get("id") or match.get("schemeCode")
+    holdings = _get("/mf_holdings", {"stock_id": sid}, host=ANALYST_BASE) or []
+    hist = _get("/get_mf_historical_data", {"stock_id": sid, "stats": "1Y"}, host=ANALYST_BASE) or []
+    hold_out = []
+    for h in (holdings if isinstance(holdings, list) else []):
+        if isinstance(h, dict) and h.get("name"):
+            try:
+                alloc = float(h.get("allocation")) if h.get("allocation") is not None else None
+            except (ValueError, TypeError):
+                alloc = None
+            hold_out.append({"name": h["name"], "allocation": alloc,
+                             "value": h.get("value")})
+    hold_out.sort(key=lambda x: (x["allocation"] or -1), reverse=True)
+    nav_out = [{"date": p.get("date"), "nav": p.get("nav")}
+               for p in (hist if isinstance(hist, list) else [])
+               if isinstance(p, dict) and p.get("nav") is not None]
+    return {"available": True,
+            "name": match.get("schemeName") or name,
+            "isin": match.get("isin"), "id": sid,
+            "scheme_type": match.get("schemeType"),
+            "holdings": hold_out, "nav_history": nav_out}
