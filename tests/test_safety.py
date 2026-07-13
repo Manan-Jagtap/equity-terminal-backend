@@ -583,3 +583,39 @@ def test_holding_and_book_xirr():
     class H2(H):
         buy_date = dt.date.today() - dt.timedelta(days=3)
     assert _item(H2(), price=121.0, val=None, actions=None)["xirr"] is None
+
+
+def test_snapshot_divergence_prefers_dhan(tmp_path):
+    """A same-day IndianAPI snapshot that disagrees with the Dhan close by a
+    split-shaped margin (BAJAJ-AUTO ₹1,020 vs ₹10,156) is a vendor error;
+    Dhan (the exchange feed) must win. A small legit gap is left alone."""
+    import datetime as dt
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app import models
+    from app.database import Base
+    from app.dhan.backfill import sync_snapshots_from_history
+
+    eng = create_engine(f"sqlite:///{tmp_path}/div.db")
+    Base.metadata.create_all(eng)
+    s = sessionmaker(bind=eng)()
+    today = dt.date.today()
+    fri = today - dt.timedelta(days=(today.weekday() - 4) % 7 or 3)
+
+    def mk(tk, snap_price, hist_close):
+        co = models.Company(ticker=tk, name=tk, sector="x",
+                            shares_outstanding=1, type="nonfinancial")
+        s.add(co); s.flush()
+        s.add(models.MarketSnapshot(company_id=co.id, price=snap_price,
+              as_of=dt.datetime.combine(today, dt.time(10, 0))))  # same-day
+        s.add(models.HistoricalPrice(company_id=co.id, date=fri.isoformat(),
+              close=hist_close, open=hist_close, high=hist_close, low=hist_close, volume=1))
+        return co
+    bajaj = mk("BAJAJ-AUTO", 1020.5, 10156.0)   # 90% gap → correct to Dhan
+    legit = mk("NEWGEN", 517.2, 594.85)          # 15% gap (real move) → left
+    s.commit()
+    out = sync_snapshots_from_history(s, ["BAJAJ-AUTO", "NEWGEN"])
+    assert out["corrected"] == 1
+    assert s.query(models.MarketSnapshot).filter_by(company_id=bajaj.id).first().price == 10156.0
+    assert s.query(models.MarketSnapshot).filter_by(company_id=legit.id).first().price == 517.2
+    s.close()

@@ -101,6 +101,7 @@ def sync_snapshots_from_history(db, tickers) -> dict:
                     .group_by(models.HistoricalPrice.company_id).all())
     snap = {m.company_id: m for m in db.query(models.MarketSnapshot).all()}
     updated = 0
+    corrected: list = []
     for cid, d in latest.items():
         try:
             hist_date = _dt2.date.fromisoformat(str(d)[:10])
@@ -118,11 +119,29 @@ def sync_snapshots_from_history(db, tickers) -> dict:
             updated += 1
         else:
             m_date = m.as_of.date() if isinstance(m.as_of, _dt2.datetime) else None
-            if m_date is None or m_date < hist_date:
+            stale = m_date is None or m_date < hist_date
+            # Divergence override: normally a SAME-DAY snapshot (IndianAPI's
+            # daily EOD) is authoritative and left alone. But when it disagrees
+            # with the exchange feed (Dhan close) by a split-shaped margin, the
+            # snapshot is a vendor error — a mis-resolved ambiguous ticker
+            # (APOLLO→Apollo Hospitals vs Apollo Micro) or a dropped digit on a
+            # hyphenated symbol (BAJAJ-AUTO ₹1,020 vs ₹10,156). Dhan is the
+            # direct exchange source, so on a >30% gap it wins regardless.
+            diverged = (m.price and hp.close
+                        and abs(hp.close - m.price) / m.price > 0.30)
+            if stale or diverged:
+                if diverged and not stale:
+                    corrected.append((cid, m.price, hp.close))
                 m.price, m.as_of = hp.close, as_of
                 updated += 1
     db.commit()
-    return {"updated": updated, "candidates": len(latest)}
+    if corrected:
+        import logging
+        for cid, was, now in corrected[:20]:
+            logging.getLogger("scheduler").info(
+                f"Snapshot divergence: company {cid} {was} → {now} (Dhan close preferred)")
+    return {"updated": updated, "candidates": len(latest),
+            "corrected": len(corrected)}
 
 
 def backfill_prices(db, tickers, years: int = 5, days: int | None = None) -> dict:
