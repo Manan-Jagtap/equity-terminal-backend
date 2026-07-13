@@ -1,0 +1,72 @@
+"""
+app/intraday_routes.py — 1-day intraday tick series from IndianAPI.
+
+  GET /api/companies/{ticker}/intraday → { values: [{t, price}], change, pct, prev }
+
+The vendor's /1D_intraday_data (analyst host, keyed by the IndianAPI ticker_id
+we store on CompanyInsight) returns the day's minute ticks. Cached 3 min so an
+open chart doesn't hammer the quota. Empty (not an error) when the market is
+closed or the name has no ticker_id.
+"""
+import os
+import time
+
+import requests
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app import models
+
+router = APIRouter(prefix="/api/companies", tags=["intraday"])
+
+ANALYST_BASE = os.getenv("INDIANAPI_ANALYST_BASE", "https://analyst.indianapi.in").rstrip("/")
+KEY = os.getenv("INDIANAPI_KEY", "").strip()
+_TTL = 180
+_cache: dict = {}
+
+
+@router.get("/{ticker}/intraday")
+def intraday(ticker: str, db: Session = Depends(get_db)):
+    tk = ticker.upper()
+    now = time.time()
+    hit = _cache.get(tk)
+    if hit and now - hit[0] < _TTL:
+        return hit[1]
+
+    co = db.query(models.Company).filter_by(ticker=tk).first()
+    if not co:
+        return {"ticker": tk, "available": False, "values": []}
+    ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
+    tid = ins.ticker_id if ins else None
+    if not tid or not KEY:
+        return {"ticker": tk, "available": False, "values": []}
+
+    try:
+        r = requests.post(ANALYST_BASE + "/1D_intraday_data",
+                          headers={"x-api-key": KEY}, params={"stock_id": tid}, timeout=20)
+        data = r.json() if r.status_code == 200 else None
+    except Exception:
+        data = None
+
+    row = None
+    if isinstance(data, list) and data:
+        row = data[0]
+    elif isinstance(data, dict):
+        row = data
+    if not isinstance(row, dict):
+        out = {"ticker": tk, "available": False, "values": []}
+        _cache[tk] = (now, out)
+        return out
+
+    vals = []
+    for v in (row.get("values") or []):
+        if isinstance(v, dict) and v.get("price") is not None:
+            vals.append({"t": v.get("timeStamp") or v.get("time"), "price": v.get("price")})
+    cur = row.get("returnValue")
+    net = row.get("netChange")
+    prev = (cur - net) if (cur is not None and net is not None) else None
+    out = {"ticker": tk, "available": bool(vals), "values": vals,
+           "price": cur, "change": net, "pct": row.get("percentChange"), "prev": prev}
+    _cache[tk] = (now, out)
+    return out

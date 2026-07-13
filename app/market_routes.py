@@ -229,6 +229,23 @@ def _active():
     return out
 
 
+def _bse_active():
+    data = _get("/BSE_most_active") or []
+    out = []
+    for x in (data or []):
+        tk = _to_universe(x)
+        if not tk:
+            continue
+        out.append({
+            "name": x.get("company"), "ticker": tk,
+            "price": _num(x.get("price")), "pct": _num(x.get("percent_change")),
+            "volume": _num(x.get("volume")), "rating": x.get("overall_rating"),
+        })
+        if len(out) >= 10:
+            break
+    return out
+
+
 def _high_low():
     data = _get("/fetch_52_week_high_low_data") or {}
     nse = data.get("NSE_52WeekHighLow") or {}
@@ -266,6 +283,11 @@ def movers():
 @router.get("/active")
 def active():
     return {"active": _active()}
+
+
+@router.get("/bse_active")
+def bse_active():
+    return {"bse_active": _bse_active()}
 
 
 @router.get("/high_low")
@@ -315,14 +337,14 @@ def snapshot():
         with ThreadPoolExecutor(max_workers=4) as ex:
             f_idx = ex.submit(_indices); f_mov = ex.submit(_movers)
             f_act = ex.submit(_active);  f_hl = ex.submit(_high_low)
-            f_com = ex.submit(_commodities)
+            f_com = ex.submit(_commodities); f_bse = ex.submit(_bse_active)
             indices, movers, active, high_low = f_idx.result(), f_mov.result(), f_act.result(), f_hl.result()
-            commodities_l = f_com.result()
+            commodities_l = f_com.result(); bse_l = f_bse.result()
     except Exception:
         indices, movers, active, high_low = _indices(), _movers(), _active(), _high_low()
-        commodities_l = _commodities()
+        commodities_l = _commodities(); bse_l = _bse_active()
     return {
         "indices": indices, "movers": movers, "active": active,
-        "high_low": high_low, "commodities": commodities_l,
+        "bse_active": bse_l, "high_low": high_low, "commodities": commodities_l,
         "as_of": time.strftime("%Y-%m-%d %H:%M"),
     }

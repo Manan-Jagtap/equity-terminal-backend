@@ -20,6 +20,7 @@ from fastapi import APIRouter
 router = APIRouter(prefix="/api", tags=["ipo"])
 
 BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
+ANALYST_BASE = os.getenv("INDIANAPI_ANALYST_BASE", "https://analyst.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 _TTL = 3 * 3600
 _cache: dict = {"ts": 0.0, "data": None}
@@ -31,12 +32,22 @@ _FIELDS = ("symbol", "name", "is_sme", "status", "min_price", "max_price",
            "total_subscription_rate", "additional_text", "document_url")
 
 
-def _clean(rows):
+def _clean(rows, v2=None):
+    v2 = v2 or {}
     out = []
     for r in rows or []:
         if not isinstance(r, dict):
             continue
-        out.append({k: r.get(k) for k in _FIELDS})
+        row = {k: r.get(k) for k in _FIELDS}
+        extra = v2.get((r.get("symbol") or "").upper().strip()) or v2.get((r.get("name") or "").lower().strip())
+        if extra:
+            row["industry"] = extra.get("industry")
+            row["isin"] = extra.get("isin")
+            row["issue_type"] = extra.get("issueType")
+            row["nse_enabled"] = extra.get("nseEnabled")
+            row["bse_enabled"] = extra.get("bseEnabled")
+            row["detail_id"] = extra.get("id")
+        out.append(row)
     return out
 
 
@@ -45,7 +56,7 @@ def ipo_board():
     now = time.time()
     if _cache["data"] is not None and now - _cache["ts"] < _TTL:
         return _cache["data"]
-    data = None
+    data, v2 = None, {}
     if KEY:
         try:
             resp = requests.get(BASE + "/ipo",
@@ -55,6 +66,22 @@ def ipo_board():
                 data = resp.json()
         except Exception:
             data = None
+        # /ipo/v2 (analyst host) adds industry, ISIN, NSE/BSE board flags and a
+        # detail id — merged onto the base rows by symbol, then name.
+        for st in ("upcoming", "open", "closed", "listed"):
+            try:
+                r2 = requests.get(ANALYST_BASE + "/ipo/v2", headers={"x-api-key": KEY},
+                                  params={"status": st}, timeout=20)
+                if r2.status_code == 200:
+                    arr = r2.json()
+                    arr = arr if isinstance(arr, list) else (arr.get("data") or arr.get("ipos") or [])
+                    for it in arr:
+                        if isinstance(it, dict):
+                            k = (it.get("symbol") or "").upper().strip() or (it.get("name") or "").lower().strip()
+                            if k:
+                                v2[k] = it
+            except Exception:
+                pass
     if not isinstance(data, dict):
         # serve last-known-good over an empty shell
         if _cache["data"] is not None:
@@ -62,10 +89,10 @@ def ipo_board():
         return {"upcoming": [], "active": [], "closed": [], "listed": [],
                 "as_of": None, "available": False}
     payload = {
-        "upcoming": _clean(data.get("upcoming")),
-        "active":   _clean(data.get("active")),
-        "closed":   _clean(data.get("closed")),
-        "listed":   _clean(data.get("listed")),
+        "upcoming": _clean(data.get("upcoming"), v2),
+        "active":   _clean(data.get("active"), v2),
+        "closed":   _clean(data.get("closed"), v2),
+        "listed":   _clean(data.get("listed"), v2),
         "as_of": time.strftime("%Y-%m-%d %H:%M"),
         "available": True,
     }
