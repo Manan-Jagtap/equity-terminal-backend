@@ -52,6 +52,29 @@ def _num(x):
         return None
 
 
+# A few IndianAPI endpoints (indices, commodities, mutual funds) live on the
+# ANALYST host rather than the stock host we use for company data.
+ANALYST_BASE = os.getenv("INDIANAPI_ANALYST_BASE", "https://analyst.indianapi.in").rstrip("/")
+
+
+def _get_analyst(path, params=None, ttl=TTL):
+    ck = "analyst:" + path + str(params or "")
+    now = time.time()
+    hit = _cache.get(ck)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    try:
+        r = requests.get(ANALYST_BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
+                         params=params or {}, timeout=20)
+        data = r.json() if r.status_code == 200 else None
+    except Exception:
+        data = None
+    if data is not None:
+        _cache[ck] = (now, data)
+        return data
+    return hit[1] if hit else None
+
+
 # ── Universe restriction ─────────────────────────────────────────────────────
 # The vendor feeds are NSE-WIDE; the terminal only covers its Nifty-500
 # universe. Every list is filtered to names we actually cover (mapped to OUR
@@ -142,10 +165,15 @@ def _indices():
             live[" ".join(str(nm).upper().split())] = px
     except Exception:
         pass
+    # Change % + net come from IndianAPI's /indices, which lives on the
+    # ANALYST host (the stock host 404s it). It carries percentChange/netChange
+    # per index, so the dashboard cards can show live red/green movement.
     vendor = {}
-    data = _get("/indices") or {}
-    for it in (data.get("indices") or []):
-        vendor.setdefault(" ".join(str(it.get("name") or "").upper().split()), it)
+    data = _get_analyst("/indices", {"exchange": "NSE"})
+    rows = data if isinstance(data, list) else ((data or {}).get("indices") or [])
+    for it in rows:
+        if isinstance(it, dict):
+            vendor.setdefault(" ".join(str(it.get("name") or "").upper().split()), it)
     out = []
     for nm in KEY_INDICES:
         key = " ".join(nm.upper().split())
@@ -245,6 +273,40 @@ def high_low():
     return _high_low()
 
 
+_COMMODITY_SHOW = ("GOLD", "SILVER", "CRUDEOIL", "NATURALGAS", "COPPER")
+
+
+def _commodities():
+    """Headline MCX futures (gold/silver/crude/natgas/copper) — the front-month
+    contract per product, with last price and % change."""
+    data = _get_analyst("/commodities")
+    rows = data if isinstance(data, list) else ((data or {}).get("commodities") or [])
+    best = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        prod = str(r.get("product") or "").upper().replace(" ", "")
+        if prod not in _COMMODITY_SHOW:
+            continue
+        # keep the nearest expiry (front month) per product
+        if prod not in best or str(r.get("expiry") or "") < str(best[prod].get("expiry") or "z"):
+            best[prod] = r
+    out = []
+    for prod in _COMMODITY_SHOW:
+        r = best.get(prod)
+        if not r:
+            continue
+        out.append({"name": prod.title(), "price": _num(r.get("last_traded_price")),
+                    "pct": _num(r.get("per_change")), "net": _num(r.get("change")),
+                    "expiry": r.get("expiry")})
+    return out
+
+
+@router.get("/commodities")
+def commodities():
+    return {"commodities": _commodities()}
+
+
 @router.get("/snapshot")
 def snapshot():
     """Everything the dashboard needs in one round-trip — the 4 feeds are
@@ -253,10 +315,14 @@ def snapshot():
         with ThreadPoolExecutor(max_workers=4) as ex:
             f_idx = ex.submit(_indices); f_mov = ex.submit(_movers)
             f_act = ex.submit(_active);  f_hl = ex.submit(_high_low)
+            f_com = ex.submit(_commodities)
             indices, movers, active, high_low = f_idx.result(), f_mov.result(), f_act.result(), f_hl.result()
+            commodities_l = f_com.result()
     except Exception:
         indices, movers, active, high_low = _indices(), _movers(), _active(), _high_low()
+        commodities_l = _commodities()
     return {
         "indices": indices, "movers": movers, "active": active,
-        "high_low": high_low, "as_of": time.strftime("%Y-%m-%d %H:%M"),
+        "high_low": high_low, "commodities": commodities_l,
+        "as_of": time.strftime("%Y-%m-%d %H:%M"),
     }

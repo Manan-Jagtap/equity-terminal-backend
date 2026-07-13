@@ -108,3 +108,30 @@ def dhan_totp_check(_admin: models.User = Depends(require_admin)):
                   "not completed (it must be confirmed with a code) or the PIN "
                   "is wrong.",
     }
+
+
+@router.get("/api-usage")
+def api_usage(_admin: models.User = Depends(require_admin)):
+    """The vendor's REAL IndianAPI quota (from /usage on the analyst host) —
+    total_requests, hard_limit, remaining — plus our own budget tally. Lets the
+    owner see actual consumption instead of the internal estimate."""
+    import os, requests
+    from app import api_budget
+    from app.database import SessionLocal
+    key = os.getenv("INDIANAPI_KEY", "").strip()
+    base = os.getenv("INDIANAPI_ANALYST_BASE", "https://analyst.indianapi.in").rstrip("/")
+    vendor = None
+    try:
+        r = requests.get(base + "/usage", headers={"x-api-key": key}, timeout=15)
+        if r.status_code == 200:
+            vendor = r.json()
+    except Exception:
+        vendor = None
+    s = SessionLocal()
+    try:
+        internal = {"month": api_budget.current_month(),
+                    "counted": api_budget.month_usage(s),
+                    "budget": api_budget.budget()}
+    finally:
+        s.close()
+    return {"vendor": vendor, "internal": internal}

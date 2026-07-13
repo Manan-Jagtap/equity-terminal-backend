@@ -94,6 +94,9 @@ app.include_router(admin_router)
 
 from app.ipo_routes import router as ipo_router
 app.include_router(ipo_router)
+
+from app.mf_routes import router as mf_router
+app.include_router(mf_router)
 from app.onepager import build_onepager
 
 
