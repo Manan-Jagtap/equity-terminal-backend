@@ -37,8 +37,11 @@ never manufactures certainty. Honesty is the moat.
       TRIM conviction. A juicy MoS can no longer outrank a bad balance sheet.
 - [x] **DONE — Beneish M-score + Altman Z''** (already computed in
       forensics; their red flags flow into conviction with the rest).
-- [ ] **NEEDS DATA — Promoter pledge %** (NSE/BSE disclosures; not in either
-      vendor today). The single most predictive Indian-market red flag we lack.
+- [x] **DONE — Promoter pledge %** (NSE /api/corporate-pledgedata):
+      percSharesPledged per name, refreshed daily. ≥20% is a forensic red flag
+      that docks conviction, blocks a name from surfacing as a fresh ADD
+      candidate, and shows on the company page. The single most predictive
+      Indian-market red flag — now wired.
 - [ ] **NEEDS DATA — Auditor changes / qualifications** (annual-report
       parsing; QuarterlyDocument store has the PDFs — needs an extractor).
 - [ ] **NEEDS DATA — Related-party transaction trends** (annual report notes).
@@ -52,9 +55,10 @@ never manufactures certainty. Honesty is the moat.
       consensus upside is a first-class valuation witness.
 - [x] **DONE — Estimate-revision momentum** (`catalyst`) votes on every
       action with its own weight.
-- [x] **DONE — Insider trades (SEBI PIT).** NSE corporates-pit feed → per-ticker
-      net buy/sell; an insider net-sell cluster docks conviction (governance
-      watch), net-buy lifts it. Bulk/block deals remain NEXT (NSE CSV, retryable).
+- [x] **DONE — Insider trades (SEBI PIT) + bulk/block deals.** NSE
+      corporates-pit → per-ticker insider net buy/sell (docks/lifts conviction);
+      NSE bulk.csv/block.csv archives → per-ticker net institutional deal qty.
+      BSE JSON was a dead end (bounces to error_Bse.html); NSE is the source.
 - [x] **DONE — FII/DII daily flows.** NSE fiidiiTradeReact feed → macro store;
       the PM note reads "FIIs sold ₹X cr net over 5 sessions" and sustained
       selling shades the regime.
