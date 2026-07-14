@@ -122,6 +122,18 @@ def set_cash(body: CashSet, user: models.User = Depends(get_current_user),
     return {"amount": amt}
 
 
+@router.delete("/cash")
+def clear_cash(user: models.User = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    """Remove the investable-cash setting — the manager stops gating on cash and
+    reverts to plain % -of-book tranche sizing."""
+    row = db.query(models.KVStore).filter_by(key=_CASH_KEY + f"u{user.id}").first()
+    if row:
+        db.delete(row)
+        db.commit()
+    return {"amount": None}
+
+
 def _parse_date(v):
     import datetime as _dt
     if not v:

@@ -318,6 +318,18 @@ def _spark(pts, n=24):
     return [round(v, 2) for _, v in pts[-n:]]
 
 
+def yoy_series(pts) -> list[tuple[str, float]]:
+    """[(date, YoY %)] — the RATE series for an index (CPI, WPI, IIP, M3…), so
+    a chart of 'CPI inflation' shows 3-6% over time, not the 85→106 index level.
+    Each point compares to the same calendar month a year earlier."""
+    out = []
+    for d, v in pts:
+        _, v0 = _year_ago(pts, d)
+        if v0 not in (None, 0) and v is not None:
+            out.append((d, round((v / v0 - 1) * 100, 2)))
+    return out
+
+
 def dashboard(db) -> dict:
     """The Economy page payload: curated sections, each series with its latest
     value (or YoY), previous, as-of date, a short sparkline, and — for the
@@ -349,15 +361,16 @@ def dashboard(db) -> dict:
                 if len(pts) > 13:
                     py = _yoy(pts[:-1])
                     pv = round(py * 100, 2) if py is not None else None
-                rows.append({"slug": slug, "label": label, "unit": unit,
+                # sparkline is the RATE trajectory, matching the % value shown
+                rows.append({"slug": slug, "label": label, "unit": unit, "kind": "yoy",
                              "value": val, "prev": pv, "as_of": d,
-                             "freq": meta.get("freq"), "spark": _spark(pts),
+                             "freq": meta.get("freq"), "spark": _spark(yoy_series(pts)),
                              "source": src})
             else:
                 val = round(v / 1000, 1) if tf == "level_bn" else round(v, 2)
                 pval = (round(prev / 1000, 1) if tf == "level_bn"
                         else round(prev, 2)) if prev is not None else None
-                rows.append({"slug": slug, "label": label, "unit": unit,
+                rows.append({"slug": slug, "label": label, "unit": unit, "kind": tf,
                              "value": val, "prev": pval, "as_of": d,
                              "freq": meta.get("freq"), "spark": _spark(pts),
                              "source": src})

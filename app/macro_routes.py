@@ -39,11 +39,19 @@ def macro_catalog(db: Session = Depends(get_db)):
 
 
 @router.get("/series/{slug}")
-def macro_series(slug: str, db: Session = Depends(get_db)):
+def macro_series(slug: str, yoy: bool = False, db: Session = Depends(get_db)):
+    """Full history for one series. yoy=true returns the year-on-year RATE
+    (for index series like CPI/WPI/IIP), so a chart shows inflation as 3-6%,
+    not the underlying 85→106 index level."""
     pts = macro_data.series(db, slug)
     if not pts:
         raise HTTPException(404, f"No macro series '{slug}'")
     cat = macro_data.catalog(db).get(slug, {})
+    if yoy:
+        yp = macro_data.yoy_series(pts)
+        return {"slug": slug, "name": (cat.get("name", slug) + " — YoY %"),
+                "freq": cat.get("freq"), "unit": "%",
+                "points": [{"date": d, "value": v} for d, v in yp]}
     return {"slug": slug, "name": cat.get("name", slug), "freq": cat.get("freq"),
             "points": [{"date": d, "value": v} for d, v in pts]}
 
