@@ -222,8 +222,11 @@ def ingest_nse_flows(insider_limit: int = 60,
                      _admin: models.User = Depends(require_admin),
                      db: Session = Depends(get_db)):
     """On-demand NSE FII/DII + insider-trade refresh (the nightly job otherwise)."""
-    from app.nse_sources import fetch_fii_dii, fetch_insider_trades
+    from app.nse_sources import (fetch_fii_dii, fetch_insider_trades,
+                                 fetch_pledge, fetch_deals)
     from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
-    fii = fetch_fii_dii(db)
-    ins = fetch_insider_trades(db, list(VISIBLE_UNIVERSE), limit=insider_limit)
-    return {"fii_dii_points": fii, "insider_names": ins}
+    uni = list(VISIBLE_UNIVERSE)
+    return {"fii_dii_points": fetch_fii_dii(db),
+            "deals_names": fetch_deals(db),
+            "insider_names": fetch_insider_trades(db, uni, limit=insider_limit),
+            "pledge_names": fetch_pledge(db, uni, limit=insider_limit)}

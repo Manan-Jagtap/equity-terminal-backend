@@ -500,16 +500,21 @@ schedule.every().day.at("02:00").do(run_regulatory_refresh)
 
 
 def run_nse_flows():
-    """Daily NSE feeds: FII/DII cash-market flows (→ macro store) and insider
-    (SEBI PIT) trades for the visible universe (→ governance signal)."""
+    """Daily NSE feeds: FII/DII cash-market flows (→ macro store), insider
+    (SEBI PIT) trades, promoter pledge %, and bulk/block deals for the visible
+    universe (→ governance + flow signals)."""
     try:
         from app.database import SessionLocal
-        from app.nse_sources import fetch_fii_dii, fetch_insider_trades
+        from app.nse_sources import (fetch_fii_dii, fetch_insider_trades,
+                                     fetch_pledge, fetch_deals)
         from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+        uni = list(VISIBLE_UNIVERSE)
         s = SessionLocal()
         try:
             log.info(f"NSE FII/DII: {fetch_fii_dii(s)} points")
-            log.info(f"NSE insider: {fetch_insider_trades(s, list(VISIBLE_UNIVERSE))} names")
+            log.info(f"NSE deals: {fetch_deals(s)} names")
+            log.info(f"NSE insider: {fetch_insider_trades(s, uni)} names")
+            log.info(f"NSE pledge: {fetch_pledge(s, uni)} names")
         finally:
             s.close()
     except Exception as e:

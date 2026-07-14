@@ -41,7 +41,7 @@ log = logging.getLogger("manager_engine")
 EVIDENCE_KEY = "fm_evidence_v1"
 MACRO_KEY = "fm_macro_v1"
 CALIBRATION_KEY = "fm_calibration_v1"
-ENGINE_SCHEMA = 3   # bump when evidence blobs gain fields → boot rebuild fires
+ENGINE_SCHEMA = 4   # bump when evidence blobs gain fields → boot rebuild fires
 
 # Priors: used until (and blended with) measured ICs from the calibration job.
 # Grouped to sum loosely to 1 across the valuation trio + non-valuation set.
@@ -685,10 +685,12 @@ def build_evidence(db) -> dict:
     except Exception:
         transcripts = {}
     try:
-        from app.nse_sources import insider_by_ticker
+        from app.nse_sources import insider_by_ticker, pledge_by_ticker
         insiders = insider_by_ticker(db)
+        pledges = pledge_by_ticker(db)
     except Exception:
         insiders = {}
+        pledges = {}
 
     out: dict[str, dict] = {}
     for cid, co in cos.items():
@@ -706,8 +708,13 @@ def build_evidence(db) -> dict:
         except Exception:
             fr = {}
         red = [f.get("label") for f in (fr.get("flags") or []) if f.get("level") == "red"]
+        # Promoter pledge — the single most predictive Indian-market red flag.
+        pl = pledges.get(tk) or {}
+        pledged = pl.get("pct_pledged")
+        if pledged is not None and pledged >= 20:
+            red = [f"Promoter pledge {pledged:.0f}%"] + red
         quality = {"composite": fr.get("composite"), "grade": fr.get("grade"),
-                   "red_flags": red[:4]}
+                   "red_flags": red[:4], "pledge_pct": pledged}
 
         # Valuation bands: own-history P/E and P/B + the sector-relative P/E.
         band = None

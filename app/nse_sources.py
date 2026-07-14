@@ -24,8 +24,11 @@ log = logging.getLogger("nse_sources")
 _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/125.0 Safari/537.36")
 _BASE = "https://www.nseindia.com"
+_ARCHIVE = "https://nsearchives.nseindia.com"
 FIIDII_KEY = "fii_dii_flows_v1"
 INSIDER_KEY = "insider_trades_v1"
+PLEDGE_KEY = "pledge_data_v1"
+DEALS_KEY = "bulk_block_deals_v1"
 
 
 def _session() -> requests.Session | None:
@@ -141,4 +144,106 @@ def fetch_insider_trades(db, tickers: list[str], limit: int = 60) -> int:
 def insider_by_ticker(db) -> dict:
     from app import models
     row = db.query(models.KVStore).filter_by(key=INSIDER_KEY).first()
+    return (row.value or {}).get("by_ticker", {}) if row else {}
+
+
+def _f(x):
+    try:
+        return float(str(x).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_pledge(db, tickers: list[str], limit: int = 200) -> int:
+    """Promoter share-pledge % per ticker from NSE (the single most predictive
+    Indian-market governance red flag) → KVStore pledge_data_v1. `percSharesPledged`
+    is the share of the PROMOTER holding that's pledged; a rising or high number
+    is a stress signal the Fund Manager weighs."""
+    from app import models
+    s = _session()
+    if not s:
+        return 0
+    row = db.query(models.KVStore).filter_by(key=PLEDGE_KEY).first()
+    store = (row.value or {}).get("by_ticker", {}) if row else {}
+    done = 0
+    for tk in tickers[:limit]:
+        data = _get(s, f"/api/corporate-pledgedata?symbol={tk}",
+                    "/companies-listing/corporate-filings-pledged-data")
+        rows = (data or {}).get("data") if isinstance(data, dict) else None
+        if not isinstance(rows, list) or not rows:
+            continue
+        r = rows[0]
+        pledged = _f(r.get("percSharesPledged"))
+        if pledged is None:
+            continue
+        store[tk] = {"pct_pledged": round(pledged, 2),
+                     "promoter_holding": _f(r.get("percPromoterHolding")),
+                     "as_of": (r.get("disclosureToDate") or r.get("broadcastDt") or "")[:11]}
+        done += 1
+    payload = {"by_ticker": store,
+               "updated_at": _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"}
+    if row:
+        row.value = payload
+    else:
+        db.add(models.KVStore(key=PLEDGE_KEY, value=payload))
+    db.commit()
+    return done
+
+
+def pledge_by_ticker(db) -> dict:
+    from app import models
+    row = db.query(models.KVStore).filter_by(key=PLEDGE_KEY).first()
+    return (row.value or {}).get("by_ticker", {}) if row else {}
+
+
+def fetch_deals(db) -> int:
+    """Daily bulk + block deals from NSE's CSV archives (steadier than the JSON
+    API) → per-ticker net institutional buy/sell qty over the file's window →
+    KVStore bulk_block_deals_v1. Large one-sided institutional activity is a
+    flow signal alongside the quarterly shareholding deltas."""
+    import csv
+    import io
+    from app import models
+    s = _session()
+    if not s:
+        return 0
+    agg: dict[str, dict] = {}
+    for kind, path in (("bulk", "/content/equities/bulk.csv"),
+                       ("block", "/content/equities/block.csv")):
+        try:
+            r = s.get(_ARCHIVE + path, timeout=20,
+                      headers={"Referer": _BASE + "/"})
+            if r.status_code != 200:
+                continue
+            reader = csv.DictReader(io.StringIO(r.text))
+            for row in reader:
+                sym = (row.get("Symbol") or "").strip().upper()
+                if not sym:
+                    continue
+                qty = _f(row.get("Quantity Traded")) or 0
+                side = (row.get("Buy/Sell") or "").strip().upper()
+                a = agg.setdefault(sym, {"net_qty": 0.0, "n": 0, "bulk": 0, "block": 0})
+                a["net_qty"] += qty if side.startswith("B") else -qty
+                a["n"] += 1
+                a[kind] += 1
+        except Exception as e:
+            log.warning(f"deals {kind}: {type(e).__name__}: {e}")
+    if not agg:
+        return 0
+    for a in agg.values():
+        a["net_qty"] = round(a["net_qty"])
+    payload = {"by_ticker": agg, "date": _dt.date.today().isoformat(),
+               "updated_at": _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"}
+    row = db.query(models.KVStore).filter_by(key=DEALS_KEY).first()
+    if row:
+        row.value = payload
+    else:
+        db.add(models.KVStore(key=DEALS_KEY, value=payload))
+    db.commit()
+    return len(agg)
+
+
+def deals_by_ticker(db) -> dict:
+    from app import models
+    row = db.query(models.KVStore).filter_by(key=DEALS_KEY).first()
     return (row.value or {}).get("by_ticker", {}) if row else {}
