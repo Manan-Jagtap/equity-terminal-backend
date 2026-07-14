@@ -424,6 +424,44 @@ def _monthly_manager_calibration():
 schedule.every().friday.at("21:00").do(_monthly_manager_calibration)
 
 
+def run_missing_history_backfill():
+    """Self-healing price history: any onboarded name with (almost) no
+    HistoricalPrice rows gets its 5-yr Dhan seed + a snapshot sync. Catches
+    tranche onboarding (the AMFI next-250 landed with zero history) and every
+    future IPO graduate — no one-shot env flags. No-op when nothing is
+    missing (one aggregate query) or when Dhan is unconfigured."""
+    try:
+        from app.dhan import client as _dhan
+        if not _dhan.configured():
+            return
+        from sqlalchemy import func as _f
+        from app.database import SessionLocal
+        from app import models
+        from app.dhan.backfill import backfill_prices, sync_snapshots_from_history
+        s = SessionLocal()
+        try:
+            counts = dict(s.query(models.HistoricalPrice.company_id,
+                                  _f.count(models.HistoricalPrice.id))
+                          .group_by(models.HistoricalPrice.company_id).all())
+            missing = [c.ticker for c in s.query(models.Company).all()
+                       if c.ticker and counts.get(c.id, 0) < 50]
+            if not missing:
+                return
+            log.info(f"History self-heal: {len(missing)} names lack a price series — "
+                     f"seeding 5y from Dhan…")
+            log.info(f"History self-heal backfill: {backfill_prices(s, missing, years=5)}")
+            log.info(f"History self-heal sync: {sync_snapshots_from_history(s, missing)}")
+        finally:
+            s.close()
+    except Exception as e:
+        log.error(f"History self-heal failed: {type(e).__name__}: {e}")
+
+
+# Self-heal check daily, after the EOD top-up settles (4:15pm IST = 10:45 UTC)
+for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
+    getattr(schedule.every(), _day).at("10:45").do(run_missing_history_backfill)
+
+
 def run_macro_refresh():
     """Weekly macro-store refresh from the key-gated API sources (TE/MoSPI).
     No-op until the owner sets the keys on Railway; the RBI DBIE seed carries
@@ -738,6 +776,10 @@ else:
         _ensure_universe()
     except Exception as e:
         log.error(f"Universe check failed: {type(e).__name__}: {e}")
+
+    # Seed missing price series right away (not just at the daily slot) so a
+    # freshly onboarded tranche is fully usable the moment the deploy lands.
+    run_missing_history_backfill()
 
     # ── Auto-recompute on every deploy ───────────────────────────────────────
     # The valuations cache is a pure local computation from data already in the
