@@ -142,12 +142,36 @@ def _delta(pts, days):
     return None if v0 is None else v1 - v0
 
 
+def _year_ago(pts, ref_iso: str, tol_days: int = 25):
+    """The point closest to exactly one year before ref_iso (same calendar
+    month for month-end series), within tol_days. Avoids the off-by-one-month
+    error a fixed 366-day lookback causes on month-end dates (which lands one
+    day short of the prior year's month-end and grabs the month before)."""
+    try:
+        ref = _dt.date.fromisoformat(ref_iso)
+    except (TypeError, ValueError):
+        return (None, None)
+    try:
+        target = ref.replace(year=ref.year - 1)
+    except ValueError:                     # 29 Feb → 28 Feb
+        target = ref.replace(year=ref.year - 1, day=28)
+    best = None
+    for d, v in pts:
+        try:
+            dd = _dt.date.fromisoformat(d)
+        except (TypeError, ValueError):
+            continue
+        gap = abs((dd - target).days)
+        if gap <= tol_days and (best is None or gap < best[0]):
+            best = (gap, d, v)
+    return (best[1], best[2]) if best else (None, None)
+
+
 def _yoy(pts):
     d1, v1 = _latest(pts)
     if v1 is None:
         return None
-    cutoff = (_dt.date.fromisoformat(d1) - _dt.timedelta(days=366)).isoformat()
-    d0, v0 = _asof(pts, cutoff)
+    _, v0 = _year_ago(pts, d1)
     if v0 in (None, 0):
         return None
     return v1 / v0 - 1.0
