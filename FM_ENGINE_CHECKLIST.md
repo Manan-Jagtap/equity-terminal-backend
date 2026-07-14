@@ -52,9 +52,12 @@ never manufactures certainty. Honesty is the moat.
       consensus upside is a first-class valuation witness.
 - [x] **DONE — Estimate-revision momentum** (`catalyst`) votes on every
       action with its own weight.
-- [ ] **NEEDS DATA — Bulk/block deals & insider trades** (NSE disclosures).
-- [ ] **NEEDS DATA — FII/DII daily flows** (NSDL/exchange aggregates) for the
-      macro block.
+- [x] **DONE — Insider trades (SEBI PIT).** NSE corporates-pit feed → per-ticker
+      net buy/sell; an insider net-sell cluster docks conviction (governance
+      watch), net-buy lifts it. Bulk/block deals remain NEXT (NSE CSV, retryable).
+- [x] **DONE — FII/DII daily flows.** NSE fiidiiTradeReact feed → macro store;
+      the PM note reads "FIIs sold ₹X cr net over 5 sessions" and sustained
+      selling shades the regime.
 
 ## 4. Momentum & technicals
 
@@ -128,9 +131,12 @@ never manufactures certainty. Honesty is the moat.
 - [x] **DONE — News red-flag screen**: headline keyword classes (fraud,
       probe, default, auditor, NCLT, …) cap ADD conviction and sharpen TRIMs.
       Budget-guarded; silently empty while the vendor quota is exhausted.
-- [ ] **NEEDS DATA — Investor presentations & concall transcripts, daily**:
-      QuarterlyDocument stores links/PDFs; needs a daily fetcher + summarizer
-      to turn guidance changes into assumption updates.
+- [x] **DONE — Concall transcript ingester.** Daily job fetches each name's
+      latest transcript PDF, extracts text, and a FREE rule-based extractor
+      pulls guidance/margins/capex/demand/risks + a management-tone score and
+      guidance direction (optional grounded LLM narrative when the key is set).
+      Tone + guidance direction vote in conviction; pointers surface on the
+      company page. Investor-presentation parsing is the NEXT extension.
 - [ ] **NEEDS DATA — Annual-report deep parse** (MD&A, contingent
       liabilities, off-balance-sheet items) — extraction pipeline over the
       stored PDFs.
