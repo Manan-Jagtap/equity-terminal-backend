@@ -57,6 +57,44 @@ _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
 _NUM = re.compile(r"\d")
 _WS = re.compile(r"\s+")
 
+# ── operational KPI extraction (Tijori-style, first layer) ───────────────────
+# The numeric business metrics management cites on a call. Each entry: canonical
+# metric → phrasings. We pull "<phrasing> … <number><unit>" within a short
+# window; unit ∈ %, bps, x, crore/cr/lakh. Sector-agnostic — a name only shows
+# the KPIs it actually mentioned. Facts extracted from the company's own
+# transcript; not a full historical KPI database (that needs XBRL parsing).
+_KPI_TERMS = [
+    ("EBITDA margin", ("ebitda margin",)),
+    ("Gross margin", ("gross margin",)),
+    ("Operating margin", ("operating margin", "opm")),
+    ("Net margin", ("net margin", "pat margin", "net profit margin")),
+    ("ROE", ("return on equity", "roe")),
+    ("ROCE", ("return on capital employed", "roce")),
+    ("Capacity utilisation", ("capacity utilis", "capacity utiliz", "utilisation", "utilization")),
+    ("Order book", ("order book", "order backlog", "orderbook")),
+    ("AUM", ("assets under management", "aum")),
+    ("NIM", ("net interest margin", "nim")),
+    ("Gross NPA", ("gross npa", "gnpa")),
+    ("Net NPA", ("net npa", "nnpa")),
+    ("CASA ratio", ("casa ratio", "casa")),
+    ("Credit growth", ("credit growth", "loan growth", "advances growth")),
+    ("Deposit growth", ("deposit growth",)),
+    ("Collection efficiency", ("collection efficiency",)),
+    ("Same-store sales", ("same store sales", "sss", "like-for-like")),
+    ("Realisation", ("realisation", "realization", "asp", "average selling price")),
+    ("Volume growth", ("volume growth", "volume grew", "volumes grew")),
+    ("Attrition", ("attrition",)),
+    ("Utilisation (IT)", ("employee utilisation", "utilisation rate")),
+    ("Capex", ("capex", "capital expenditure")),
+    ("Net debt", ("net debt",)),
+    ("Debt/Equity", ("debt to equity", "debt-equity", "d/e", "gearing")),
+    ("Dividend payout", ("dividend payout", "payout ratio")),
+]
+_KPI_VALUE = re.compile(
+    r"(?:of|at|was|were|stood at|is|are|around|about|~|reached|came in at|to)?\s*"
+    r"(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*(%|per cent|percent|bps|basis points|x|times|"
+    r"lakh crore|crore|cr\b|lakh)", re.I)
+
 
 def _sentences(text: str) -> list[str]:
     text = _WS.sub(" ", text or "")
@@ -122,6 +160,44 @@ def extract_key_points(text: str) -> dict:
     }
 
 
+def extract_kpis(text: str) -> list[dict]:
+    """Pull the numeric operational metrics management cited. Returns
+    [{metric, value, unit}] deduped to the first mention of each. Pure."""
+    low = _WS.sub(" ", (text or "").lower())
+    out, seen = [], set()
+    for metric, phrasings in _KPI_TERMS:
+        pos = -1
+        for ph in phrasings:
+            i = low.find(ph)
+            if i != -1:
+                pos = i + len(ph)
+                break
+        if pos == -1 or metric in seen:
+            continue
+        m = _KPI_VALUE.match(low[pos:pos + 40])          # value must follow closely
+        if not m:
+            # allow a few words between the phrase and the number
+            m = _KPI_VALUE.search(low[pos:pos + 40])
+        if not m:
+            continue
+        try:
+            val = float(m.group(1).replace(",", ""))
+        except ValueError:
+            continue
+        unit = m.group(2).lower()
+        unit = ("%" if unit in ("%", "per cent", "percent") else
+                "bps" if "bps" in unit or "basis" in unit else
+                "x" if unit in ("x", "times") else
+                "₹ lakh cr" if "lakh crore" in unit else
+                "₹ lakh" if unit == "lakh" else "₹ cr")
+        # sanity: percentages > 100 (except growth) or absurd values dropped
+        if unit == "%" and val > 100 and "growth" not in metric.lower():
+            continue
+        seen.add(metric)
+        out.append({"metric": metric, "value": round(val, 2), "unit": unit})
+    return out
+
+
 def _concalls_for(db, co) -> list[dict]:
     from app import models
     ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
@@ -148,6 +224,7 @@ def ingest_one(db, co, with_llm: bool = False) -> str:
     if not text:
         return "no-text"
     points = extract_key_points(text)
+    points["kpis"] = extract_kpis(text)          # operational metrics cited
 
     llm = None
     if with_llm:
