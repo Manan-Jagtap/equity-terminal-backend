@@ -71,50 +71,78 @@ def fetch_tradingeconomics(db) -> int:
     return wrote
 
 
+# MoSPI / OGD series the owner can turn on by setting one env URL each. Each
+# entry: env var (complete GET url; {key} placeholder allowed) → (macro slug,
+# display name, frequency). The response parser handles the common government
+# shapes ({data:[{Year,Month,Index/Value}]} and {records:[…]}); anything
+# unrecognised is logged and skipped, never guessed. One key: MOSPI_KEY (or
+# OGD_KEY as a fallback) registered once on the portal.
+_GOV_SERIES = {
+    "MOSPI_CPI_URL":  (macro_data.CPI_2024, "MoSPI CPI (2024=100)", "M"),
+    "MOSPI_IIP_URL":  (macro_data.IIP, "MoSPI Index of Industrial Production", "M"),
+    "MOSPI_GDP_URL":  (macro_data.GDP_NOMINAL, "MoSPI GDP (current prices)", "Q"),
+    "OGD_WPI_URL":    (macro_data.WPI, "WPI (DPIIT via OGD)", "M"),
+}
+
+_MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
+
+
+def _parse_gov_rows(rows) -> list[list]:
+    """[[iso_date, value], …] from the common MoSPI/OGD row shapes."""
+    pts = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        v = next((row[k] for k in ("Index", "index", "CombinedIndex", "Value",
+                                   "value", "wpi", "gdp") if row.get(k) is not None), None)
+        if v is None:
+            continue
+        y = row.get("Year") or row.get("year")
+        m = row.get("Month") or row.get("month")
+        try:
+            if y and m:
+                mi = _MONTHS.get(str(m).lower()) or (int(m) if str(m).isdigit() else None)
+                if not mi:
+                    continue
+                d = _dt.date(int(y), mi, calendar.monthrange(int(y), mi)[1])
+            elif row.get("date") or row.get("Date"):
+                d = _dt.date.fromisoformat(str(row.get("date") or row.get("Date"))[:10])
+            else:
+                continue
+            pts.append([d.isoformat(), float(str(v).replace(",", ""))])
+        except (TypeError, ValueError):
+            continue
+    return sorted(pts)
+
+
 def fetch_mospi(db) -> int:
-    """MoSPI CPI refresh. Endpoint differs per portal version, so it's fully
-    env-configured: MOSPI_CPI_URL (complete GET url; {key} placeholder allowed)
-    + MOSPI_KEY. Response handled for the common {data:[{...Month/Year/Index}]}
-    shapes; anything unrecognized is logged and skipped, never guessed."""
-    key = os.getenv("MOSPI_KEY", "").strip()
-    url = os.getenv("MOSPI_CPI_URL", "").strip()
-    if not (key and url):
+    """Refresh every MoSPI/OGD series the owner has configured a URL for.
+    Key from MOSPI_KEY (falls back to OGD_KEY). No-op until a key + at least
+    one series URL are set; the RBI DBIE seed carries the engine meanwhile."""
+    key = os.getenv("MOSPI_KEY", "").strip() or os.getenv("OGD_KEY", "").strip()
+    if not key:
         return 0
-    try:
-        r = requests.get(url.replace("{key}", key), timeout=20,
-                         headers={"x-api-key": key})
-        if r.status_code != 200:
-            log.warning(f"MoSPI: HTTP {r.status_code}")
-            return 0
-        body = r.json()
-        rows = body if isinstance(body, list) else \
-            (body.get("data") or body.get("Data") or body.get("records") or [])
-        MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
-        pts = []
-        for row in rows:
-            if not isinstance(row, dict):
+    wrote = 0
+    for env, (slug, name, freq) in _GOV_SERIES.items():
+        url = os.getenv(env, "").strip()
+        if not url:
+            continue
+        try:
+            r = requests.get(url.replace("{key}", key), timeout=20,
+                             headers={"x-api-key": key})
+            if r.status_code != 200:
+                log.warning(f"{env}: HTTP {r.status_code}")
                 continue
-            y = row.get("Year") or row.get("year")
-            m = row.get("Month") or row.get("month")
-            v = (row.get("Index") or row.get("index") or row.get("CombinedIndex")
-                 or row.get("Value") or row.get("value"))
-            if not (y and m and v is not None):
-                continue
-            mi = MONTHS.get(str(m).lower()) or (int(m) if str(m).isdigit() else None)
-            if not mi:
-                continue
-            d = _dt.date(int(y), mi, calendar.monthrange(int(y), mi)[1])
-            try:
-                pts.append([d.isoformat(), float(v)])
-            except (TypeError, ValueError):
-                continue
-        if pts:
-            return macro_data.write_overlay(
-                db, {macro_data.CPI_2024: {"name": "MoSPI CPI", "freq": "M",
-                                           "points": sorted(pts)}})
-    except Exception as e:
-        log.warning(f"MoSPI fetch: {type(e).__name__}: {e}")
-    return 0
+            body = r.json()
+            rows = body if isinstance(body, list) else \
+                (body.get("data") or body.get("Data") or body.get("records") or [])
+            pts = _parse_gov_rows(rows)
+            if pts:
+                wrote += macro_data.write_overlay(
+                    db, {slug: {"name": name, "freq": freq, "points": pts}})
+        except Exception as e:
+            log.warning(f"{env} fetch: {type(e).__name__}: {e}")
+    return wrote
 
 
 # High-frequency "activity" indicators (GST, PMI, power, e-way bills, auto,
