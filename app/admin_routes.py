@@ -11,6 +11,7 @@ including when the env var is unset (fail closed, never open).
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -230,3 +231,27 @@ def ingest_nse_flows(insider_limit: int = 60,
             "deals_names": fetch_deals(db),
             "insider_names": fetch_insider_trades(db, uni, limit=insider_limit),
             "pledge_names": fetch_pledge(db, uni, limit=insider_limit)}
+
+
+class ActivityPoint(BaseModel):
+    slug: str
+    date: str      # ISO YYYY-MM-DD (month-end for monthly series)
+    value: float
+    name: str | None = None
+    freq: str | None = "M"
+
+
+@router.post("/macro/activity-point")
+def macro_activity_point(body: ActivityPoint,
+                         _admin: models.User = Depends(require_admin),
+                         db: Session = Depends(get_db)):
+    """Inject one macro/activity data point into the overlay — the reliable
+    monthly path for indicators with no live API (GST collections, PMI, peak
+    power, e-way bills, auto sales). Fills the 'awaiting feed' card instantly
+    with a real, current, human-verified number. Idempotent per (slug, date)."""
+    from app import macro_data
+    name = body.name or (macro_data.ACTIVITY_META.get(body.slug, (body.slug,))[0])
+    n = macro_data.write_overlay(db, {body.slug: {
+        "name": name, "freq": body.freq or "M",
+        "points": [[body.date[:10], float(body.value)]]}})
+    return {"slug": body.slug, "written": n, "as_of": body.date[:10], "name": name}
