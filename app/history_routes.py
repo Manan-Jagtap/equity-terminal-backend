@@ -349,6 +349,22 @@ def company_forensics(ticker: str, db: Session = Depends(get_db)):
     report = forensic_report(statements, {"type": co.type})
     report["ticker"] = co.ticker
     report["name"] = co.name
+    # Promoter pledge (NSE feed) — surfaced here as a first-class governance
+    # flag; ≥20% is a genuine stress signal (the metric forensics couldn't
+    # compute from statements alone).
+    try:
+        from app.nse_sources import pledge_by_ticker
+        pl = (pledge_by_ticker(db) or {}).get(co.ticker)
+        if pl and pl.get("pct_pledged") is not None:
+            report["pledge"] = pl
+            if pl["pct_pledged"] >= 20:
+                report.setdefault("flags", []).insert(0, {
+                    "level": "red" if pl["pct_pledged"] >= 40 else "amber",
+                    "label": f"Promoter pledge {pl['pct_pledged']:.0f}%",
+                    "note": f"{pl['pct_pledged']:.1f}% of the promoter holding is pledged "
+                            f"(as of {pl.get('as_of')}) — a leverage/stress signal."})
+    except Exception:
+        pass
     return report
 
 
