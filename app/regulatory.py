@@ -32,7 +32,20 @@ FEEDS = [
     ("RBI", "press", "https://rbi.org.in/pressreleases_rss.xml"),
     ("RBI", "notification", "https://rbi.org.in/notifications_rss.xml"),
     ("SEBI", "update", "https://www.sebi.gov.in/sebirss.xml"),
+    # PIB (Press Information Bureau) — English press feed. Broad govt news, so
+    # PIB items are kept only when they hit an economic/market keyword (below).
+    ("PIB", "press", "https://www.pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3&reg=48"),
 ]
+
+# PIB is all-of-government; keep only market-relevant items. RBI/SEBI are
+# inherently regulatory so everything they publish is kept.
+_ECON_KEEP = ("gst", "tax", "budget", "fiscal", "disinvest", "psu", "ipo",
+              "trade", "export", "import", "inflation", "cpi", "wpi", "iip",
+              "industrial production", "index of", "manufacturing", "pli ",
+              "production linked", "repo", "rbi", "sebi", "fdi", "fpi",
+              "gdp", "economy", "economic", "revenue", "capex", "infrastructure",
+              "banking", "credit", "monetary", "coal", "steel", "power", "auto",
+              "e-way", "core sector", "eight core")
 
 # tag → keywords (matched on lowercase title). Order matters: first hit wins
 # the primary tag; all hits are recorded.
@@ -77,6 +90,10 @@ def _parse_rss(xml_text: str, source: str, kind: str) -> list[dict]:
         title = (item.findtext("title") or "").strip()
         link = (item.findtext("link") or "").strip()
         pub = (item.findtext("pubDate") or "").strip()
+        # description — stripped of HTML; used only to extract the GST figure
+        # (never rendered in the UI, which shows the title + a link to source).
+        desc = re.sub(r"<[^>]+>", " ", item.findtext("description") or "")
+        desc = re.sub(r"\s+", " ", desc).strip()[:400]
         if not (title and link):
             continue
         date = None
@@ -92,7 +109,8 @@ def _parse_rss(xml_text: str, source: str, kind: str) -> list[dict]:
                     except ValueError:
                         continue
         out.append({"source": source, "kind": kind, "title": title[:220],
-                    "link": link, "date": date, "tags": _tag(title)})
+                    "link": link, "date": date, "tags": _tag(title),
+                    "desc": desc if source == "PIB" else None})
     return out
 
 
@@ -118,6 +136,10 @@ def refresh(db) -> dict:
     newest ~120, and return a summary."""
     from app import models
     fresh = fetch_feeds()
+    # PIB is all-of-government: keep only economically-relevant items so the
+    # radar stays about "what changed that could move stocks", not general news.
+    fresh = [it for it in fresh if it["source"] != "PIB"
+             or any(k in (it["title"] or "").lower() for k in _ECON_KEEP)]
     row = db.query(models.KVStore).filter_by(key=FEED_KEY).first()
     cur = {i["link"]: i for i in ((row.value or {}).get("items") or [])} if row else {}
     added = 0
@@ -140,11 +162,78 @@ def refresh(db) -> dict:
     else:
         db.add(models.KVStore(key=FEED_KEY, value=payload))
     db.commit()
-    log.info(f"regulatory feed: {len(fresh)} fetched, {added} new, {len(items)} kept")
-    return {"fetched": len(fresh), "new": added, "kept": len(items)}
+    gst = {}
+    try:
+        gst = extract_gst(db)      # pull the monthly GST figure if PIB carried it
+    except Exception as e:
+        log.warning(f"GST extract: {type(e).__name__}: {e}")
+    log.info(f"regulatory feed: {len(fresh)} fetched, {added} new, {len(items)} kept; {gst}")
+    return {"fetched": len(fresh), "new": added, "kept": len(items), **gst}
 
 
 def load(db) -> dict:
     from app import models
     row = db.query(models.KVStore).filter_by(key=FEED_KEY).first()
     return row.value if row else {"items": [], "updated_at": None}
+
+
+# ── GST collection extraction from PIB ───────────────────────────────────────
+_MONTHS = {m.lower(): i for i, m in enumerate(
+    ["", "January", "February", "March", "April", "May", "June", "July",
+     "August", "September", "October", "November", "December"])}
+
+
+def _to_crore(num: float, unit: str) -> float | None:
+    u = unit.lower()
+    if "lakh crore" in u or "trillion" in u:
+        return num * 1e5
+    if "crore" in u:
+        return num
+    return None
+
+
+def extract_gst(db) -> dict:
+    """Scan the PIB feed for the monthly 'GST revenue collection' release and
+    pull the gross figure into the macro overlay (gst_gross_collections_cr).
+    Best-effort and fail-silent: the release text is only in the title/desc, so
+    a phrasing change simply yields nothing (the card stays 'awaiting feed').
+    Never fabricates a number."""
+    import calendar
+    import re as _re
+    from app import macro_data
+    data = load(db)
+    pat = _re.compile(
+        r"gst.{0,40}?(?:collection|revenue).{0,60}?"
+        r"(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)\s*(lakh crore|crore|trillion)",
+        _re.I)
+    mon = _re.compile(r"\b(" + "|".join(list(_MONTHS)[1:]) + r")[,\s]+(\d{4})", _re.I)
+    wrote = 0
+    for it in data.get("items", []):
+        if it.get("source") != "PIB":
+            continue
+        blob = (it.get("title") or "") + " " + (it.get("desc") or "")
+        if "gst" not in blob.lower():
+            continue
+        m = pat.search(blob)
+        if not m:
+            continue
+        try:
+            num = float(m.group(1).replace(",", ""))
+        except ValueError:
+            continue
+        cr = _to_crore(num, m.group(2))
+        if cr is None:
+            continue
+        mm = mon.search(blob)
+        if mm:
+            y, mo = int(mm.group(2)), _MONTHS[mm.group(1).lower()]
+        else:
+            d0 = _dt.date.fromisoformat((it.get("date") or _dt.date.today().isoformat())[:10])
+            # the release usually reports the PRIOR month
+            prev = (d0.replace(day=1) - _dt.timedelta(days=1))
+            y, mo = prev.year, prev.month
+        iso = _dt.date(y, mo, calendar.monthrange(y, mo)[1]).isoformat()
+        wrote += macro_data.write_overlay(db, {macro_data.GST_COLLECTIONS: {
+            "name": "GST gross collections (₹ cr)", "freq": "M",
+            "points": [[iso, cr]]}})
+    return {"gst_points": wrote}

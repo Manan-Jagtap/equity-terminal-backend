@@ -177,14 +177,63 @@ def fetch_activity(db) -> int:
     return wrote
 
 
+OECD_CLI_URL = ("https://sdmx.oecd.org/public/rest/data/"
+                "OECD.SDD.STES,DSD_STES@DF_CLI,/IND.M.LI...AA...H"
+                "?startPeriod=2015-01&format=jsondata")
+
+
+def fetch_oecd_cli(db) -> int:
+    """India Composite Leading Indicator (OECD) — a normalised turning-point
+    signal (100 = long-term trend; >100 & rising = above-trend and
+    accelerating). Free, keyless SDMX-JSON API. → macro slug oecd_cli_india."""
+    try:
+        r = requests.get(OECD_CLI_URL, timeout=25,
+                         headers={"Accept": "application/vnd.sdmx.data+json"})
+        if r.status_code != 200:
+            log.warning(f"OECD CLI: HTTP {r.status_code}")
+            return 0
+        d = r.json().get("data", {})
+        structs = d.get("structures") or []
+        # index → period from the observation dimension
+        periods = []
+        for x in (structs[0].get("dimensions", {}).get("observation", []) if structs else []):
+            if x.get("id") == "TIME_PERIOD":
+                periods = [v["id"] for v in x.get("values", [])]
+        dsets = d.get("dataSets") or []
+        series = (dsets[0].get("series") or {}) if dsets else {}
+        if not (series and periods):
+            return 0
+        _key, ser = next(iter(series.items()))
+        pts = []
+        for idx, obs in (ser.get("observations") or {}).items():
+            i = int(idx)
+            if i < len(periods) and obs and obs[0] is not None:
+                p = periods[i]                          # "YYYY-MM"
+                try:
+                    y, m = int(p[:4]), int(p[5:7])
+                    import calendar
+                    iso = _dt.date(y, m, calendar.monthrange(y, m)[1]).isoformat()
+                    pts.append([iso, round(float(obs[0]), 3)])
+                except (ValueError, IndexError):
+                    continue
+        if pts:
+            return macro_data.write_overlay(db, {"oecd_cli_india": {
+                "name": "OECD Composite Leading Indicator — India", "freq": "M",
+                "points": sorted(pts)}})
+    except Exception as e:
+        log.warning(f"OECD CLI fetch: {type(e).__name__}: {e}")
+    return 0
+
+
 def refresh_all(db) -> dict:
     te = fetch_tradingeconomics(db)
     mo = fetch_mospi(db)
     act = fetch_activity(db)
+    cli = fetch_oecd_cli(db)
     configured_act = [env.lower() for slug, env in _ACTIVITY_ENV.items()
                       if os.getenv(f"ACTIVITY_{env}_URL", "").strip()]
     return {"tradingeconomics_points": te, "mospi_points": mo,
-            "activity_points": act,
+            "activity_points": act, "oecd_cli_points": cli,
             "keys": {"tradingeconomics": bool(os.getenv("TRADINGECONOMICS_KEY", "").strip()),
                      "mospi": bool(os.getenv("MOSPI_KEY", "").strip()),
                      "activity_sources": configured_act}}

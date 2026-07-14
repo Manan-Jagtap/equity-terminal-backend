@@ -487,15 +487,17 @@ def run_regulatory_refresh():
     try:
         from app.database import SessionLocal
         from app.regulatory import refresh
+        from app.macro_sources import fetch_oecd_cli
         s = SessionLocal()
         try:
-            log.info(f"Regulatory feed: {refresh(s)}")
+            log.info(f"Regulatory feed: {refresh(s)}")   # RBI+SEBI+PIB, extracts GST
+            log.info(f"OECD CLI: {fetch_oecd_cli(s)} points")   # keyless, free
         finally:
             s.close()
     except Exception as e:
         log.error(f"Regulatory refresh failed: {type(e).__name__}: {e}")
 
-# Regulatory feeds — daily 07:30 IST (02:00 UTC), before the market opens
+# Regulatory + free macro feeds — daily 07:30 IST (02:00 UTC), before market open
 schedule.every().day.at("02:00").do(run_regulatory_refresh)
 
 
@@ -881,6 +883,10 @@ else:
             run_manager_evidence()
     except Exception as e:
         log.error(f"FM v4 bootstrap failed: {type(e).__name__}: {e}")
+
+    # Populate the free keyless feeds (PIB regulatory + GST extract, OECD CLI)
+    # right after a deploy so they're live now, not at the next daily slot.
+    run_regulatory_refresh()
 
 while True:
     schedule.run_pending()

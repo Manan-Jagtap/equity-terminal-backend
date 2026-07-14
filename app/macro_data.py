@@ -284,6 +284,7 @@ DASHBOARD = [
     ("Growth & activity", [
         (GDP_REAL, "Real GDP", "₹ cr", "yoy"),
         (IIP, "Industrial production (IIP)", "index", "yoy"),
+        ("oecd_cli_india", "Leading indicator (OECD)", "index", "level"),
         (GST_COLLECTIONS, "GST collections", "₹ cr", "level"),
         (EWAY_BILLS, "E-way bills", "mn", "level"),
         (PMI_MFG, "PMI — Manufacturing", "index", "level"),
