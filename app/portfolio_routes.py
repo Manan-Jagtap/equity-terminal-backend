@@ -1009,6 +1009,49 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
         cash_state["deployable"] = round(float(cash) - remaining)
         cash_state["n_funded"] = funded
 
+    # ── Capital-rotation strategist ──────────────────────────────────────────
+    # The self-funding way to act on a high-conviction idea with no cash: trim
+    # the weakest / most-overvalued HELD names to fund the strongest new ones.
+    # This is the responsible alternative to leverage — a conviction upgrade
+    # with zero new capital and zero margin-call risk. Pure restatement of the
+    # engine's own queues; the owner decides.
+    rotations = []
+    sell_side = sorted(
+        [a for a in actions if a["action"].startswith("REVIEW") and a.get("size_inr")],
+        key=lambda x: -x["size_inr"])
+    buy_side = [a for a in actions if a["action"].startswith(("ADD", "TOP-UP"))
+                and not a.get("hold_for_results") and a.get("fundable") is not True
+                and a.get("size_inr")]
+    buy_side.sort(key=lambda x: -x["conviction"])
+    pool = [{"ticker": s["ticker"], "name": s.get("name"), "free": s["size_inr"],
+             "conv": s.get("conviction", 0),
+             "why": ("overvalued vs the evidence"
+                     if (s.get("evidence") or {}).get("val_blend") is not None
+                     and (s["evidence"]["val_blend"] or 0) < 0 else "flagged for review")}
+            for s in sell_side]
+    for b in buy_side:
+        need = b["size_inr"]
+        funders, freed = [], 0
+        for p in pool:
+            if freed >= need:
+                break
+            if p["free"] <= 0:
+                continue
+            take = min(p["free"], need - freed)
+            funders.append({"ticker": p["ticker"], "name": p["name"],
+                            "amount": round(take), "why": p["why"]})
+            freed += take
+            p["free"] -= take
+        if funders and freed >= need * 0.8:
+            rotations.append({
+                "add": {"ticker": b["ticker"], "name": b.get("name"),
+                        "conviction": b["conviction"], "size_inr": need},
+                "fund_from": funders, "frees_inr": round(freed),
+                "note": (f"Fund {b['ticker']} (conviction {b['conviction']}) by trimming "
+                         + ", ".join(f["ticker"] for f in funders)
+                         + " — a conviction upgrade with no new capital.")})
+    rotations = rotations[:4]
+
     actions.sort(key=lambda x: (-x["conviction"], x.get("priority", 9)))
 
     # PM note — composed strictly from the numbers above.
@@ -1057,6 +1100,12 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
                          f"cash or a trim.")
         else:
             lines.append(f"Dry powder ₹{cash:,.0f} — below a starter tranche; fund adds from trims.")
+    # Capital-rotation strategy: the self-funding path to a conviction upgrade.
+    if rotations:
+        r0 = rotations[0]
+        lines.append(f"Self-funding move: {r0['note']} "
+                     f"{len(rotations)} such rotation{'s' if len(rotations) != 1 else ''} available — "
+                     f"a way to act on the best ideas without new capital or leverage.")
     if not lines:
         lines.append("No structural flags: sizing, alignment and terms all read clean.")
     # Tax-smart layer: exemption harvesting, loss harvesting, ST→LT deferral.
@@ -1083,7 +1132,12 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     if mnote:
         lines.insert(0, mnote)
     return {"actions": actions[:10], "note": " ".join(lines), "aum": total,
-            "tax": tax, "cash": cash_state,
+            "tax": tax, "cash": cash_state, "rotations": rotations,
+            "leverage_policy": ("This desk will not recommend pledging your holdings or "
+                                "borrowing to invest. Leverage magnifies drawdowns and can "
+                                "force a sale of your shares in a margin call at the worst "
+                                "time — it funds conviction from rotation or fresh cash, "
+                                "never from debt."),
             "results_wait": [{"ticker": a["ticker"], "name": a.get("name"),
                               **a["results_due"]} for a in actions if a.get("hold_for_results")],
             "macro": {k: (macro or {}).get(k) for k in
