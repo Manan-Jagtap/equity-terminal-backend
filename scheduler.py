@@ -480,6 +480,24 @@ def run_macro_refresh():
 # Macro sources — Mondays 05:00 IST (Sun 23:30 UTC), before the week opens
 schedule.every().sunday.at("23:30").do(run_macro_refresh)
 
+
+def run_regulatory_refresh():
+    """Daily pull of the RBI + SEBI RSS feeds (official, public) into the
+    regulatory tracker on the Economy page. Fail-silent."""
+    try:
+        from app.database import SessionLocal
+        from app.regulatory import refresh
+        s = SessionLocal()
+        try:
+            log.info(f"Regulatory feed: {refresh(s)}")
+        finally:
+            s.close()
+    except Exception as e:
+        log.error(f"Regulatory refresh failed: {type(e).__name__}: {e}")
+
+# Regulatory feeds — daily 07:30 IST (02:00 UTC), before the market opens
+schedule.every().day.at("02:00").do(run_regulatory_refresh)
+
 # Weekly full refresh — 6:00am IST Sunday = 00:30 UTC
 schedule.every().sunday.at("00:30").do(run_full)
 

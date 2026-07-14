@@ -36,8 +36,28 @@ valuation updates and stays consistent.
 from __future__ import annotations
 
 # ── Market-wide constants ──────────────────────────────────────────────────
-RISK_FREE: float = 0.069     # India 10Y G-Sec (nominal)
+RISK_FREE: float = 0.069     # fallback; refresh_risk_free() sets the LIVE 10Y
 ERP: float = 0.050           # equity risk premium (see header)
+
+
+def refresh_risk_free(db=None) -> float:
+    """Point RISK_FREE at the LIVE 10-year G-sec from the macro store (RBI
+    DBIE seed + refresh overlay). Called at the top of every valuation
+    recompute, so the whole model suite discounts at today's curve instead of
+    a hardcoded 6.9%. Clamped to a sane band and silently left at the fallback
+    when the store is unreadable — a valuation must never crash on a macro
+    hiccup."""
+    global RISK_FREE
+    try:
+        from app import macro_data
+        pts = macro_data.series(db, macro_data.GSEC_10Y)
+        if pts:
+            rf = pts[-1][1] / 100.0
+            if 0.045 <= rf <= 0.10:
+                RISK_FREE = round(rf, 4)
+    except Exception:
+        pass
+    return RISK_FREE
 
 
 def cost_of_equity(beta: float) -> float:

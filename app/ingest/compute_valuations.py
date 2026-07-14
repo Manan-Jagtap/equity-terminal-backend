@@ -147,6 +147,15 @@ def run(nifty50: bool = False, visible: bool = False):
     from .indianapi_ingester import UNIVERSE, VISIBLE_UNIVERSE
     scope_set = VISIBLE_UNIVERSE if visible else UNIVERSE
 
+    # Discount at today's curve: pull the live 10Y G-sec from the macro store
+    # so every DCF/RI in this run prices off the real risk-free, not a constant.
+    try:
+        from app import sector_params as _sp
+        rf = _sp.refresh_risk_free()
+        print(f"  risk-free set to live 10Y G-sec: {rf*100:.2f}%")
+    except Exception as e:
+        print(f"  (risk-free refresh skipped: {type(e).__name__}: {e})")
+
     if not (nifty50 or visible):
         # Full rebuild: drop & recreate so the schema always matches the model.
         # (create_all/checkfirst only CREATES missing tables — it never ALTERs an

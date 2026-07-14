@@ -46,3 +46,19 @@ def macro_series(slug: str, db: Session = Depends(get_db)):
     cat = macro_data.catalog(db).get(slug, {})
     return {"slug": slug, "name": cat.get("name", slug), "freq": cat.get("freq"),
             "points": [{"date": d, "value": v} for d, v in pts]}
+
+
+@router.get("/regulatory")
+def regulatory_feed(db: Session = Depends(get_db)):
+    """Recent RBI + SEBI regulatory items (official RSS feeds), keyword-tagged
+    by the market surface they touch. Titles + links only — read the circular
+    on the regulator's own site. Refreshed daily; fetched once on cold start."""
+    from app import regulatory
+    data = regulatory.load(db)
+    if not (data.get("items")):
+        try:
+            regulatory.refresh(db)
+            data = regulatory.load(db)
+        except Exception:
+            db.rollback()
+    return data
