@@ -310,6 +310,19 @@ def conviction_add(ev: dict, weights: dict, macro: dict | None) -> tuple[int, li
         reasons.append(f"analyst estimates {'rising' if cat > 0 else 'falling'} "
                        f"({cat*100:+.0f}pp implied-upside revision)")
 
+    cc = ev.get("concall") or {}
+    if cc.get("tone") is not None and abs(cc["tone"]) >= 0.2:
+        c += (4 if cc["tone"] > 0 else -5)
+        reasons.append(f"latest concall tone {'confident' if cc['tone'] > 0 else 'cautious'}"
+                       + (f", guidance {cc['direction']}" if cc.get("direction") in ("up", "down") else ""))
+    ins = ev.get("insider") or {}
+    if ins.get("n_sells", 0) >= 2 and (ins.get("net_qty") or 0) < 0:
+        c -= 6
+        reasons.append(f"insiders net sellers recently ({ins['n_sells']} disposals) — governance watch")
+    elif ins.get("n_buys", 0) >= 2 and (ins.get("net_qty") or 0) > 0:
+        c += 4
+        reasons.append(f"insiders net buyers recently ({ins['n_buys']} acquisitions)")
+
     for nf in (ev.get("news_flags") or [])[:2]:
         c -= 10
         reasons.append(f"news flag: “{nf}” in recent headlines — review before entry")
@@ -399,6 +412,15 @@ def conviction_trim(ev: dict, weight_in_book: float | None,
     if cat is not None and cat <= -0.03:
         c += 3
         reasons.append(f"analyst estimates falling ({cat*100:+.0f}pp implied-upside revision)")
+    cc = ev.get("concall") or {}
+    if cc.get("tone") is not None and cc["tone"] <= -0.2:
+        c += 4
+        reasons.append("latest concall tone cautious"
+                       + (", guidance down" if cc.get("direction") == "down" else ""))
+    ins = ev.get("insider") or {}
+    if ins.get("n_sells", 0) >= 2 and (ins.get("net_qty") or 0) < 0:
+        c += 5
+        reasons.append(f"insiders net sellers recently ({ins['n_sells']} disposals)")
     for nf in (ev.get("news_flags") or [])[:2]:
         c += 6
         reasons.append(f"news flag: “{nf}” in recent headlines")
@@ -649,6 +671,18 @@ def build_evidence(db) -> dict:
     cal = load_calibration(db)
     weights = cal["weights"]
 
+    # Concall tone (from the transcript ingester) + insider (SEBI PIT) flow.
+    try:
+        from app.transcript_ingester import tone_by_ticker
+        transcripts = tone_by_ticker(db)
+    except Exception:
+        transcripts = {}
+    try:
+        from app.nse_sources import insider_by_ticker
+        insiders = insider_by_ticker(db)
+    except Exception:
+        insiders = {}
+
     out: dict[str, dict] = {}
     for cid, co in cos.items():
         tk = (co.ticker or "").upper()
@@ -763,6 +797,8 @@ def build_evidence(db) -> dict:
                         "surprise_pct": sur.get("surprise_pct")},
             "growth": growth,
             "catalyst": catalysts.get(tk),
+            "concall": transcripts.get(tk),
+            "insider": insiders.get(tk),
             "news_flags": news,
             "alpha": (ranked.get(tk) or {}).get("alpha_score"),
             "tri": tri,
@@ -852,6 +888,20 @@ def macro_regime(db) -> dict:
     leaders = [s["sector"] for s in sec_rs[:3]]
     laggards = [s["sector"] for s in sec_rs[-3:]] if len(sec_rs) > 5 else []
 
+    # FII/DII flows (from the NSE feed in the macro store) — a sustained FII
+    # cash-market sell is a market-wide headwind our price data can't see.
+    flows = None
+    try:
+        fii = macro_data.series(db, "fii_net_cr")
+        dii = macro_data.series(db, "dii_net_cr")
+        if fii:
+            fii5 = sum(v for _, v in fii[-5:])
+            flows = {"fii_net_5d_cr": round(fii5),
+                     "dii_net_5d_cr": round(sum(v for _, v in dii[-5:])) if dii else None,
+                     "fii_last": fii[-1][1], "as_of": fii[-1][0]}
+    except Exception:
+        pass
+
     # Commodity tape (live snapshot; context only).
     commodities = []
     try:
@@ -904,7 +954,7 @@ def macro_regime(db) -> dict:
 
     return {"as_of": _dt.datetime.utcnow().isoformat(timespec='seconds') + "Z",
             "breadth_50dma": breadth50, "breadth_200dma": breadth200,
-            "breadth_trend": trend, "vix": vix, "rates": rates,
+            "breadth_trend": trend, "vix": vix, "rates": rates, "flows": flows,
             "nifty": nifty, "sector_rs": sec_rs[:12],
             "rs_leaders": leaders, "rs_laggards": laggards,
             "commodities": commodities, "regime": regime}
@@ -934,6 +984,10 @@ def macro_note(macro: dict) -> str:
     vx = macro.get("vix") or {}
     if vx.get("pctile_1y") is not None and vx["pctile_1y"] >= 80:
         bits.append(f"India VIX {vx['last']} — {vx['pctile_1y']:.0f}th percentile of its year, elevated")
+    fl = macro.get("flows") or {}
+    if fl.get("fii_net_5d_cr") is not None:
+        f5 = fl["fii_net_5d_cr"]
+        bits.append(f"FIIs {'bought' if f5 >= 0 else 'sold'} ₹{abs(f5):,.0f} cr net over 5 sessions")
     rt = macro.get("rates") or {}
     g10 = rt.get("gsec_10y") or {}
     if g10.get("last") is not None:

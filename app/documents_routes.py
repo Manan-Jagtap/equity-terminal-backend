@@ -146,3 +146,17 @@ def transcript_summary(ticker: str, refresh: bool = False, db: Session = Depends
     concalls = (docs or {}).get("concalls") or []
     from app.transcript_nlp import summarize_transcript
     return summarize_transcript(co.name, co.ticker, concalls, force_refresh=refresh)
+
+
+@router.get("/companies/{ticker}/transcript-insight")
+def transcript_insight(ticker: str, db: Session = Depends(get_db)):
+    """Pre-extracted key points from the latest earnings-call transcript —
+    guidance, margins, capex, demand, risks, and a management-tone score.
+    Populated proactively by the daily transcript ingester (free, rule-based);
+    returns available=False when no transcript has been processed yet."""
+    from app import transcript_ingester
+    data = transcript_ingester.load(db, ticker)
+    if not data:
+        return {"ticker": ticker.upper(), "available": False,
+                "message": "No processed transcript yet — the ingester runs daily."}
+    return {"available": True, **data}

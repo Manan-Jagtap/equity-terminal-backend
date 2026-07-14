@@ -206,3 +206,24 @@ async def macro_upload(file: UploadFile = File(...),
         return ingest_dbie_xlsx(db, BytesIO(blob))
     except Exception as e:
         raise HTTPException(400, f"Could not parse workbook: {type(e).__name__}: {e}")
+
+
+@router.post("/ingest/transcripts")
+def ingest_transcripts(limit: int = 40, llm: bool = False,
+                       _admin: models.User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    """On-demand concall-transcript ingestion (the nightly job otherwise)."""
+    from app.transcript_ingester import ingest_universe
+    return ingest_universe(db, limit=limit, with_llm=llm)
+
+
+@router.post("/ingest/nse-flows")
+def ingest_nse_flows(insider_limit: int = 60,
+                     _admin: models.User = Depends(require_admin),
+                     db: Session = Depends(get_db)):
+    """On-demand NSE FII/DII + insider-trade refresh (the nightly job otherwise)."""
+    from app.nse_sources import fetch_fii_dii, fetch_insider_trades
+    from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+    fii = fetch_fii_dii(db)
+    ins = fetch_insider_trades(db, list(VISIBLE_UNIVERSE), limit=insider_limit)
+    return {"fii_dii_points": fii, "insider_names": ins}

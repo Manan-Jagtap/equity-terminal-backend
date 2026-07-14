@@ -498,6 +498,48 @@ def run_regulatory_refresh():
 # Regulatory feeds — daily 07:30 IST (02:00 UTC), before the market opens
 schedule.every().day.at("02:00").do(run_regulatory_refresh)
 
+
+def run_nse_flows():
+    """Daily NSE feeds: FII/DII cash-market flows (→ macro store) and insider
+    (SEBI PIT) trades for the visible universe (→ governance signal)."""
+    try:
+        from app.database import SessionLocal
+        from app.nse_sources import fetch_fii_dii, fetch_insider_trades
+        from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+        s = SessionLocal()
+        try:
+            log.info(f"NSE FII/DII: {fetch_fii_dii(s)} points")
+            log.info(f"NSE insider: {fetch_insider_trades(s, list(VISIBLE_UNIVERSE))} names")
+        finally:
+            s.close()
+    except Exception as e:
+        log.error(f"NSE flows failed: {type(e).__name__}: {e}")
+
+# NSE flows — daily 08:00 IST (02:30 UTC)
+schedule.every().day.at("02:30").do(run_nse_flows)
+
+
+def run_transcript_ingest():
+    """Daily concall-transcript ingestion over a bounded slice of the book, so
+    the whole universe's key points refresh within a week. LLM narrative on
+    only when ANTHROPIC_API_KEY is set; the rule-based extractor always runs."""
+    try:
+        import os
+        from app.database import SessionLocal
+        from app.transcript_ingester import ingest_universe
+        s = SessionLocal()
+        try:
+            with_llm = bool(os.getenv("ANTHROPIC_API_KEY", "").strip()) and \
+                os.getenv("TRANSCRIPT_LLM", "false").strip().lower() in ("1", "true", "yes")
+            log.info(f"Transcript ingest: {ingest_universe(s, limit=150, with_llm=with_llm)}")
+        finally:
+            s.close()
+    except Exception as e:
+        log.error(f"Transcript ingest failed: {type(e).__name__}: {e}")
+
+# Transcript ingestion — daily 06:30 IST (01:00 UTC), off-peak
+schedule.every().day.at("01:00").do(run_transcript_ingest)
+
 # Weekly full refresh — 6:00am IST Sunday = 00:30 UTC
 schedule.every().sunday.at("00:30").do(run_full)
 

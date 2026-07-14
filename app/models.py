@@ -451,3 +451,23 @@ class EngineCall(Base):
     quality     = Column(Float, nullable=True)
     suspect     = Column(Integer, nullable=True)                   # 1/0
     __table_args__ = (UniqueConstraint("date", "ticker", name="uq_engine_call"),)
+
+
+class TranscriptInsight(Base):
+    """Extracted key points from a company's latest earnings-call transcript.
+    Populated proactively by app/transcript_ingester.py — the transcript PDF is
+    fetched, its text parsed, and structured pointers (guidance, margins, capex,
+    demand, risks) pulled by a deterministic rule-based extractor (always-on,
+    free) plus an optional LLM narrative when ANTHROPIC_API_KEY is set. Keyed
+    one-row-per-company (latest call); `source_url` dedupes re-processing."""
+    __tablename__ = "transcript_insights"
+    id           = Column(Integer, primary_key=True)
+    company_id   = Column(Integer, ForeignKey("companies.id"), unique=True, nullable=False, index=True)
+    ticker       = Column(String(24), nullable=False, index=True)
+    quarter      = Column(String(24), nullable=True)      # e.g. "May 2026"
+    source_url   = Column(String, nullable=True)          # transcript URL processed
+    tone_score   = Column(Float, nullable=True)           # -1..+1 (cautious..confident)
+    points       = Column(JSON, nullable=False, default=dict)   # {guidance:[], risks:[], ...}
+    llm_summary  = Column(String, nullable=True)          # optional narrative
+    char_count   = Column(Integer, nullable=True)
+    processed_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
