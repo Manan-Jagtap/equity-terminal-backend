@@ -84,6 +84,15 @@ never manufactures certainty. Honesty is the moat.
       DBIE export at POST /api/admin/macro/upload.
 - [x] **DONE — India VIX** (via the Dhan index series, if carried; verified
       at runtime): elevated VIX (>90th pctile of its year) blocks risk_on.
+- [x] **DONE — Economy dashboard + activity indicators.** The 148-series RBI
+      DBIE store is now a public Economy page (GET /api/macro). BCG-style
+      high-frequency activity indicators (GST collections, e-way bills, PMI
+      mfg/svc, peak power demand, auto sales, UPI) are wired to their PRIMARY
+      publishers (GSTN, S&P Global, Grid India, SIAM, NPCI), env-configurable,
+      shown as "awaiting source" until a real feed backs them — never scraped
+      from a third-party proprietary monitor, never fabricated.
+- [ ] **NEXT — Feed the activity indicators into the regime read** once a
+      source is live (GST/e-way/power are the fastest leading indicators).
 
 ## 6. Calibration — the honest "training"
 
