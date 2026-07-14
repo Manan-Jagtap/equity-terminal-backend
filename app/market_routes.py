@@ -143,13 +143,35 @@ def _to_universe(row) -> str | None:
 
 
 # Curated, ordered set of headline indices for the dashboard strip.
-# NSE indices only — SENSEX is BSE and the Dhan NSE master can't resolve it,
-# so it rendered as a permanently blank card.
+# NSE indices come from the Dhan live snapshot; BSE indices (SENSEX etc.) have
+# no Dhan NSE-master mapping, so they're pulled from IndianAPI's /indices with
+# exchange=BSE and shown with their vendor price/percentChange. Any index no
+# feed returns is simply dropped (no blank cards — owner directive).
 KEY_INDICES = [
     "NIFTY 50", "NIFTY Bank", "NIFTY Next 50", "NIFTY IT",
     "NIFTY Auto", "NIFTY Pharma", "NIFTY FMCG", "NIFTY Metal",
     "NIFTY FINANCIAL SERVICES", "NIFTY Midcap 100", "India VIX",
 ]
+KEY_BSE_INDICES = [
+    "SENSEX", "BSE Bankex", "BSE SENSEX 50", "BSE 100",
+    "BSE MidCap", "BSE SmallCap", "BSE Auto", "BSE IT",
+    "BSE Healthcare", "BSE FMCG", "BSE Oil & Gas", "BSE Realty",
+]
+
+
+def _bse_index_rows() -> dict:
+    """{normalized_name: vendor_row} for BSE indices from IndianAPI's analyst
+    /indices?exchange=BSE. Empty (and silent) when the host doesn't carry it."""
+    out = {}
+    try:
+        data = _get_analyst("/indices", {"exchange": "BSE"})
+        rows = data if isinstance(data, list) else ((data or {}).get("indices") or [])
+        for it in rows:
+            if isinstance(it, dict):
+                out.setdefault(" ".join(str(it.get("name") or "").upper().split()), it)
+    except Exception:
+        pass
+    return out
 
 
 def _indices():
@@ -182,10 +204,23 @@ def _indices():
         if price is None:
             continue     # no feed has it → no blank card (owner directive)
         out.append({
-            "name": nm, "price": price,
+            "name": nm, "price": price, "exchange": "NSE",
             "pct":   _num((vd or {}).get("percentChange")),
             "net":   _num((vd or {}).get("netChange")),
             "date":  (vd or {}).get("date"), "time": (vd or {}).get("time"),
+        })
+    # BSE indices (SENSEX et al.) — vendor-priced, appended after the NSE set.
+    bse = _bse_index_rows()
+    for nm in KEY_BSE_INDICES:
+        vd = bse.get(" ".join(nm.upper().split()))
+        price = _num((vd or {}).get("price"))
+        if price is None:
+            continue
+        out.append({
+            "name": nm, "price": price, "exchange": "BSE",
+            "pct":   _num(vd.get("percentChange")),
+            "net":   _num(vd.get("netChange")),
+            "date":  vd.get("date"), "time": vd.get("time"),
         })
     return out
 
