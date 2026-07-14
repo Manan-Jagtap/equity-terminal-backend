@@ -148,6 +148,20 @@ def transcript_summary(ticker: str, refresh: bool = False, db: Session = Depends
     return summarize_transcript(co.name, co.ticker, concalls, force_refresh=refresh)
 
 
+@router.get("/companies/{ticker}/scorecard")
+def company_scorecard(ticker: str, db: Session = Depends(get_db)):
+    """Per-stock scorecard: five sub-scores (valuation, quality, growth,
+    momentum, safety) + an overall grade + auto red/green flags — a synthesis
+    of the Fund Manager v4 evidence for this name. Returns available=False when
+    the nightly evidence build hasn't covered it."""
+    from app.manager_engine import load_evidence
+    from app.scorecard import build_scorecard
+    ev = ((load_evidence(db) or {}).get("names") or {}).get(ticker.upper())
+    sc = build_scorecard(ev or {})
+    sc["ticker"] = ticker.upper()
+    return sc
+
+
 @router.get("/companies/{ticker}/transcript-insight")
 def transcript_insight(ticker: str, db: Session = Depends(get_db)):
     """Pre-extracted key points from the latest earnings-call transcript —
