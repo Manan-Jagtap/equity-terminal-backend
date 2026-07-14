@@ -93,6 +93,16 @@ never manufactures certainty. Honesty is the moat.
       from a third-party proprietary monitor, never fabricated.
 - [ ] **NEXT — Feed the activity indicators into the regime read** once a
       source is live (GST/e-way/power are the fastest leading indicators).
+- [x] **DONE — Regulatory radar.** RBI (press + notifications) and SEBI RSS
+      feeds pulled daily, keyword-tagged by market surface, public at
+      GET /api/macro/regulatory and on the Economy page. Official sources
+      only; titles + links, never reproduced content.
+- [x] **DONE — DCF discounts at the live curve.** sector_params.RISK_FREE now
+      refreshes from the latest 10Y G-sec at every valuation recompute
+      (6.72% today vs the old hardcoded 6.9%); clamped, silent fallback,
+      parity contract untouched.
+- [x] **DONE — Click-to-expand history charts** for every Economy indicator
+      (1Y/3Y/5Y/MAX, full DBIE depth).
 
 ## 6. Calibration — the honest "training"
 
