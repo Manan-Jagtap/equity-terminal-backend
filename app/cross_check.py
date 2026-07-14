@@ -51,9 +51,18 @@ def check_row(row: dict, today: _dt.date | None = None) -> dict:
                       "message": f"Live price is {snap_age}d old — screener marks are stale"})
 
     gap = None
+    # Only compare prices from the SAME trading day. During market hours the
+    # live snapshot is today's price while the Dhan history still holds
+    # yesterday's close (the EOD backfill catches up after the bell) — comparing
+    # those two just measures today's move, not a vendor divergence. Requiring
+    # snapshot_date == hist_date removes that whole class of false positives
+    # while still catching genuine same-day, split-shaped mismatches.
+    same_day = (row.get("snapshot_date") and row.get("hist_date")
+                and row["snapshot_date"] == row["hist_date"])
     both_fresh = (row.get("hist_close") and row.get("snapshot_price")
                   and hist_age is not None and hist_age <= HIST_STALE_DAYS
-                  and snap_age is not None and snap_age <= SNAP_STALE_DAYS)
+                  and snap_age is not None and snap_age <= SNAP_STALE_DAYS
+                  and same_day)
     if both_fresh:
         gap = row["snapshot_price"] / row["hist_close"] - 1.0
         if abs(gap) > DIVERGE_ALERT:
