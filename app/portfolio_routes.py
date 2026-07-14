@@ -917,10 +917,31 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
                      f"it was set aside rather than trusted.")
     if not lines:
         lines.append("No structural flags: sizing, alignment and terms all read clean.")
+    # Tax-smart layer: exemption harvesting, loss harvesting, ST→LT deferral.
+    from app.tax_advisor import tax_plan, tax_note, estimate_tax
+    tax = tax_plan(items)
+    tnote = tax_note(tax)
+    if tnote:
+        lines.append(tnote)
+    # After-tax proceeds on each trim/exit the manager proposes.
+    exemption_left = tax.get("ltcg_exemption_usable") is not None and 125000.0 or 125000.0
+    by_tk = {i["ticker"]: i for i in live}
+    for a in actions:
+        if a["action"].startswith("REVIEW") and a.get("size_inr"):
+            it = by_tk.get(a["ticker"])
+            if it and it.get("value") and it.get("pnl") is not None and it.get("term"):
+                frac = min(1.0, a["size_inr"] / it["value"]) if it["value"] else 0
+                gain = it["pnl"] * frac
+                t = estimate_tax(gain, it["term"], exemption_left if it["term"] == "long" else 0)
+                a["tax_estimate"] = t
+                a["after_tax_inr"] = round(a["size_inr"] - max(0, t))
+                if it["term"] == "long" and gain > 0:
+                    exemption_left = max(0, exemption_left - gain)
     mnote = macro_note(macro or {})
     if mnote:
         lines.insert(0, mnote)
     return {"actions": actions[:10], "note": " ".join(lines), "aum": total,
+            "tax": tax,
             "macro": {k: (macro or {}).get(k) for k in
                       ("regime", "breadth_200dma", "breadth_50dma", "breadth_trend",
                        "vix", "rates", "nifty", "rs_leaders", "rs_laggards", "commodities",

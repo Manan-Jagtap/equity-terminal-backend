@@ -274,7 +274,14 @@ def conviction_add(ev: dict, weights: dict, macro: dict | None) -> tuple[int, li
     comp = q.get("composite")
     if comp is not None:
         c += (comp - 50.0) / 50.0 * 20 * weights.get("quality", .22) / 0.22
-        if comp >= 70:
+        # Long-term lens: a high forensic composite with clean flags is a
+        # business that's strong INSIDE (cash-backed earnings, low leverage,
+        # improving Piotroski), not just optically cheap — a durable hold.
+        if comp >= 75 and not (q.get("red_flags")):
+            c += 4
+            reasons.append(f"fundamentally strong inside and out — accounting quality "
+                           f"{comp:.0f}/100, cash-backed earnings; suits a long-term compounding hold")
+        elif comp >= 70:
             reasons.append(f"accounting quality {comp:.0f}/100 ({q.get('grade') or 'clean'})")
     for f in (q.get("red_flags") or [])[:2]:
         c -= 8
