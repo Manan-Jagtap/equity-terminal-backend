@@ -1,6 +1,11 @@
 """
-app/onepager.py — Simplified robust PDF one-pager using ReportLab.
-Uses only built-in fonts (Helvetica) to avoid font registration issues on Railway.
+app/onepager.py — institutional one-page equity brief (ReportLab, LIGHT theme).
+
+A clean, printable research sheet: header + verdict, a metric snapshot, the
+5-year P&L, key ratios, the per-stock scorecard, the valuation summary, and an
+honest bull / watch thesis derived from THIS company's own scorecard flags
+(never hardcoded). Built-in Helvetica only, so it renders identically on
+Railway. Every figure traces to the same engine the app shows.
 """
 from __future__ import annotations
 import io
@@ -10,82 +15,71 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 
 W, H = A4
+M = 34                      # page margin
 
-INK   = colors.HexColor("#0a0907")
-GOLD  = colors.HexColor("#d4a93e")
-TEXT  = colors.HexColor("#dcd5c1")
-DIM   = colors.HexColor("#857d65")
-GREEN = colors.HexColor("#5a8f5a")
-RED   = colors.HexColor("#a85148")
-PANEL = colors.HexColor("#181510")
-LINE  = colors.HexColor("#2c2820")
-WHITE = colors.white
+# ── light palette ────────────────────────────────────────────────────────────
+PAPER = colors.white
+INK   = colors.HexColor("#141719")     # near-black text
+HEAD  = colors.HexColor("#0f766e")     # deep teal accent (section heads, name)
+MUTE  = colors.HexColor("#6b7280")     # grey labels
+FAINT = colors.HexColor("#9aa2ad")
+GREEN = colors.HexColor("#15803d")
+RED   = colors.HexColor("#b91c1c")
+AMBER = colors.HexColor("#b45309")
+PANEL = colors.HexColor("#f4f6f7")     # light strip fill
+PANEL2= colors.HexColor("#eef1f2")
+LINE  = colors.HexColor("#e3e7ea")
 
 
 def _fc(n, d=0):
-    if n is None: return "—"
-    if abs(n) >= 1e5: return f"{n/1e5:.2f} L Cr"
+    if n is None:
+        return "—"
+    if abs(n) >= 1e5:
+        return f"{n/1e5:,.2f}L"
     return f"{n:,.{d}f}"
 
-def _fp(n, d=1):
-    if n is None: return "—"
-    return f"{float(n):.{d}f}%"
 
-def _finr(n, d=0):
-    if n is None: return "—"
-    return f"Rs{float(n):,.{d}f}"
+def _pct(n, d=1):
+    return "—" if n is None else f"{float(n):.{d}f}%"
+
+
+def _verdict_color(v):
+    v = (v or "").upper()
+    if v in ("BUY", "ACCUMULATE", "ACCUM"):
+        return GREEN
+    if v in ("SELL", "REDUCE", "TRIM"):
+        return RED
+    return AMBER
+
+
+def _thesis(co, rec, metrics, scorecard):
+    """Honest bull / watch bullets for THIS name — from the scorecard's own
+    green/red flags plus the model verdict. Never hardcoded per-sector text."""
+    sc = scorecard or {}
+    bulls = [("+", g) for g in (sc.get("green_flags") or [])][:4]
+    risks = [("!", r) for r in (sc.get("red_flags") or [])][:4]
+    mos = (rec or {}).get("mos")
+    verdict = (rec or {}).get("verdict")
+    if mos is not None and not any("margin of safety" in b[1].lower() for b in bulls):
+        line = f"Model verdict {verdict}: {mos*100:+.0f}% margin of safety vs the independent fair value."
+        (bulls if mos > 0 else risks).insert(0, ("+" if mos > 0 else "!", line))
+    if not bulls and not risks:
+        bulls = [("+", "Valuation, quality and momentum read within normal ranges — no structural flags.")]
+    return bulls, risks
 
 
 def build_onepager(co, market: dict, financials: dict, metrics: dict,
-                   intrinsic: float | None = None, thesis: str | None = None) -> bytes:
+                   intrinsic: float | None = None, thesis: str | None = None,
+                   rec: dict | None = None, scorecard: dict | None = None) -> bytes:
     buf = io.BytesIO()
-    c   = canvas.Canvas(buf, pagesize=A4)
+    c = canvas.Canvas(buf, pagesize=A4)
     c.setTitle(f"{co.name} — Equity Research One-Pager")
+    c.setFillColor(PAPER); c.rect(0, 0, W, H, fill=1, stroke=0)
 
-    # Background
-    c.setFillColor(INK)
-    c.rect(0, 0, W, H, fill=1, stroke=0)
-
-    y = H - 8
-
-    # Gold top bar
-    c.setFillColor(GOLD)
-    c.rect(0, y - 2, W, 2, fill=1, stroke=0)
-    y -= 4
-
-    # Company name
-    c.setFillColor(TEXT)
-    c.setFont("Helvetica-Bold", 22)
-    c.drawString(15, y - 18, co.name)
-
-    c.setFont("Helvetica", 8)
-    c.setFillColor(DIM)
-    c.drawString(15, y - 28, f"{co.ticker}  ·  {co.sector}  ·  {getattr(co,'template_code','')}")
-
-    # Price
     price = market.get("price", 0) or 0
-    chg   = market.get("chgPct", 0) or 0
-    c.setFont("Helvetica-Bold", 24)
-    c.setFillColor(TEXT)
-    c.drawRightString(W - 15, y - 16, f"Rs{price:,.1f}")
-    c.setFont("Helvetica", 9)
-    c.setFillColor(GREEN if chg >= 0 else RED)
-    c.drawRightString(W - 15, y - 26, f"{'+' if chg>=0 else ''}{chg:.2f}%")
-    c.setFont("Helvetica", 7)
-    c.setFillColor(DIM)
-    c.drawRightString(W - 15, y - 34, f"As of {datetime.today().strftime('%d %b %Y')}  |  All figures Rs Crore")
-
-    y -= 42
-
-    # Separator
-    c.setStrokeColor(LINE)
-    c.setLineWidth(0.5)
-    c.line(10, y, W - 10, y)
-    y -= 4
-
-    # Snapshot strip
-    mcap = market.get("mcapCr") or (price * getattr(co, "shares_outstanding", 40))
-    mos  = ((intrinsic - price) / price * 100) if intrinsic and price else None
+    chg = market.get("chgPct", 0) or 0
+    mos = ((intrinsic - price) / price * 100) if intrinsic and price else None
+    verdict = (rec or {}).get("verdict") or ("ACCUM" if mos and mos > 10 else "REDUCE" if mos and mos < -10 else "HOLD")
 
     def get_m(key):
         for cat in (metrics.get("categories") or []):
@@ -94,199 +88,181 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
                     return m.get("value")
         return None
 
-    stats = [
-        ("Market Cap",    f"Rs{_fc(mcap)}"),
-        ("P/E (TTM)",     f"{(get_m('pe_ratio') or 0):.1f}x" if get_m('pe_ratio') else "—"),
-        ("P/B",           f"{(get_m('pb_ratio') or 0):.2f}x" if get_m('pb_ratio') else "—"),
-        ("ROE",           _fp((get_m('roe') or 0)*100) if get_m('roe') else "—"),
-        ("ROA",           _fp((get_m('roa') or 0)*100) if get_m('roa') else "—"),
-        ("NIM",           _fp((get_m('nim_metric') or 0)*100) if get_m('nim_metric') else "—"),
-        ("GNPA",          _fp((get_m('gnpa_pct') or 0)*100, 2) if get_m('gnpa_pct') else "—"),
-        ("CRAR",          _fp((get_m('crar_metric') or 0)*100) if get_m('crar_metric') else "—"),
-        ("Intrinsic",     _finr(intrinsic) if intrinsic else "—"),
-        ("MoS",           f"{mos:+.1f}%" if mos is not None else "—"),
-        ("Verdict",       "TRIM" if mos and mos < -10 else "ACCUM" if mos and mos > 10 else "HOLD"),
+    def head(y, title, x=M, x2=W - M):
+        c.setFillColor(HEAD); c.setFont("Helvetica-Bold", 8.5)
+        c.drawString(x, y, title.upper())
+        c.setStrokeColor(LINE); c.setLineWidth(0.6); c.line(x, y - 4, x2, y - 4)
+        return y - 15
+
+    # ── Header ───────────────────────────────────────────────────────────────
+    y = H - M
+    c.setFillColor(HEAD); c.rect(0, H - 4, W, 4, fill=1, stroke=0)
+    c.setFillColor(INK); c.setFont("Helvetica-Bold", 21)
+    c.drawString(M, y - 16, co.name[:44])
+    c.setFillColor(MUTE); c.setFont("Helvetica", 8.5)
+    cap = "Large Cap" if (market.get("mcapCr") or 0) >= 67000 else "Mid Cap" if (market.get("mcapCr") or 0) >= 22000 else "Small Cap"
+    c.drawString(M, y - 28, f"{co.ticker}   ·   {co.sector}   ·   {cap}")
+    c.setFillColor(INK); c.setFont("Helvetica-Bold", 22)
+    c.drawRightString(W - M, y - 15, f"Rs {price:,.1f}")
+    c.setFillColor(GREEN if chg >= 0 else RED); c.setFont("Helvetica", 9)
+    c.drawRightString(W - M, y - 27, f"{'+' if chg >= 0 else ''}{chg:.2f}%")
+    c.setFillColor(FAINT); c.setFont("Helvetica", 6.5)
+    c.drawRightString(W - M, y - 36, f"As of {datetime.today().strftime('%d %b %Y')}  ·  Rs Crore")
+    y -= 46
+
+    # ── Verdict band ─────────────────────────────────────────────────────────
+    bh = 34
+    c.setFillColor(PANEL); c.roundRect(M, y - bh, W - 2 * M, bh, 5, fill=1, stroke=0)
+    vc = _verdict_color(verdict)
+    c.setFillColor(vc); c.setFont("Helvetica-Bold", 17)
+    c.drawString(M + 12, y - 22, verdict.upper())
+    cells = [
+        ("FAIR VALUE", f"Rs {intrinsic:,.0f}" if intrinsic else "—", INK),
+        ("MARGIN OF SAFETY", f"{mos:+.1f}%" if mos is not None else "—", GREEN if (mos or 0) > 0 else RED),
+        ("COMPOSITE", f"{(rec or {}).get('composite'):.0f}/100" if (rec or {}).get("composite") is not None else "—", INK),
+        ("SCORECARD", f"{scorecard.get('grade')} · {scorecard.get('overall'):.0f}" if (scorecard or {}).get("overall") is not None else "—", INK),
     ]
+    cw = (W - 2 * M - 130) / len(cells)
+    for i, (lb, vl, col) in enumerate(cells):
+        x = M + 130 + i * cw
+        c.setFillColor(MUTE); c.setFont("Helvetica", 6.2); c.drawString(x, y - 11, lb)
+        c.setFillColor(col); c.setFont("Helvetica-Bold", 12); c.drawString(x, y - 25, vl)
+    y -= bh + 14
 
-    strip_h = 16
-    col_w   = (W - 20) / len(stats)
-    c.setFillColor(PANEL)
-    c.rect(10, y - strip_h, W - 20, strip_h, fill=1, stroke=0)
+    # ── Metric snapshot ──────────────────────────────────────────────────────
+    is_fin = financials.get("is_financial", False)
+    snap = [("Mkt Cap", f"Rs {_fc(market.get('mcapCr'))}"),
+            ("P/E", f"{get_m('pe_ratio'):.1f}x" if get_m('pe_ratio') else "—"),
+            ("P/B", f"{get_m('pb_ratio'):.2f}x" if get_m('pb_ratio') else "—"),
+            ("ROE", _pct((get_m('roe') or 0) * 100) if get_m('roe') else "—"),
+            ("ROA", _pct((get_m('roa') or 0) * 100) if get_m('roa') else "—")]
+    snap += ([("NIM", _pct((get_m('nim_metric') or 0) * 100) if get_m('nim_metric') else "—"),
+              ("GNPA", _pct((get_m('gnpa_pct') or 0) * 100, 2) if get_m('gnpa_pct') else "—")]
+             if is_fin else
+             [("EBITDA %", _pct((get_m('ebitda_margin') or 0) * 100) if get_m('ebitda_margin') else "—"),
+              ("D/E", f"{get_m('leverage_ratio'):.2f}x" if get_m('leverage_ratio') else "—")])
+    sh = 26
+    c.setFillColor(PANEL2); c.roundRect(M, y - sh, W - 2 * M, sh, 4, fill=1, stroke=0)
+    scw = (W - 2 * M) / len(snap)
+    for i, (lb, vl) in enumerate(snap):
+        x = M + i * scw + scw / 2
+        c.setFillColor(MUTE); c.setFont("Helvetica", 6.2); c.drawCentredString(x, y - 10, lb.upper())
+        c.setFillColor(INK); c.setFont("Helvetica-Bold", 10); c.drawCentredString(x, y - 21, vl)
+        if i:
+            c.setStrokeColor(LINE); c.setLineWidth(0.4); c.line(M + i * scw, y - sh + 5, M + i * scw, y - 5)
+    y -= sh + 16
 
-    for i, (label, value) in enumerate(stats):
-        x = 10 + i * col_w + col_w / 2
-        c.setFont("Helvetica", 6)
-        c.setFillColor(DIM)
-        c.drawCentredString(x, y - 6, label.upper())
-        if label in ("Verdict","MoS","ROE"):
-            c.setFillColor(GREEN if (label=="ROE" or (mos and mos>0)) else RED)
-        else:
-            c.setFillColor(TEXT)
-        c.setFont("Helvetica-Bold", 8)
-        c.drawCentredString(x, y - 13, value)
+    # ── Two columns: left = P&L + ratios, right = scorecard + valuation ──────
+    colL, colR = M, W / 2 + 8
+    halfW = W / 2 - M - 8
+    yL = yR = y
 
-    y -= strip_h + 6
-    c.setStrokeColor(LINE); c.setLineWidth(0.3)
-    c.line(10, y, W - 10, y)
-    y -= 8
-
-    # Financials table
-    c.setFont("Helvetica-Bold", 8)
-    c.setFillColor(GOLD)
-    c.drawString(15, y, "FINANCIAL HIGHLIGHTS")
-    c.setFont("Helvetica", 7); c.setFillColor(DIM)
-    c.drawRightString(W - 15, y, "Rs Crore")
-    y -= 4
-
-    stmts    = financials.get("statements") or {}
-    years    = sorted(stmts.keys())[-5:]
-    is_fin   = financials.get("is_financial", True)
-
-    if is_fin:
-        rows_def = [("Interest Income","interest_income","revenue"),
-                    ("NII","nii",None),("Provisions","provisions",None),
-                    ("PAT","pat",None)]
-    else:
-        rows_def = [("Revenue","revenue",None),("EBITDA","ebitda",None),
-                    ("EBIT","ebit",None),("PAT","pat",None)]
-
-    col0 = 38; coln = (W - 20 - col0) / max(len(years), 1) if years else 25
-    row_h = 7
-
-    # Header
-    c.setFillColor(PANEL)
-    c.rect(10, y - row_h, W - 20, row_h, fill=1, stroke=0)
-    c.setFont("Helvetica", 6); c.setFillColor(DIM)
-    c.drawString(13, y - 5, "")
-    for j, yr in enumerate(years):
-        c.drawRightString(10 + col0 + (j+1)*coln - 2, y - 5, str(yr))
-    y -= row_h
-
-    for label, k1, k2 in rows_def:
-        is_bold = label == "PAT"
-        bg = colors.HexColor("#211d17") if is_bold else INK
-        c.setFillColor(bg)
-        c.rect(10, y - row_h, W - 20, row_h, fill=1, stroke=0)
-        c.setFont("Helvetica-Bold" if is_bold else "Helvetica", 7)
-        c.setFillColor(TEXT if is_bold else DIM)
-        c.drawString(13, y - 5, label)
-        for j, yr in enumerate(years):
-            pl  = (stmts.get(yr) or stmts.get(str(yr)) or {}).get("PL", {})
+    # LEFT — financial highlights
+    yL = head(yL, "Financial Highlights", x=colL, x2=colL + halfW)
+    stmts = financials.get("statements") or {}
+    years = sorted(stmts.keys())[-5:]
+    rowsdef = ([("Interest Inc.", "interest_income", "revenue"), ("NII", "nii", None),
+                ("PAT", "pat", None)] if is_fin else
+               [("Revenue", "revenue", None), ("EBITDA", "ebitda", None),
+                ("EBIT", "ebit", None), ("PAT", "pat", None)])
+    yc = halfW / (len(years) + 1.4)
+    c.setFont("Helvetica", 6); c.setFillColor(MUTE)
+    for j, yr in enumerate(reversed(years)):
+        c.drawRightString(colL + halfW - j * yc, yL, f"FY{str(yr)[-2:]}")
+    yL -= 10
+    for lbl, k1, k2 in rowsdef:
+        bold = lbl == "PAT"
+        c.setFont("Helvetica-Bold" if bold else "Helvetica", 7.5)
+        c.setFillColor(INK if bold else MUTE); c.drawString(colL, yL, lbl)
+        for j, yr in enumerate(reversed(years)):
+            pl = (stmts.get(yr) or stmts.get(str(yr)) or {}).get("PL", {})
             val = pl.get(k1) or (pl.get(k2) if k2 else None)
-            c.setFillColor(GOLD if (is_bold and j == len(years)-1) else TEXT)
-            c.drawRightString(10 + col0 + (j+1)*coln - 2, y - 5, _fc(val) if val is not None else "—")
-        y -= row_h
+            c.setFillColor(HEAD if (bold and j == 0) else INK)
+            c.setFont("Helvetica-Bold" if bold else "Helvetica", 7.5)
+            c.drawRightString(colL + halfW - j * yc, yL, _fc(val))
+        yL -= 11
+    yL -= 6
 
-    c.setStrokeColor(LINE); c.line(10, y, W - 10, y)
-    y -= 8
-
-    # Key ratios grid
-    c.setFont("Helvetica-Bold", 8); c.setFillColor(GOLD)
-    c.drawString(15, y, "KEY RATIOS")
-    y -= 4
-
-    ratios = [
-        ("PAT Growth YoY", get_m("pat_growth_yoy"), lambda v: f"{v*100:+.1f}%"),
-        ("PAT CAGR 3Y",    get_m("pat_cagr_3y"),    lambda v: f"{v*100:.1f}%"),
-        ("ROE",            get_m("roe"),             lambda v: f"{v*100:.1f}%"),
-        ("ROA",            get_m("roa"),             lambda v: f"{v*100:.1f}%"),
-        ("NIM",            get_m("nim_metric"),      lambda v: f"{v*100:.1f}%"),
-        ("GNPA",           get_m("gnpa_pct"),        lambda v: f"{v*100:.2f}%"),
-        ("EPS",            get_m("eps"),             lambda v: f"Rs{v:.1f}"),
-        ("P/E",            get_m("pe_ratio"),        lambda v: f"{v:.1f}x"),
-        ("P/B",            get_m("pb_ratio"),        lambda v: f"{v:.2f}x"),
-        ("P/AUM",          get_m("p_aum"),           lambda v: f"{v*100:.1f}%"),
-        ("Earnings Yield", get_m("earnings_yield"),  lambda v: f"{v*100:.1f}%"),
-        ("Leverage",       get_m("leverage_ratio"),  lambda v: f"{v:.2f}x"),
-    ]
-
-    cols = 4; col_rw = (W - 20) / cols; rrow_h = 9
-    for i, (label, val, fmt) in enumerate(ratios):
-        col = i % cols; row = i // cols
-        x   = 10 + col * col_rw; yy = y - row * rrow_h
-        c.setFillColor(PANEL)
-        c.rect(x + 0.5, yy - rrow_h + 0.5, col_rw - 1, rrow_h - 1, fill=1, stroke=0)
-        c.setFont("Helvetica", 6); c.setFillColor(DIM)
-        c.drawString(x + 2, yy - 4, label)
-        c.setFont("Helvetica-Bold", 7.5); c.setFillColor(TEXT)
+    # LEFT — key ratios grid (2 cols)
+    yL = head(yL, "Key Ratios", x=colL, x2=colL + halfW)
+    ratios = [("PAT CAGR 3Y", get_m("pat_cagr_3y"), lambda v: f"{v*100:.1f}%"),
+              ("PAT Growth", get_m("pat_growth_yoy"), lambda v: f"{v*100:+.1f}%"),
+              ("ROCE", get_m("roce"), lambda v: f"{v*100:.1f}%"),
+              ("EPS", get_m("eps"), lambda v: f"Rs {v:.1f}"),
+              ("Earnings Yld", get_m("earnings_yield"), lambda v: f"{v*100:.1f}%"),
+              ("Div Yield", get_m("dividend_yield"), lambda v: f"{v*100:.1f}%")]
+    gw = halfW / 2
+    for i, (lb, val, fmt) in enumerate(ratios):
+        col, row = i % 2, i // 2
+        x = colL + col * gw; yy = yL - row * 13
         try:
-            display = fmt(float(val)) if val is not None else "—"
+            disp = fmt(float(val)) if val is not None else "—"
         except Exception:
-            display = "—"
-        c.drawString(x + 2, yy - 8, display)
+            disp = "—"
+        c.setFillColor(MUTE); c.setFont("Helvetica", 6.5); c.drawString(x, yy, lb)
+        c.setFillColor(INK); c.setFont("Helvetica-Bold", 8); c.drawString(x + gw - 40, yy, disp)
+    yL -= ((len(ratios) + 1) // 2) * 13 + 4
 
-    y -= ((len(ratios) + cols - 1) // cols) * rrow_h + 6
-    c.setStrokeColor(LINE); c.line(10, y, W - 10, y)
-    y -= 8
+    # RIGHT — scorecard bars
+    if scorecard and scorecard.get("scores"):
+        yR = head(yR, "Stock Scorecard", x=colR, x2=colR + halfW)
+        for key in ("valuation", "quality", "growth", "momentum", "safety"):
+            s = (scorecard["scores"].get(key) or {}).get("value")
+            c.setFillColor(MUTE); c.setFont("Helvetica", 7); c.drawString(colR, yR, key.title())
+            c.setFillColor(INK); c.setFont("Helvetica-Bold", 7.5)
+            c.drawRightString(colR + halfW, yR, "—" if s is None else str(int(s)))
+            bx, bw = colR + 58, halfW - 78
+            c.setFillColor(LINE); c.roundRect(bx, yR - 1, bw, 3.4, 1.5, fill=1, stroke=0)
+            if s is not None:
+                col = GREEN if s >= 70 else AMBER if s >= 45 else RED
+                c.setFillColor(col); c.roundRect(bx, yR - 1, bw * min(s, 100) / 100, 3.4, 1.5, fill=1, stroke=0)
+            yR -= 13
+        yR -= 4
 
-    # Valuation box
-    c.setFont("Helvetica-Bold", 8); c.setFillColor(GOLD)
-    c.drawString(15, y, "VALUATION SUMMARY")
-    y -= 4
-    box_h = 18
-    c.setFillColor(PANEL)
-    c.rect(10, y - box_h, W - 20, box_h, fill=1, stroke=0)
-    c.setStrokeColor(colors.HexColor("#a07d2c")); c.setLineWidth(0.5)
-    c.rect(10, y - box_h, W - 20, box_h, fill=0, stroke=1)
+    # RIGHT — valuation summary
+    yR = head(yR, "Valuation", x=colR, x2=colR + halfW)
+    vrows = [("Method", (rec or {}).get("primary_method") or "FCFF DCF / Residual Income"),
+             ("Discount rate", "Ke = Rf(10Y G-sec) + β·ERP"),
+             ("Fair value", f"Rs {intrinsic:,.0f}" if intrinsic else "—"),
+             ("Current price", f"Rs {price:,.1f}"),
+             ("Margin of safety", f"{mos:+.1f}%" if mos is not None else "—")]
+    for lb, vl in vrows:
+        c.setFillColor(MUTE); c.setFont("Helvetica", 7); c.drawString(colR, yR, lb)
+        col = HEAD if lb == "Fair value" else (GREEN if (lb == "Margin of safety" and (mos or 0) > 0) else RED if lb == "Margin of safety" else INK)
+        c.setFillColor(col); c.setFont("Helvetica-Bold", 7.5); c.drawRightString(colR + halfW, yR, str(vl)[:34])
+        yR -= 12
 
-    entries = [
-        ("Model", "Residual Income (NBFC) / FCFF DCF"),
-        ("Ke/WACC", "Rf=7.1% + β × ERP=8.5% (Damodaran India 2025)"),
-        ("Intrinsic", _finr(intrinsic) if intrinsic else "—"),
-        ("CMP", f"Rs{price:,.1f}"),
-        ("MoS", f"{mos:+.1f}%" if mos is not None else "—"),
-    ]
-    ew = (W - 20) / len(entries)
-    for i, (label, value) in enumerate(entries):
-        x = 10 + i * ew + 2
-        c.setFont("Helvetica", 6); c.setFillColor(DIM)
-        c.drawString(x, y - 6, label)
-        c.setFillColor(GOLD if label == "Intrinsic" else (GREEN if (label=="MoS" and mos and mos>0) else (RED if (label=="MoS" and mos and mos<0) else TEXT)))
-        c.setFont("Helvetica-Bold", 8)
-        c.drawString(x, y - 13, value[:20])
+    # ── Thesis (full width, below the columns) ───────────────────────────────
+    y = min(yL, yR) - 8
+    y = head(y, "Investment Thesis")
+    bulls, risks = _thesis(co, rec, metrics, scorecard)
 
-    y -= box_h + 6
-    c.setStrokeColor(LINE); c.line(10, y, W - 10, y)
-    y -= 8
-
-    # Thesis / bullets
-    c.setFont("Helvetica-Bold", 8); c.setFillColor(GOLD)
-    c.drawString(15, y, "INVESTMENT THESIS")
-    y -= 5
-
-    if thesis:
-        text = thesis[:400].replace("\n", " ")
-        words = text.split()
-        line, lines = [], []
+    def wrap(text, maxc=112):
+        words, line, out = text.split(), [], []
         for w in words:
             line.append(w)
-            if len(" ".join(line)) > 90:
-                lines.append(" ".join(line[:-1]))
-                line = [w]
-        if line: lines.append(" ".join(line))
-        c.setFont("Helvetica", 7.5); c.setFillColor(TEXT)
-        for ln in lines[:6]:
-            c.drawString(15, y, ln); y -= 5
-    else:
-        bullets = [
-            ("^", "Gold price +22% YoY drove LTV expansion; 4,869 branch network provides structural moat."),
-            ("^", "ROE 33.9%, CRAR 23.4% — top-decile NBFC; mix shift to longer-tenor products +50bps yield."),
-            ("v", "Gold price reversal >15% would compress LTV cushion and trigger forced auctions."),
-            ("v", "FY26 ROE likely peak; normalisation toward 22-25% expected in FY27E."),
-        ]
-        for arrow, text in bullets:
-            c.setFillColor(GREEN if arrow == "^" else RED)
-            c.setFont("Helvetica-Bold", 8); c.drawString(15, y, arrow)
-            c.setFillColor(TEXT); c.setFont("Helvetica", 7.5)
-            c.drawString(22, y, text[:95]); y -= 5
+            if len(" ".join(line)) > maxc:
+                out.append(" ".join(line[:-1])); line = [w]
+        if line:
+            out.append(" ".join(line))
+        return out
 
-    # Footer
-    c.setStrokeColor(LINE); c.setLineWidth(0.3)
-    c.line(10, 12, W - 10, 12)
-    c.setFont("Helvetica", 6); c.setFillColor(DIM)
-    c.drawString(15, 6, f"Equity Terminal v0.3  ·  {datetime.today().strftime('%d %b %Y')}  ·  Educational purposes only  ·  Not SEBI-registered advice")
+    for arrow, text in (bulls + risks):
+        col = GREEN if arrow == "+" else RED
+        for k, ln in enumerate(wrap(text)):
+            c.setFillColor(col); c.setFont("Helvetica-Bold", 8)
+            if k == 0:
+                c.drawString(M, y, arrow)
+            c.setFillColor(INK); c.setFont("Helvetica", 8)
+            c.drawString(M + 10, y, ln)
+            y -= 10.5
+        y -= 1.5
 
-    c.showPage()
-    c.save()
-    buf.seek(0)
+    # ── Footer ───────────────────────────────────────────────────────────────
+    c.setStrokeColor(LINE); c.setLineWidth(0.5); c.line(M, 26, W - M, 26)
+    c.setFillColor(FAINT); c.setFont("Helvetica", 6.3)
+    c.drawString(M, 18, "Equity Terminal — independent, evidence-based research. Educational use only; not SEBI-registered investment advice.")
+    c.drawRightString(W - M, 18, datetime.today().strftime("%d %b %Y"))
+
+    c.showPage(); c.save(); buf.seek(0)
     return buf.read()

@@ -547,14 +547,26 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
         except Exception: pass
         # Use the SAME independent engine as the rest of the terminal (no more
         # divorced inline DCF).
-        intrinsic = None
+        intrinsic, rec = None, None
         try:
             data = build_company(db, co)
             a = effective_assumptions(db, co, data)
-            intrinsic = engines.recommend(data, a).get("intrinsic")
+            rec = engines.recommend(data, a)
+            intrinsic = rec.get("intrinsic")
         except Exception:
             pass
-        pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic, None)
+        # per-stock scorecard (real green/red flags for the thesis)
+        scorecard = None
+        try:
+            from app.manager_engine import load_evidence
+            from app.scorecard import build_scorecard
+            ev = ((load_evidence(db) or {}).get("names") or {}).get(co.ticker.upper())
+            if ev:
+                scorecard = build_scorecard(ev)
+        except Exception:
+            pass
+        pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic,
+                                   None, rec=rec, scorecard=scorecard)
         return Response(content=pdf_bytes, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{co.ticker}_onepager.pdf"',
                                  "Content-Length": str(len(pdf_bytes))})
