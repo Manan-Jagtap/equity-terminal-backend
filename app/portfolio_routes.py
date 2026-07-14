@@ -95,6 +95,33 @@ class HoldingUpsert(BaseModel):
     buy_date: str | None = None    # ISO YYYY-MM-DD (optional)
 
 
+class CashSet(BaseModel):
+    amount: float                  # investable cash / dry powder (₹)
+
+
+@router.get("/cash")
+def get_cash(user: models.User = Depends(get_current_user),
+             db: Session = Depends(get_db)):
+    """The investable cash (dry powder) the owner has flagged — the Fund
+    Manager sizes and gates its ADD ideas against this."""
+    return {"amount": _get_cash(db, f"u{user.id}")}
+
+
+@router.post("/cash")
+def set_cash(body: CashSet, user: models.User = Depends(get_current_user),
+             db: Session = Depends(get_db)):
+    """Set the investable cash. Persisted per user so the manager remembers it."""
+    key = _CASH_KEY + f"u{user.id}"
+    amt = max(0.0, float(body.amount))
+    row = db.query(models.KVStore).filter_by(key=key).first()
+    if row:
+        row.value = {"amount": amt}
+    else:
+        db.add(models.KVStore(key=key, value={"amount": amt}))
+    db.commit()
+    return {"amount": amt}
+
+
 def _parse_date(v):
     import datetime as _dt
     if not v:
@@ -594,10 +621,55 @@ def portfolio_analysis(user: models.User = Depends(get_current_user),
             evidence, macro = load_evidence(db), load_macro(db)
     except Exception:
         db.rollback()
+    # Results-awareness: names reporting within ~12 days — the manager should
+    # say "wait for the print" rather than commit ahead of an earnings event.
+    results_due = _results_due(db, within_days=12)
+    # Investable cash the owner has flagged (dry powder) — sizes and gates adds.
+    cash = _get_cash(db, uk)
     analysis["manager"] = manager_report(items, analysis, mom_by, target_by,
-                                         intel_by, quote_by, evidence, macro)
+                                         intel_by, quote_by, evidence, macro,
+                                         results_due=results_due, cash=cash)
     _apply_construction_checks(db, items, analysis)
     return analysis
+
+
+_CASH_KEY = "fm_cash_"
+
+
+def _get_cash(db, user_key: str):
+    row = db.query(models.KVStore).filter_by(key=_CASH_KEY + user_key).first()
+    return (row.value or {}).get("amount") if row else None
+
+
+def _results_due(db, within_days: int = 12) -> dict:
+    """{ticker: {date, days_away}} for names with a RESULTS board-meeting within
+    `within_days` (or reported in the last 2), from the results calendar."""
+    import datetime as _dt2
+    import re as _re2
+    today = _dt2.date.today()
+    out: dict[str, dict] = {}
+    try:
+        cos = {c.id: c.ticker for c in db.query(models.Company).all()}
+        for r in db.query(models.CompanyInsight).all():
+            tk = cos.get(r.company_id)
+            if not tk or not r.data:
+                continue
+            for m in (r.data.get("board_meetings") or []):
+                ag = str(m.get("agenda") or "")
+                if not _re2.search(r"financial result|quarterly result|audited", ag, _re2.I):
+                    continue
+                mm = _re2.match(r"(\d{2})-(\d{2})-(\d{4})", str(m.get("date") or ""))
+                if not mm:
+                    continue
+                d = _dt2.date(int(mm.group(3)), int(mm.group(2)), int(mm.group(1)))
+                days = (d - today).days
+                if -2 <= days <= within_days:
+                    cur = out.get(tk)
+                    if cur is None or abs(days) < abs(cur["days_away"]):
+                        out[tk] = {"date": d.isoformat(), "days_away": days}
+    except Exception:
+        db.rollback()
+    return out
 
 
 def _apply_construction_checks(db, items, analysis):
@@ -689,7 +761,8 @@ def _apply_construction_checks(db, items, analysis):
 def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None,
                    target_by: dict | None = None, intel_by: dict | None = None,
                    quote_by: dict | None = None, evidence: dict | None = None,
-                   macro: dict | None = None) -> dict:
+                   macro: dict | None = None, results_due: dict | None = None,
+                   cash: float | None = None) -> dict:
     """The fund-manager brief, v4: conviction comes from TRIANGULATED evidence
     (model × analyst consensus × own valuation band, forensic quality, flow,
     results, momentum, macro regime) — never from the DCF alone. Suspect model
@@ -706,6 +779,7 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     by_ticker = {i["ticker"]: i for i in live}
     ev_names = (evidence or {}).get("names") or {}
     ev_weights = (evidence or {}).get("weights") or {}
+    results_due = results_due or {}
 
     def _levels(tk, i):
         """Entry band / target / upside from the model's OWN fair value.
@@ -884,6 +958,57 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
                               "a starter tranche (~3% of book; scale on conviction)")
         actions.append(c)
 
+    # ── Results-awareness: hold ahead of an imminent earnings print ──────────
+    # A name reporting within days is an event the manager shouldn't front-run:
+    # the print can reprice it hard either way. Flag it, defer a fresh ADD (the
+    # "would change my mind" line becomes "wait for the print"), and never let a
+    # results-imminent name sit at the very top of the ADD queue.
+    for a in actions:
+        rd = results_due.get(a["ticker"])
+        if not rd:
+            continue
+        d = rd["days_away"]
+        a["results_due"] = rd
+        if d >= 0:
+            when = "today" if d == 0 else "tomorrow" if d == 1 else f"in {d} days"
+            if a["action"].startswith(("ADD", "TOP-UP")):
+                a["hold_for_results"] = True
+                a["conviction"] = min(a["conviction"], 55)     # cap — don't lead the queue
+                a["reasons"] = ["⏳ reports " + when + f" ({rd['date']}) — wait for the print, "
+                                "then take the call"] + a.get("reasons", [])
+                a["flip"] = ["the earnings print landing in line with (or ahead of) the thesis"] \
+                    + (a.get("flip") or [])
+            else:
+                a["reasons"] = a.get("reasons", []) + [f"reports {when} — you may prefer to "
+                                                       "act after the print"]
+        else:
+            a["reasons"] = a.get("reasons", []) + [f"just reported ({rd['date']}) — the "
+                                                   "numbers above reflect it"]
+
+    # ── Cash / dry-powder awareness ─────────────────────────────────────────
+    # Size and gate ADD ideas by the investable cash the owner actually flagged.
+    # No dry powder → adds are "fund from the exit queue first", not fresh buys.
+    adds = [a for a in actions if a["action"].startswith(("ADD", "TOP-UP"))]
+    cash_state = {"amount": cash, "deployable": None, "n_funded": 0}
+    if cash is not None and adds:
+        remaining = float(cash)
+        funded = 0
+        for a in sorted(adds, key=lambda x: -x["conviction"]):
+            want = a.get("size_inr") or 0
+            if a.get("hold_for_results"):
+                a["cash_note"] = "hold for the print before deploying"
+                continue
+            if remaining >= want and want > 0:
+                a["fundable"] = True
+                remaining -= want
+                funded += 1
+            else:
+                a["fundable"] = False
+                a["cash_note"] = ("fund by trimming the exit queue first — "
+                                  "dry powder is committed")
+        cash_state["deployable"] = round(float(cash) - remaining)
+        cash_state["n_funded"] = funded
+
     actions.sort(key=lambda x: (-x["conviction"], x.get("priority", 9)))
 
     # PM note — composed strictly from the numbers above.
@@ -915,6 +1040,23 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
         lines.append(f"On {n_susp} name{'s' if n_susp != 1 else ''} the model's fair value "
                      f"failed cross-examination against consensus and the valuation band — "
                      f"it was set aside rather than trusted.")
+    # Results-wait: name the imminent prints the manager is holding for.
+    waiting = [a for a in actions[:10] if a.get("hold_for_results")]
+    if waiting:
+        names = ", ".join(a["ticker"] for a in waiting[:4])
+        lines.append(f"Holding fire on {names}: {'they report' if len(waiting) != 1 else 'it reports'} "
+                     f"within days — better to see the print than commit ahead of the event.")
+    # Dry-powder discipline: size the whole plan to the cash actually available.
+    if cash is not None:
+        if cash <= 0:
+            lines.append("No investable cash flagged — any add should be funded by trimming "
+                         "the exit queue first, not fresh money.")
+        elif cash_state.get("deployable"):
+            lines.append(f"Dry powder ₹{cash:,.0f}: enough to fund {cash_state['n_funded']} of the "
+                         f"top adds (₹{cash_state['deployable']:,.0f} deployed); the rest wait for "
+                         f"cash or a trim.")
+        else:
+            lines.append(f"Dry powder ₹{cash:,.0f} — below a starter tranche; fund adds from trims.")
     if not lines:
         lines.append("No structural flags: sizing, alignment and terms all read clean.")
     # Tax-smart layer: exemption harvesting, loss harvesting, ST→LT deferral.
@@ -941,7 +1083,9 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     if mnote:
         lines.insert(0, mnote)
     return {"actions": actions[:10], "note": " ".join(lines), "aum": total,
-            "tax": tax,
+            "tax": tax, "cash": cash_state,
+            "results_wait": [{"ticker": a["ticker"], "name": a.get("name"),
+                              **a["results_due"]} for a in actions if a.get("hold_for_results")],
             "macro": {k: (macro or {}).get(k) for k in
                       ("regime", "breadth_200dma", "breadth_50dma", "breadth_trend",
                        "vix", "rates", "nifty", "rs_leaders", "rs_laggards", "commodities",
