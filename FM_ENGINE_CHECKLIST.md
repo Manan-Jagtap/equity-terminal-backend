@@ -150,6 +150,14 @@ never manufactures certainty. Honesty is the moat.
       risk (and docked), ≤35% is credited as genuine diversification.
 - [x] **DONE — Sector-cap warnings**: adds into a ≥30% sector are called
       out and docked. Factor-exposure caps remain NEXT.
+- [x] **DONE — Tax-smart layer** (app/tax_advisor.py): LTCG-exemption
+      harvesting (book long-term gains inside the ₹1.25L free limit + rebuy),
+      tax-loss harvesting (rank losers by tax sheltered), ST→LT deferral
+      (winners near the 1-year mark), and after-tax proceeds on every trim.
+      Surfaced in the PM note + a tax panel.
+- [x] **DONE — Long-term franchise lens**: a high forensic composite (≥75,
+      clean flags) reads as "fundamentally strong inside and out — cash-backed
+      earnings; suits a long-term compounding hold" and earns a conviction bump.
 - [ ] **NEXT — Drawdown-conditional sizing** (breadth < 40% → smaller adds,
       already half-implemented via regime).
 
