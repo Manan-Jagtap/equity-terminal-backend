@@ -216,25 +216,31 @@ def _summary_sheet(ws, co, price, rec, analyst, fair_value):
     for col in range(1, 9):
         ws.cell(row=2, column=col).fill = _fill(TEAL)
 
+    # Headline fair value = the app's blended estimate (matches the one-pager
+    # and the product UI). The pure-DCF model value is shown alongside, linked
+    # live to the model sheet, so the two never silently disagree.
+    blended = _num((rec or {}).get("intrinsic"), 2)
     r = 4
     _band(ws, r, "VERDICT & FAIR VALUE"); r += 1
     rows = [
-        ("Verdict", verdict, None, F_BOLD),
-        ("Current price (Rs)", _num(price, 2), PS, F_VAL),
-        # links straight to the live model on the DCF sheet (or a static value)
-        ("Fair value / share (Rs)", fair_value, PS, F_RESULT),
-        ("Blended fair value (Rs)", _num((rec or {}).get("intrinsic"), 2), PS, F_VAL),
+        ("Verdict", verdict, None, F_BOLD, None),
+        ("Current price (Rs)", _num(price, 2), PS, F_VAL, None),
+        ("Fair value / share (Rs)", blended, PS, F_RESULT, None),
+        ("DCF model value (Rs)", fair_value, PS, F_VAL,
+         "computed live on the model sheet" if linked else None),
         ("Margin of safety",
          _num((rec or {}).get("mos"), 4) if (rec or {}).get("mos") is not None else None,
-         PCT, F_VAL),
-        ("Composite score", _num((rec or {}).get("composite"), 1), '0.0', F_VAL),
-        ("Primary method", (rec or {}).get("primary_method") or v.get("method"), None, F_VAL),
-        ("Valuation sector", (rec or {}).get("valuation_sector"), None, F_VAL),
+         PCT, F_VAL, None),
+        ("Composite score", _num((rec or {}).get("composite"), 1), '0.0', F_VAL, None),
+        ("Primary method", (rec or {}).get("primary_method") or v.get("method"), None, F_VAL, None),
+        ("Valuation sector", (rec or {}).get("valuation_sector"), None, F_VAL, None),
     ]
-    for lbl, val, fmt, font in rows:
+    for lbl, val, fmt, font, note in rows:
         _w(ws, f"A{r}", lbl, font=F_LBL, align="left")
         _w(ws, f"B{r}", val, font=font, fmt=fmt, align="right", border=True,
            fill_c=(TEAL_LT if font is F_RESULT else None))
+        if note:
+            _w(ws, f"C{r}", note, font=F_NOTE, align="left")
         r += 1
 
     r += 1
@@ -254,8 +260,10 @@ def _summary_sheet(ws, co, price, rec, analyst, fair_value):
         r += 1
 
     _w(ws, f"A{r + 1}",
-       ("Fair value / share is linked live to the model sheet. " if linked
-        else "Fair value / share reflects the engine's blended estimate. ") +
+       ("Fair value blends the DCF model with relative multiples and analyst "
+        "consensus; the DCF model value is computed live on the model sheet. "
+        if linked else
+        "Fair value is the engine's blended estimate. ") +
        "Educational use only; not SEBI-registered investment advice.",
        font=F_NOTE, align="left")
 
