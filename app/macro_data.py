@@ -44,6 +44,31 @@ FPI_NET = "net_portfolio_investment_us_million"
 GDP_NOMINAL = "gdp_at_market_prices_current"
 GDP_REAL = "gdp_at_market_prices_constant"
 
+# High-frequency "activity" indicators a BCG-style monitor tracks that the RBI
+# DBIE export does NOT carry — the value we don't already have. Each is keyed to
+# its PRIMARY public source (never a third-party aggregator's proprietary
+# monitor). They populate from macro_sources activity fetchers / admin uploads;
+# until then they read as "awaiting source", never fabricated.
+GST_COLLECTIONS = "gst_gross_collections_cr"          # GSTN / PIB monthly release
+EWAY_BILLS = "eway_bills_generated_mn"                 # GSTN e-way bill portal
+PMI_MFG = "pmi_manufacturing"                          # S&P Global (licensed headline)
+PMI_SVC = "pmi_services"                               # S&P Global (licensed headline)
+POWER_DEMAND = "power_peak_demand_met_mw"             # Grid India / POSOCO
+AUTO_SALES = "auto_total_sales_units"                 # SIAM monthly
+UPI_TXN = "upi_transactions_mn"                        # NPCI monthly stats
+
+# slug → (human name, primary source, licence note). Drives the dashboard's
+# "activity" section and the admin status view.
+ACTIVITY_META = {
+    GST_COLLECTIONS: ("GST gross collections (₹ cr)", "GSTN / PIB", "public"),
+    EWAY_BILLS:      ("E-way bills generated (mn)", "GSTN e-way bill portal", "public"),
+    PMI_MFG:         ("PMI — Manufacturing", "S&P Global", "licensed headline"),
+    PMI_SVC:         ("PMI — Services", "S&P Global", "licensed headline"),
+    POWER_DEMAND:    ("Peak power demand met (MW)", "Grid India (POSOCO)", "public"),
+    AUTO_SALES:      ("Auto total sales (units)", "SIAM", "public"),
+    UPI_TXN:         ("UPI transactions (mn)", "NPCI", "public"),
+}
+
 
 def _load_seed() -> dict:
     global _seed_cache
@@ -223,6 +248,100 @@ def macro_summary(db) -> dict:
         stance = "on_hold"
     out["stance"] = stance
     return out
+
+
+# ── dashboard curation ───────────────────────────────────────────────────────
+# Sections group the real DBIE series (+ activity indicators) into the view the
+# Economy page renders. Each entry: (slug, label, unit, transform). transform:
+#   "level"  → show the latest value
+#   "yoy"    → show YoY % change (for index series: CPI, WPI, IIP, M3, credit)
+#   "level_bn" → divide by 1000 (₹mn→bn / $mn→bn), show level
+DASHBOARD = [
+    ("Growth & activity", [
+        (GDP_REAL, "Real GDP", "₹ cr", "yoy"),
+        (IIP, "Industrial production (IIP)", "index", "yoy"),
+        (GST_COLLECTIONS, "GST collections", "₹ cr", "level"),
+        (EWAY_BILLS, "E-way bills", "mn", "level"),
+        (PMI_MFG, "PMI — Manufacturing", "index", "level"),
+        (PMI_SVC, "PMI — Services", "index", "level"),
+        (POWER_DEMAND, "Peak power demand", "MW", "level"),
+        (AUTO_SALES, "Auto sales", "units", "level"),
+    ]),
+    ("Inflation", [
+        (CPI_2024, "CPI inflation", "% YoY", "yoy"),
+        (WPI, "WPI inflation", "% YoY", "yoy"),
+    ]),
+    ("Rates & liquidity", [
+        (REPO, "Policy repo rate", "%", "level"),
+        (GSEC_10Y, "10-yr G-sec yield", "%", "level"),
+    ]),
+    ("External sector", [
+        (USDINR, "USD / INR", "₹", "level"),
+        (FX_RESERVES, "FX reserves", "$ bn", "level_bn"),
+        (TRADE_BAL, "Trade balance", "$ mn", "level"),
+        (FPI_NET, "Net FPI flow", "$ mn", "level"),
+    ]),
+    ("Money & credit", [
+        (M3, "Broad money (M3)", "% YoY", "yoy"),
+        (BANK_CREDIT, "Bank credit", "% YoY", "yoy"),
+        (UPI_TXN, "UPI transactions", "mn", "level"),
+    ]),
+]
+
+
+def _spark(pts, n=24):
+    return [round(v, 2) for _, v in pts[-n:]]
+
+
+def dashboard(db) -> dict:
+    """The Economy page payload: curated sections, each series with its latest
+    value (or YoY), previous, as-of date, a short sparkline, and — for the
+    high-frequency activity indicators we don't yet source — an honest
+    'awaiting source' marker with the source named. Never fabricates."""
+    seed = _load_seed()
+    ov = _overlay(db)
+    sections = []
+    for title, items in DASHBOARD:
+        rows = []
+        for slug, label, unit, tf in items:
+            pts = series(db, slug)
+            meta = seed.get(slug) or ov.get(slug) or {}
+            src = None
+            if slug in ACTIVITY_META:
+                nm, src, lic = ACTIVITY_META[slug]
+            if not pts:
+                rows.append({"slug": slug, "label": label, "unit": unit,
+                             "value": None, "as_of": None,
+                             "awaiting": True, "source": src})
+                continue
+            d, v = pts[-1]
+            prev = pts[-2][1] if len(pts) > 1 else None
+            if tf == "yoy":
+                yy = _yoy(pts)
+                val = round(yy * 100, 2) if yy is not None else None
+                # previous YoY for the arrow
+                pv = None
+                if len(pts) > 13:
+                    py = _yoy(pts[:-1])
+                    pv = round(py * 100, 2) if py is not None else None
+                rows.append({"slug": slug, "label": label, "unit": unit,
+                             "value": val, "prev": pv, "as_of": d,
+                             "freq": meta.get("freq"), "spark": _spark(pts),
+                             "source": src})
+            else:
+                val = round(v / 1000, 1) if tf == "level_bn" else round(v, 2)
+                pval = (round(prev / 1000, 1) if tf == "level_bn"
+                        else round(prev, 2)) if prev is not None else None
+                rows.append({"slug": slug, "label": label, "unit": unit,
+                             "value": val, "prev": pval, "as_of": d,
+                             "freq": meta.get("freq"), "spark": _spark(pts),
+                             "source": src})
+        sections.append({"title": title, "series": rows})
+    return {"summary": macro_summary(db), "sections": sections,
+            "series_count": len(catalog(db)),
+            "note": ("India macro from primary official sources — RBI DBIE, MoSPI, "
+                     "GSTN, NPCI, Grid India — never a third-party monitor. Each "
+                     "figure carries its own as-of date.")}
 
 
 def write_overlay(db, updates: dict[str, dict]) -> int:

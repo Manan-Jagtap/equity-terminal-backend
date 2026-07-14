@@ -100,6 +100,10 @@ app.include_router(mf_router)
 
 from app.intraday_routes import router as intraday_router
 app.include_router(intraday_router)
+
+from app.macro_routes import router as macro_router
+app.include_router(macro_router)
+
 from app.onepager import build_onepager
 
 

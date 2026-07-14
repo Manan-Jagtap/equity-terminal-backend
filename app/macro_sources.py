@@ -117,12 +117,77 @@ def fetch_mospi(db) -> int:
     return 0
 
 
+# High-frequency "activity" indicators (GST, PMI, power, e-way bills, auto,
+# UPI) — the value a BCG-style monitor adds over the RBI statistical release.
+# We source them from the PRIMARY publishers, never a third-party monitor.
+# There is no single free keyless API for these, so each is env-configured:
+#   ACTIVITY_<SLUG>_URL returns JSON [{date, value}] (or {data:[...]}), with an
+#   optional ACTIVITY_<SLUG>_KEY sent as x-api-key. Absent → skipped, and the
+#   dashboard shows the indicator as "awaiting source" with the publisher named.
+# This keeps a launch honest: a number appears only when a real feed backs it.
+_ACTIVITY_ENV = {
+    macro_data.GST_COLLECTIONS: "GST",
+    macro_data.EWAY_BILLS:      "EWAY",
+    macro_data.PMI_MFG:         "PMI_MFG",
+    macro_data.PMI_SVC:         "PMI_SVC",
+    macro_data.POWER_DEMAND:    "POWER",
+    macro_data.AUTO_SALES:      "AUTO",
+    macro_data.UPI_TXN:         "UPI",
+}
+
+
+def fetch_activity(db) -> int:
+    """Pull any activity indicator whose ACTIVITY_<X>_URL env var is set.
+    Response: a list of {date/period, value} objects (or {data:[…]}). Points
+    are date-normalised via the same parser the DBIE uploader uses."""
+    wrote = 0
+    for slug, env in _ACTIVITY_ENV.items():
+        url = os.getenv(f"ACTIVITY_{env}_URL", "").strip()
+        if not url:
+            continue
+        key = os.getenv(f"ACTIVITY_{env}_KEY", "").strip()
+        try:
+            r = requests.get(url.replace("{key}", key), timeout=20,
+                             headers={"x-api-key": key} if key else {})
+            if r.status_code != 200:
+                log.warning(f"activity {slug}: HTTP {r.status_code}")
+                continue
+            body = r.json()
+            rows = body if isinstance(body, list) else \
+                (body.get("data") or body.get("records") or [])
+            pts = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                d = _parse_date(row.get("date") or row.get("period")
+                                or row.get("month") or row.get("Date"))
+                v = (row.get("value") if row.get("value") is not None
+                     else row.get("Value"))
+                if d is not None and v is not None:
+                    try:
+                        pts.append([d.isoformat(), float(str(v).replace(",", ""))])
+                    except ValueError:
+                        continue
+            if pts:
+                name = macro_data.ACTIVITY_META.get(slug, (slug,))[0]
+                wrote += macro_data.write_overlay(
+                    db, {slug: {"name": name, "freq": "M", "points": sorted(pts)}})
+        except Exception as e:
+            log.warning(f"activity {slug}: {type(e).__name__}: {e}")
+    return wrote
+
+
 def refresh_all(db) -> dict:
     te = fetch_tradingeconomics(db)
     mo = fetch_mospi(db)
+    act = fetch_activity(db)
+    configured_act = [env.lower() for slug, env in _ACTIVITY_ENV.items()
+                      if os.getenv(f"ACTIVITY_{env}_URL", "").strip()]
     return {"tradingeconomics_points": te, "mospi_points": mo,
+            "activity_points": act,
             "keys": {"tradingeconomics": bool(os.getenv("TRADINGECONOMICS_KEY", "").strip()),
-                     "mospi": bool(os.getenv("MOSPI_KEY", "").strip())}}
+                     "mospi": bool(os.getenv("MOSPI_KEY", "").strip()),
+                     "activity_sources": configured_act}}
 
 
 # ── DBIE xlsx ingest (admin re-upload path) ─────────────────────────────────
