@@ -35,13 +35,13 @@ log = logging.getLogger("hidden_gems")
 GEMS_KEY = "manager:hidden_gems:v2"
 
 # ── screen thresholds (honest, quality-first) ────────────────────────────────
-CAP_MAX_CR  = 35000.0   # small / mid — a multibagger needs a small base to grow from
+CAP_MAX_CR  = 20000.0   # small / mid only — a large cap is not "under-followed"
 CAP_MIN_CR  = 300.0     # floor: below this liquidity/quality noise dominates
 QUAL_MIN    = 60        # forensic accounting-quality composite floor (clean books)
 ROE_MIN     = 0.14      # durable returns on capital
 GROWTH_MIN  = 0.10      # revenue CAGR …
 PAT_YOY_MIN = 0.12      # … or recent PAT growth — a real compounding engine
-MOS_FLOOR   = -0.25     # not egregiously above our own fair value
+MOS_FLOOR   = -0.15     # not meaningfully above our own fair value
 TOP_N       = 12
 
 
@@ -82,8 +82,8 @@ def _thesis(ev, sc, cap_cr, roe, g, pat_yoy, covered):
         out.append(f"Under-followed: {tier.lower()} at Rs {cap_cr:,.0f} Cr with no street "
                    f"consensus yet — the kind of gap where mispricing lives.")
     else:
-        out.append(f"Under-covered: {tier.lower()} at Rs {cap_cr:,.0f} Cr — small enough to "
-                   f"still compound off a low base.")
+        out.append(f"Small base: {tier.lower()} at Rs {cap_cr:,.0f} Cr — room to keep "
+                   f"compounding, and less picked-over than the large caps.")
     q = (ev.get("quality") or {}).get("composite")
     if q is not None:
         out.append(f"Clean, high-quality books — forensic score {q:.0f}/100, no red flags "
