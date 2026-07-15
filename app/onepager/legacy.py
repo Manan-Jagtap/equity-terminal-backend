@@ -301,14 +301,14 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
     # RIGHT — valuation triangulation (the methods behind the blended fair value;
     # the Dividend Discount cross-check shows for any payer, weighted only for
     # stable high payers).
-    comps = [c for c in ((rec or {}).get("components") or [])
-             if (c.get("capped") if c.get("capped") is not None else c.get("value"))]
+    comps = [cm for cm in ((rec or {}).get("components") or [])
+             if (cm.get("capped") if cm.get("capped") is not None else cm.get("value"))]
     if len(comps) > 1:
         yR -= 2
-        for c in comps:
-            cv = c.get("capped") if c.get("capped") is not None else c.get("value")
-            wt = c.get("weight") or 0
-            kv_row(colR, yR, halfW, f"{c.get('method')} ({wt*100:.0f}%)",
+        for cm in comps:
+            cv = cm.get("capped") if cm.get("capped") is not None else cm.get("value")
+            wt = cm.get("weight") or 0
+            kv_row(colR, yR, halfW, f"{cm.get('method')} ({wt*100:.0f}%)",
                    f"Rs {cv:,.0f}" if cv else "—")
             yR -= 11
         yR -= 2
