@@ -118,6 +118,29 @@ SECTOR_PARAMS: dict[str, dict] = {
     # Real-estate developers: rate-sensitive, cyclical, lumpy earnings (NAV-driven).
     # High beta, lower steady-state return, conservative exit multiple.
     "REALTY":        _P(beta=1.25, terminal_growth=0.050, mature_roic=0.12, mature_roe=0.13, exit_pe=20, exit_ev_ebitda=14, exit_pb=None),
+    # Commodity-cyclicals that were falling through to MANUFACTURING's rich 28x
+    # P/E: paper (pulp price, capex-heavy) and sugar (cane/sugar price, ethanol,
+    # heavily regulated) are cheap, thin, cyclical → low multiples + through-cycle.
+    "PAPER":         _P(beta=1.05, terminal_growth=0.045, mature_roic=0.11, mature_roe=0.12, exit_pe=12, exit_ev_ebitda=6,  exit_pb=None),
+    "SUGAR":         _P(beta=1.00, terminal_growth=0.040, mature_roic=0.10, mature_roe=0.12, exit_pe=11, exit_ev_ebitda=6,  exit_pb=None),
+    # Cables & wires / electricals: copper is largely passed through, so margins
+    # ride on the value-add — smooth them through-cycle. The organised players
+    # (Polycab/KEI) are quality growth industrials, so multiples stay reasonable
+    # (NOT a cheap commodity); the DCF does the name-level work.
+    "CABLES":        _P(beta=1.00, terminal_growth=0.055, mature_roic=0.18, mature_roe=0.18, exit_pe=27, exit_ev_ebitda=15, exit_pb=None),
+    # Capital goods / engineering — order-book driven, working-capital-heavy; the
+    # quality names (L&T, ABB, Siemens, Cummins) command decent multiples.
+    "CAPITAL_GOODS": _P(beta=1.10, terminal_growth=0.055, mature_roic=0.17, mature_roe=0.18, exit_pe=32, exit_ev_ebitda=22, exit_pb=None),
+    # Construction / infra / EPC — LOW margins, very working-capital-heavy, lumpy
+    # execution → CHEAP multiples (was getting MANUFACTURING's 28x). Through-cycle.
+    "CONSTRUCTION":  _P(beta=1.20, terminal_growth=0.050, mature_roic=0.13, mature_roe=0.14, exit_pe=15, exit_ev_ebitda=9,  exit_pb=None),
+    # Defence — structural order-book growth, high returns, indigenisation tailwind
+    # → the PSUs (HAL/BEL/BDL) sustain premium multiples.
+    "DEFENCE":       _P(beta=0.95, terminal_growth=0.060, mature_roic=0.20, mature_roe=0.22, exit_pe=34, exit_ev_ebitda=24, exit_pb=None),
+    # Textiles — commodity, cyclical (cotton/yarn), thin returns → cheap + through-cycle.
+    "TEXTILES":      _P(beta=1.10, terminal_growth=0.040, mature_roic=0.11, mature_roe=0.12, exit_pe=13, exit_ev_ebitda=7,  exit_pb=None),
+    # Logistics / transport (ex-airlines) — asset-moderate, GDP-linked.
+    "LOGISTICS":     _P(beta=1.00, terminal_growth=0.055, mature_roic=0.14, mature_roe=0.15, exit_pe=26, exit_ev_ebitda=13, exit_pb=None),
     # ── Financials (RI / P-B-vs-ROE) ────────────────────────────────────────
     # Betas trimmed to align Ke with observed: India's large private banks run
     # 2-5yr betas ~0.9-1.0 and sell-side Ke ~11.5%, not the 12.2% a 1.05 beta
@@ -183,12 +206,45 @@ _RULES: list[tuple[str, str]] = [
     ("metal", "METAL"), ("mining", "METAL"), ("zinc", "METAL"),
     # Cement / building materials
     ("cement", "CEMENT"), ("construction material", "CEMENT"), ("building material", "CEMENT"),
+    # Commodity-cyclicals that must NOT get MANUFACTURING's rich multiples.
+    ("paper", "PAPER"), ("newsprint", "PAPER"), ("pulp", "PAPER"),
+    ("sugar", "SUGAR"),
+    # Cables & wires (copper pass-through). "cable" catches "Cables"/"Wires &
+    # Cables"; kept off broad "electrical equipment" (that's capital goods).
+    ("cables", "CABLES"), ("wires & cables", "CABLES"), ("wire & cable", "CABLES"),
     # Chemicals / fertilizers (specialty + commodity). Placed AFTER energy so
     # "petroleum"/"refiner" still win for oil names; "petrochemical" → CHEMICALS.
     ("specialty chemical", "CHEMICALS"), ("agrochemical", "CHEMICALS"),
     ("fertiliz", "CHEMICALS"), ("fertilis", "CHEMICALS"), ("chemical", "CHEMICALS"),
     # Aviation / airlines — fuel-cyclical, capital-heavy; keep off MANUFACTURING.
     ("airline", "AVIATION"), ("aviation", "AVIATION"), ("airport", "AVIATION"),
+    # Defence / aerospace — order-book, indigenisation tailwind (HAL/BEL/BDL).
+    ("aerospace", "DEFENCE"), ("defence", "DEFENCE"), ("defense", "DEFENCE"),
+    # Construction / infra / EPC — cheap, WC-heavy, lumpy. Building RAW MATERIALS
+    # stay CEMENT (matched above); pure construction/EPC → CONSTRUCTION.
+    ("construction - raw material", "CEMENT"),
+    ("construction", "CONSTRUCTION"), ("engineering & construction", "CONSTRUCTION"),
+    # Capital goods / engineering (order-book). AFTER construction so "constr. &
+    # agric. machinery" reads as machinery only if not already construction.
+    ("capital goods", "CAPITAL_GOODS"), ("agric. machinery", "CAPITAL_GOODS"),
+    ("industrial machinery", "CAPITAL_GOODS"), ("machinery", "CAPITAL_GOODS"),
+    ("heavy electrical equipment", "CAPITAL_GOODS"),
+    # NB: "electronic instr & controls" and bare "electrical equipment" are NOT
+    # mapped — the vendor applies them to auto ancillaries (Sharda Motor, LGB) and
+    # consumer durables, so they stay MANUFACTURING rather than mis-bucket.
+    # Textiles — commodity-cyclical.
+    ("textile", "TEXTILES"),
+    # Logistics / transport (ex-airlines, matched above). Placed AFTER aviation so
+    # "transportation - airlines" stays AVIATION.
+    ("logistic", "LOGISTICS"), ("trucking", "LOGISTICS"), ("courier", "LOGISTICS"),
+    ("water transportation", "LOGISTICS"), ("transportation", "LOGISTICS"),
+    # Food processing is a consumer staple; jewelry is discretionary; computer
+    # services are IT; investment-services (brokers) are financials (fee-annuity
+    # → the engine's fee-financial gate then reads them LOW CONF).
+    ("food processing", "CONSUMER"), ("packaged food", "CONSUMER"),
+    ("jewel", "CONSUMER_DISC"),
+    ("computer services", "IT_SERVICES"), ("computer networks", "IT_SERVICES"),
+    ("investment services", "NBFC"), ("investment banking", "NBFC"),
     # Real-estate developers
     ("real estate", "REALTY"), ("realty", "REALTY"),
     # Autos

@@ -172,7 +172,7 @@ def _derive_nonfinancial(statements, vs):
     # exactly why a DCF over-values them (ONGC/Coal India looked +100%). For these
     # sectors we (a) normalise the margin over a longer 5y window and (b) cap
     # forward growth near long-run nominal GDP rather than the cycle's recent CAGR.
-    cyclical = vs in ("METAL", "ENERGY")
+    cyclical = vs in ("METAL", "ENERGY", "PAPER", "SUGAR", "TEXTILES")
     # Semi-cyclicals (autos, cement) aren't commodity businesses, but their
     # recent growth IS the cycle: an auto OEM printing 18% off an up-cycle
     # cannot compound that for years (capitalising M&M's SUV boom produced a
@@ -185,7 +185,9 @@ def _derive_nonfinancial(statements, vs):
     # the FY23-26 specialty down-cycle, and cement's reported EBIT is distorted by
     # new-capacity depreciation (EBIT ≈ half of normalized). Normalise over 5y.
     # Aviation too — fuel swings make any single 3-yr margin unrepresentative.
-    through_cycle = cyclical or vs in ("CHEMICALS", "CEMENT", "AVIATION")
+    # Cables: copper-cost swings distort a single year's margin → smooth over 5y.
+    # Construction: lumpy project execution makes a single year unrepresentative.
+    through_cycle = cyclical or vs in ("CHEMICALS", "CEMENT", "AVIATION", "CABLES", "CONSTRUCTION")
 
     # Near-term revenue growth: weight the stable multi-year CAGR over a single
     # (possibly trough or peak) YoY, then cap. A 50/50 blend let one soft quarter
