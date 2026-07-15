@@ -529,7 +529,7 @@ def recommend(co: Dict, a: Dict) -> Dict:
                                 "model likely doesn't fit this name's economics. "
                                 "Model unreliable here.",
                         "good": False, "bad": True})
-    elif (mos is not None and mos < -0.30 and (
+    elif (mos is not None and mos < -0.25 and (
             (f.get("roe") or 0) >= 0.16
             or (a.get("_valuation_sector") in ("BANK", "NBFC")
                 and max(a.get("forecast_roe") or 0, a.get("terminal_roe") or 0) >= 0.16))):
