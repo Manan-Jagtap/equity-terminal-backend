@@ -110,6 +110,31 @@ def _company_roic(ebit_series, networth_series, borrowings_series, tax_rate,
     return median(vals) if vals else None
 
 
+def _actual_reinvestment(capex, dep, receivables, inventory, payables, ebit, tax_rate):
+    """The company's MEASURED net-reinvestment rate = (|capex| − D&A + ΔNWC) /
+    NOPAT, median over the overlapping years — the institutional FCFF build read
+    straight off the statements. ΔNWC = Δ(receivables + inventory − payables).
+    None when we can't measure it from ≥2 clean years; each year is clamped to
+    tame lumpy-capex / one-off outliers."""
+    cap, d, e = dict(capex or []), dict(dep or []), dict(ebit or [])
+    nwc = {}
+    for src, sign in ((receivables, 1), (inventory, 1), (payables, -1)):
+        for y, v in (src or []):
+            if v is not None:
+                nwc[y] = nwc.get(y, 0.0) + sign * v
+    nwc_years = sorted(nwc)
+    dnwc = {nwc_years[i]: nwc[nwc_years[i]] - nwc[nwc_years[i - 1]]
+            for i in range(1, len(nwc_years))}
+    rates = []
+    for y in sorted(set(cap) & set(e)):
+        nopat = (e.get(y) or 0) * (1 - tax_rate)
+        if nopat <= 0:
+            continue
+        net_reinv = abs(cap.get(y) or 0) - (d.get(y) or 0) + dnwc.get(y, 0.0)
+        rates.append(_clamp(net_reinv / nopat, -0.30, 1.20))
+    return median(rates) if len(rates) >= 2 else None
+
+
 # ── Non-financial driver derivation (FCFF) ─────────────────────────────────
 def _derive_nonfinancial(statements, vs):
     p = SP.params(vs)
@@ -135,6 +160,12 @@ def _derive_nonfinancial(statements, vs):
             _cash[_yr] = _cash.get(_yr, 0.0) + _v
     cash_series = sorted(_cash.items())
     goodwill_series = _series(statements, "BS", "goodwill")
+    # For the ACTUAL net-reinvestment cross-check (capex − D&A + ΔNWC): capex from
+    # the cash flow, working-capital lines from the balance sheet.
+    capex = _series(statements, "CF", "capex")
+    receivables = _series(statements, "BS", "receivables")
+    inventory = _series(statements, "BS", "inventory")
+    payables = _series(statements, "BS", "payables")
 
     # Commodity cyclicals (metals, oil & gas, coal) trade off MID-CYCLE earnings,
     # not the trailing peak. Capitalising peak margins/growth into perpetuity is
@@ -228,10 +259,28 @@ def _derive_nonfinancial(statements, vs):
     # Grasim, Ambuja generate real FCF and pay dividends. 0.65 is still heavy
     # reinvestment; it lifts the maxed-out names without fabricating cash for
     # ordinary ones (whose roic_used is high enough that they never hit the cap).
-    reinvest_rate = _clamp(rev_growth / roic_used, 0.10, 0.65) if roic_used else 0.40
-    drivers["reinvest_rate"] = (f"g/ROIC (g={_pct(rev_growth)}, "
-                                f"ROIC={_pct(roic_used)} — own {_pct(company_roic)} "
-                                f"blended to sector {_pct(p['mature_roic'])})")
+    identity = rev_growth / roic_used if roic_used else 0.40
+    # Cross-check the g/ROIC identity against the company's MEASURED net-capex
+    # intensity. We use it ONLY to TEMPER (raise reinvestment → lower FCFF) when a
+    # name actually plows back materially more than the identity implies — a
+    # capital-heavy build-out the identity would under-reinvest and thus over-value.
+    # We deliberately do NOT lower reinvestment for asset-light names off a near-
+    # zero actual capex: the identity already credits their high ROIC, and treating
+    # growth as free would inflate the quality cohort. One-directional = safe.
+    actual_reinv = _actual_reinvestment(capex, dep, receivables, inventory,
+                                        payables, ebit, tax_rate)
+    if actual_reinv is not None and actual_reinv > identity + 0.05:
+        reinvest_rate = _clamp(0.5 * identity + 0.5 * actual_reinv, 0.10, 0.75)
+        drivers["reinvest_rate"] = (
+            f"g/ROIC {_pct(identity)} raised toward measured net-capex intensity "
+            f"{_pct(actual_reinv)} (capital-heavy build-out)")
+    else:
+        reinvest_rate = _clamp(identity, 0.10, 0.65)
+        drivers["reinvest_rate"] = (f"g/ROIC (g={_pct(rev_growth)}, "
+                                    f"ROIC={_pct(roic_used)} — own {_pct(company_roic)} "
+                                    f"blended to sector {_pct(p['mature_roic'])})"
+                                    + (f"; actual net-capex {_pct(actual_reinv)}"
+                                       if actual_reinv is not None else ""))
 
     # Capital structure from the latest balance sheet.
     debt_weight = 0.15
