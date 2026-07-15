@@ -299,3 +299,20 @@ def recompute_valuations(scope: str = "all",
 @router.get("/recompute-valuations")
 def recompute_valuations_status(_admin: models.User = Depends(require_admin)):
     return dict(_recompute_state)
+
+
+@router.get("/coverage-gaps")
+def coverage_gaps(_admin: models.User = Depends(require_admin),
+                  db: Session = Depends(get_db)):
+    """The un-ingested placeholder rows — auto-created names whose first /stock
+    fundamentals fetch never completed (IndianAPI quota). Sector reads 'Unknown'
+    and there are no HistoricalFinancial rows. Lists them so the owner can target
+    a re-ingest and verify coverage afterwards."""
+    have_stmts = {cid for (cid,) in db.query(models.HistoricalFinancial.company_id).distinct()}
+    gaps = []
+    for co in db.query(models.Company).order_by(models.Company.ticker).all():
+        if (co.sector or "").lower() == "unknown" or co.id not in have_stmts:
+            gaps.append({"ticker": co.ticker, "name": co.name, "sector": co.sector,
+                         "shares": co.shares_outstanding,
+                         "has_statements": co.id in have_stmts})
+    return {"count": len(gaps), "tickers": [g["ticker"] for g in gaps], "rows": gaps}
