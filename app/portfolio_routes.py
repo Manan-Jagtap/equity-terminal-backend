@@ -626,10 +626,15 @@ def portfolio_analysis(user: models.User = Depends(get_current_user),
     # v4 evidence + macro (precomputed nightly; built once on a cold start).
     evidence = macro = None
     try:
-        from app.manager_engine import load_evidence, load_macro, snapshot_evidence
+        from app.manager_engine import (load_evidence, load_macro,
+                                         snapshot_evidence, ENGINE_SCHEMA)
         evidence, macro = load_evidence(db), load_macro(db)
-        if not evidence:
-            snapshot_evidence(db)          # first run after deploy: build + store
+        # Rebuild on a cold start OR when the stored blob predates the current
+        # ENGINE_SCHEMA (new fields) — the bump is meant to force this, but nothing
+        # was actually checking the version, so a schema change never took effect
+        # until the nightly job.
+        if not evidence or evidence.get("schema") != ENGINE_SCHEMA:
+            snapshot_evidence(db)
             evidence, macro = load_evidence(db), load_macro(db)
     except Exception:
         db.rollback()
