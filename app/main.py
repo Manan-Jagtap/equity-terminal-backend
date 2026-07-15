@@ -285,6 +285,27 @@ def api_factors(db: Session = Depends(get_db)):
     return payload
 
 
+_BASKETS_CACHE = {"ts": 0.0, "data": None}
+
+
+@app.get("/api/baskets")
+def api_baskets(db: Session = Depends(get_db)):
+    """Thematic & smart-beta baskets over the visible universe. Smart-beta
+    baskets (Value / Quality / Momentum / Low-Vol / Growth / QARP) hold the top
+    slice on one transparent factor; thematic baskets (Financials, Digital & IT,
+    Consumption, Capex & Infra, Commodities, Healthcare, Auto, Materials) hold
+    every name matching a published valuation-sector rule. Shares the Alpha
+    ranking with /api/factors, so the two never disagree. Cached 5 min. A
+    research aid, not investment advice."""
+    from app.baskets import all_baskets
+    from app.signals import ranked_visible
+    if _BASKETS_CACHE["data"] is not None and (time.time() - _BASKETS_CACHE["ts"]) < 300:
+        return _BASKETS_CACHE["data"]
+    payload = all_baskets(ranked_visible(db))
+    _BASKETS_CACHE["data"], _BASKETS_CACHE["ts"] = payload, time.time()
+    return payload
+
+
 @app.get("/api/screen/technical")
 def api_screen_technical(db: Session = Depends(get_db)):
     """Technical read across the visible universe from the 5-yr OHLCV — DMA

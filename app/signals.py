@@ -129,6 +129,7 @@ def assemble_factor_rows(db, tickers) -> list[dict]:
             continue
         rows.append({
             "ticker": co.ticker, "name": co.name, "sector": co.sector,
+            "valuation_sector": v.valuation_sector,
             "price": price_by.get(cid), "mos": v.mos, "roe": v.roe, "pe": v.pe, "pb": v.pb,
             "verdict": v.verdict, "confidence": v.confidence,
             "closes": closes.get(cid, []),
