@@ -247,10 +247,70 @@ def _movers():
     return {"gainers": clean(ts.get("top_gainers")), "losers": clean(ts.get("top_losers"))}
 
 
-def _active():
-    data = _get("/NSE_most_active") or []
+def _active_from_db(limit: int = 10):
+    """Most-active by traded volume from OUR own Dhan-fed EOD history.
+
+    The IndianAPI most-active feed is quota-throttled for stretches, and `_get`
+    serves the last good payload on failure — so the vendor list could sit
+    frozen for days. Our HistoricalPrice table is topped up every evening by the
+    Dhan EOD job (close + volume), so ranking the latest trading day by volume
+    gives a fresh most-active list that never depends on the vendor quota."""
+    try:
+        from app.database import SessionLocal
+        from app import models
+        from sqlalchemy import func
+    except Exception:
+        return []
+    s = SessionLocal()
+    try:
+        d0 = s.query(func.max(models.HistoricalPrice.date)).scalar()
+        if not d0:
+            return []
+        top = (s.query(models.HistoricalPrice.company_id,
+                       models.HistoricalPrice.close,
+                       models.HistoricalPrice.volume)
+                 .filter(models.HistoricalPrice.date == d0,
+                         models.HistoricalPrice.volume.isnot(None),
+                         models.HistoricalPrice.volume > 0)
+                 .order_by(models.HistoricalPrice.volume.desc())
+                 .limit(limit + 5).all())
+        if not top:
+            return []
+        cos = {c.id: c for c in s.query(models.Company)
+               .filter(models.Company.id.in_([t.company_id for t in top])).all()}
+        out = []
+        for t in top:
+            co = cos.get(t.company_id)
+            if not co:
+                continue
+            prev = (s.query(models.HistoricalPrice.close)
+                      .filter(models.HistoricalPrice.company_id == t.company_id,
+                              models.HistoricalPrice.date < d0)
+                      .order_by(models.HistoricalPrice.date.desc())
+                      .first())
+            pct = None
+            if prev and prev[0] and t.close is not None:
+                try:
+                    pct = round((t.close - prev[0]) / prev[0] * 100, 2)
+                except ZeroDivisionError:
+                    pct = None
+            out.append({
+                "name": co.name, "ticker": co.ticker.upper(),
+                "price": t.close, "pct": pct,
+                "volume": t.volume, "rating": None,
+            })
+            if len(out) >= limit:
+                break
+        return out
+    finally:
+        s.close()
+
+
+def _vendor_active(path: str):
+    """IndianAPI most-active for `path` (/NSE_most_active | /BSE_most_active),
+    kept as a fallback for when our own EOD history isn't available."""
     out = []
-    for x in (data or []):
+    for x in (_get(path) or []):
         tk = _to_universe(x)
         if not tk:
             continue
@@ -262,23 +322,17 @@ def _active():
         if len(out) >= 10:
             break
     return out
+
+
+def _active():
+    # Our fresh EOD-derived list is authoritative; vendor is the fallback.
+    return _active_from_db() or _vendor_active("/NSE_most_active")
 
 
 def _bse_active():
-    data = _get("/BSE_most_active") or []
-    out = []
-    for x in (data or []):
-        tk = _to_universe(x)
-        if not tk:
-            continue
-        out.append({
-            "name": x.get("company"), "ticker": tk,
-            "price": _num(x.get("price")), "pct": _num(x.get("percent_change")),
-            "volume": _num(x.get("volume")), "rating": x.get("overall_rating"),
-        })
-        if len(out) >= 10:
-            break
-    return out
+    # We only maintain NSE EOD volume, so BSE prefers the vendor's own list and
+    # falls back to the fresh NSE-derived ranking rather than sitting stale.
+    return _vendor_active("/BSE_most_active") or _active_from_db()
 
 
 def _high_low():
