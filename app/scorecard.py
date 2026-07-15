@@ -72,22 +72,47 @@ def _quality(ev):
 
 
 def _safety(ev):
-    """Balance-sheet / governance safety: starts from accounting quality and is
-    docked for pledge, forensic red flags and a suspect model."""
+    """Balance-sheet / governance safety, built from INDEPENDENT risk inputs —
+    leverage, interest coverage, promoter pledge, promoter-stake trend and a
+    suspect model — NOT the profitability composite. (Safety used to start from
+    quality.composite, making the two ~44% collinear; this decouples them.)"""
     q = ev.get("quality") or {}
-    base = q.get("composite")
-    if base is None:
-        return None
-    s = base
+    nde = q.get("net_debt_ebitda")            # leverage
+    cov = q.get("interest_cover")             # coverage
     pledged = q.get("pledge_pct")
+    have = any(x is not None for x in (nde, cov, pledged)) or bool(q.get("red_flags"))
+    if not have:
+        # nothing independent to score → fall back to the composite so we don't
+        # emit a fabricated safety reading on thin data
+        base = q.get("composite")
+        return round(_clamp(base), 0) if base is not None else None
+
+    s = 72.0                                   # neutral-safe starting point
+    # Leverage: net debt / EBITDA. Net cash is a plus; >4x is stretched.
+    if nde is not None:
+        if nde <= 0:      s += 12
+        elif nde <= 1:    s += 6
+        elif nde <= 2:    s += 0
+        elif nde <= 4:    s -= 10
+        else:             s -= 22
+    # Interest coverage: EBIT / interest. <1.5x is fragile.
+    if cov is not None:
+        if cov >= 8:      s += 8
+        elif cov >= 4:    s += 3
+        elif cov >= 2:    s -= 2
+        elif cov >= 1:    s -= 12
+        else:             s -= 22
+    # Promoter pledge — the single most predictive Indian-market red flag.
     if pledged is not None:
-        s -= min(30, pledged * 0.6)                   # 30% pledge → −18
-    s -= 9 * len([f for f in (q.get("red_flags") or []) if "pledge" not in f.lower()])
-    if (ev.get("tri") or {}).get("suspect"):
-        s -= 5
+        s -= min(30, pledged * 0.6)            # 30% pledge → −18
+    # Non-pledge forensic red flags (accrual/cash-conversion/going-concern etc.)
+    s -= 7 * len([f for f in (q.get("red_flags") or []) if "pledge" not in f.lower()])
+    # Promoter selling down + a model the engine itself flags as suspect.
     fl = ev.get("flow") or {}
     if (fl.get("promoter_delta") or 0) <= -1.0:
         s -= 6
+    if (ev.get("tri") or {}).get("suspect"):
+        s -= 4
     return round(_clamp(s), 0)
 
 

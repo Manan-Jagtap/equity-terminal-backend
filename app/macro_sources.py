@@ -77,19 +77,26 @@ def fetch_tradingeconomics(db) -> int:
 # shapes ({data:[{Year,Month,Index/Value}]} and {records:[…]}); anything
 # unrecognised is logged and skipped, never guessed. One key: MOSPI_KEY (or
 # OGD_KEY as a fallback) registered once on the portal.
+# Each series carries an expected INDEX-level band so a units mismatch — e.g. a
+# CPI endpoint returning the inflation RATE (~5) under a "Value" key instead of
+# the index (~105) — is rejected and logged, not silently merged into the index
+# series (which then computes a nonsensical YoY, the old "index vs %" bug).
 _GOV_SERIES = {
-    "MOSPI_CPI_URL":  (macro_data.CPI_2024, "MoSPI CPI (2024=100)", "M"),
-    "MOSPI_IIP_URL":  (macro_data.IIP, "MoSPI Index of Industrial Production", "M"),
-    "MOSPI_GDP_URL":  (macro_data.GDP_NOMINAL, "MoSPI GDP (current prices)", "Q"),
-    "OGD_WPI_URL":    (macro_data.WPI, "WPI (DPIIT via OGD)", "M"),
+    "MOSPI_CPI_URL":  (macro_data.CPI_2024, "MoSPI CPI (2024=100)", "M", (80, 400)),
+    "MOSPI_IIP_URL":  (macro_data.IIP, "MoSPI Index of Industrial Production", "M", (50, 400)),
+    "MOSPI_GDP_URL":  (macro_data.GDP_NOMINAL, "MoSPI GDP (current prices)", "Q", (1000, None)),
+    "OGD_WPI_URL":    (macro_data.WPI, "WPI (DPIIT via OGD)", "M", (50, 400)),
 }
 
 _MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
 
 
-def _parse_gov_rows(rows) -> list[list]:
-    """[[iso_date, value], …] from the common MoSPI/OGD row shapes."""
-    pts = []
+def _parse_gov_rows(rows, band=None, label="") -> list[list]:
+    """[[iso_date, value], …] from the common MoSPI/OGD row shapes. Values outside
+    the expected index band are dropped (and logged) so a rate-vs-index units
+    mismatch can't poison the series."""
+    lo, hi = (band or (None, None))
+    pts, dropped = [], 0
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
@@ -109,9 +116,16 @@ def _parse_gov_rows(rows) -> list[list]:
                 d = _dt.date.fromisoformat(str(row.get("date") or row.get("Date"))[:10])
             else:
                 continue
-            pts.append([d.isoformat(), float(str(v).replace(",", ""))])
+            fv = float(str(v).replace(",", ""))
+            if (lo is not None and fv < lo) or (hi is not None and fv > hi):
+                dropped += 1
+                continue
+            pts.append([d.isoformat(), fv])
         except (TypeError, ValueError):
             continue
+    if dropped:
+        log.warning("%s: dropped %d row(s) outside expected band %s — likely a "
+                    "rate/index units mismatch in the feed", label or "gov feed", dropped, band)
     return sorted(pts)
 
 
@@ -123,7 +137,7 @@ def fetch_mospi(db) -> int:
     if not key:
         return 0
     wrote = 0
-    for env, (slug, name, freq) in _GOV_SERIES.items():
+    for env, (slug, name, freq, band) in _GOV_SERIES.items():
         url = os.getenv(env, "").strip()
         if not url:
             continue

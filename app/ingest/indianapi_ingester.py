@@ -805,7 +805,11 @@ _STMT_FACT_MAP = {
 # scale); re-adding them from /statement would both collide on the unique key and
 # risk mixing a quarterly figure with annual ones.
 _FIN_PL_KEYS = {
-    "interest_income":   ("revenue", "sales", "interest_earned", "interest_income", "total_revenue"),
+    # PREFER the bank-specific interest-earned line over the generic revenue/sales
+    # (total operating income). First-match wins, so revenue/sales first set
+    # interest_income = TOTAL income → NII (= interest_income − interest_expense)
+    # was overstated and total_income double-counted other income.
+    "interest_income":   ("interest_earned", "interest_income", "revenue", "sales", "total_revenue"),
     "interest_expense":  ("interest", "interest_expended", "interest_expense", "finance_cost"),
     "other_income":      ("other_income",),
     "opex":              ("expenses", "operating_expenses", "operating_cost", "other_expenses"),

@@ -170,13 +170,17 @@ def run_calibration(db) -> dict:
                 survivorship["thin_history"] += 1
             if len(cs) < 300:
                 continue
-            # monthly trailing-P/E series for the band signal
+            # monthly trailing-P/E AND P/B series for the band signal — the live
+            # band vote is combined(P/E, P/B, sector-relative), so calibrating on
+            # P/E alone measured a different signal than we deploy. P/B here closes
+            # 2 of the 3 legs (sector-relative stays a proxy).
             shares = None
-            eps_by_fy = {}
+            eps_by_fy, bvps_by_fy = {}, {}
             co_stm = hf.get(cid) or {}
             # shares: derive from stored pe & price is circular; use company row
             # (documented drift risk — acceptable for a rank signal)
             pe_series: list[tuple[str, float]] = []
+            pb_series: list[tuple[str, float]] = []
             for c in cos:
                 if c.id == cid:
                     shares = c.shares_outstanding
@@ -186,6 +190,9 @@ def run_calibration(db) -> dict:
                     pat = (stmts.get("PL") or {}).get("pat")
                     if pat is not None and pat > 0:
                         eps_by_fy[fy] = pat * 1e7 / shares if shares > 1e6 else pat / shares
+                    eq = (stmts.get("BS") or {}).get("net_worth") or (stmts.get("BS") or {}).get("equity")
+                    if eq is not None and eq > 0:
+                        bvps_by_fy[fy] = eq * 1e7 / shares if shares > 1e6 else eq / shares
                 last_m = None
                 for i, d in enumerate(ds):
                     key = d[:7]
@@ -196,6 +203,9 @@ def run_calibration(db) -> dict:
                     e = eps_by_fy.get(fy) or eps_by_fy.get(fy - 1)
                     if e:
                         pe_series.append((d, cs[i] / e))
+                    b = bvps_by_fy.get(fy) or bvps_by_fy.get(fy - 1)
+                    if b:
+                        pb_series.append((d, cs[i] / b))
 
             for dt in snap_dates:
                 # closes up to dt
@@ -218,13 +228,17 @@ def run_calibration(db) -> dict:
                 if v is not None:
                     cross[dt]["low_vol"].append((-v, fwd))   # low vol = good
 
-                if pe_series:
-                    hist = [pe for d2, pe in pe_series if d2 <= dt]
+                band_legs = []
+                for ser in (pe_series, pb_series):
+                    if not ser:
+                        continue
+                    hist = [x for d2, x in ser if d2 <= dt]
                     if len(hist) >= 12:
-                        pe_now = hist[-1]
-                        below = sum(1 for x in hist if x <= pe_now)
-                        pct = 100.0 * below / len(hist)
-                        cross[dt]["val_band"].append(((50.0 - pct) / 50.0, fwd))
+                        now = hist[-1]
+                        pct = 100.0 * sum(1 for x in hist if x <= now) / len(hist)
+                        band_legs.append((50.0 - pct) / 50.0)   # cheap = positive
+                if band_legs:
+                    cross[dt]["val_band"].append((sum(band_legs) / len(band_legs), fwd))
 
                 fy = _fy_known_at(dt)
                 q = latest_known(qual_by_fy.get(cid), fy)

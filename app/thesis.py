@@ -313,29 +313,37 @@ def _all_context_numbers(ctx: dict) -> set[str]:
     return nums
 
 
+def _is_claim_number(n: float) -> bool:
+    """A number the thesis is ASSERTING (a ratio, %, price target or ₹cr figure)
+    and should therefore trace to the context — as opposed to prose incidentals
+    (a 4-digit year, a small count like '3 segments' or 'top 5')."""
+    if 1990 <= n <= 2099 and float(n).is_integer():
+        return False                      # a year
+    if float(n).is_integer() and n <= 12:
+        return False                      # a small ordinal / count
+    return n >= 5                         # ratios, %, targets, ₹cr — all validated
+
+
 def validate_output(text: str, ctx: dict) -> tuple[bool, list[str]]:
-    """
-    Light validation: extract numbers from thesis, check that large specific
-    numbers (>1000, e.g. ₹ crore figures) exist somewhere in the context.
-    Returns (is_valid, list_of_suspicious_numbers).
-    """
-    context_nums = _all_context_numbers(ctx)
-    thesis_nums = _extract_numbers(text)
+    """Check that the numbers the thesis ASSERTS — ratios, percentages, price
+    targets and ₹-crore figures, not just >1000 — trace to the grounded context.
+    Years and small counts are exempt. Returns (is_valid, suspicious_numbers)."""
+    context_nums = {cn for cn in _all_context_numbers(ctx)
+                    if cn.replace(".", "").replace("-", "").isdigit()}
+    ctx_floats = [float(cn) for cn in context_nums]
     suspicious = []
-
-    for n in thesis_nums:
-        if n > 1000:  # only validate large numbers (₹ crore figures)
-            n_str = str(int(n))
-            # Allow ±5% variance for rounded numbers
-            found = any(
-                abs(float(cn) - n) / max(n, 1) < 0.06
-                for cn in context_nums
-                if cn.replace(".", "").replace("-", "").isdigit()
-            )
-            if not found:
-                suspicious.append(n_str)
-
-    return len(suspicious) == 0, suspicious
+    for n in _extract_numbers(text):
+        if not _is_claim_number(n):
+            continue
+        # ±6% tolerance absorbs rounding; a claim must land near SOME context value
+        if not any(abs(cf - n) / max(n, 1) < 0.06 for cf in ctx_floats):
+            suspicious.append(str(round(n, 2)))
+    # dedupe, keep order
+    seen, uniq = set(), []
+    for s in suspicious:
+        if s not in seen:
+            seen.add(s); uniq.append(s)
+    return len(uniq) == 0, uniq
 
 
 # ── Main thesis generator ─────────────────────────────────────────────────────

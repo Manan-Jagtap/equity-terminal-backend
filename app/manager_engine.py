@@ -41,7 +41,7 @@ log = logging.getLogger("manager_engine")
 EVIDENCE_KEY = "fm_evidence_v1"
 MACRO_KEY = "fm_macro_v1"
 CALIBRATION_KEY = "fm_calibration_v1"
-ENGINE_SCHEMA = 4   # bump when evidence blobs gain fields → boot rebuild fires
+ENGINE_SCHEMA = 5   # bump when evidence blobs gain fields → boot rebuild fires
 
 # Priors: used until (and blended with) measured ICs from the calibration job.
 # Grouped to sum loosely to 1 across the valuation trio + non-valuation set.
@@ -748,8 +748,14 @@ def build_evidence(db) -> dict:
         pledged = pl.get("pct_pledged")
         if pledged is not None and pledged >= 20:
             red = [f"Promoter pledge {pledged:.0f}%"] + red
+        # carry the balance-sheet metrics too, so the scorecard's SAFETY score can
+        # stand on leverage/coverage independently of the profitability composite
+        # (they were ~44% collinear when safety just started from the composite).
+        _fm = fr.get("metrics") or {}
         quality = {"composite": fr.get("composite"), "grade": fr.get("grade"),
-                   "red_flags": red[:4], "pledge_pct": pledged}
+                   "red_flags": red[:4], "pledge_pct": pledged,
+                   "net_debt_ebitda": (_fm.get("net_debt_ebitda") or {}).get("value"),
+                   "interest_cover": (_fm.get("interest_coverage") or {}).get("value")}
 
         # Valuation bands: own-history P/E and P/B + the sector-relative P/E.
         band = None
@@ -975,10 +981,19 @@ def macro_regime(db) -> dict:
     # Elevated VIX (top decile of its own year) shades a would-be risk_on down;
     # so does genuine monetary tightening with hot CPI.
     regime = "neutral"
-    if nifty.get("above_200dma") and (breadth200 or 0) >= 0.55:
+    nifty_trend = nifty.get("above_200dma")           # True / False / None
+    if nifty_trend is True and (breadth200 or 0) >= 0.55:
         regime = "risk_on"
-    elif nifty.get("above_200dma") is False and (breadth200 or 1) <= 0.45:
+    elif nifty_trend is False and (breadth200 or 1) <= 0.45:
         regime = "risk_off"
+    elif nifty_trend is None and breadth200 is not None:
+        # Nifty trend unavailable (e.g. Dhan unconfigured/down). Rather than pin
+        # to neutral while our own breadth is screaming, let breadth alone drive —
+        # but only at the EXTREMES, since we've lost the index-trend confirmation.
+        if breadth200 >= 0.60:
+            regime = "risk_on"
+        elif breadth200 <= 0.35:
+            regime = "risk_off"
     if regime == "risk_on" and vix and (vix.get("pctile_1y") or 0) >= 90:
         regime = "neutral"
     if (regime == "risk_on" and rates.get("stance") == "tightening"
