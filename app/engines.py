@@ -64,6 +64,17 @@ def residual_income(co: Dict, a: Dict) -> Dict:
     terminal ROE. Terminal: RI perpetuity at terminal ROE & growth."""
     ke = cost_of_equity(a)
     bvps0 = co["equity"] / co["shares"]
+    # Asset-quality adjustment (institutional standard, e.g. ICICI's adj-book):
+    # net NPAs still on the book will likely need further write-downs, so haircut
+    # the starting equity. nnpa is a ratio; nnpa × (advances/equity ~6) × LGD
+    # ~0.67 ≈ nnpa × 4 as a fraction of equity, capped 20%. Healthy banks (nnpa≈0)
+    # are untouched; stressed books carry a real, bounded haircut.
+    _nnpa = co.get("nbfc", {}).get("nnpa")
+    aq_haircut = min(0.20, max(0.0, _nnpa) * 4) if isinstance(_nnpa, (int, float)) else 0.0
+    if aq_haircut:
+        bvps0 = bvps0 * (1 - aq_haircut)
+        (a.setdefault("_drivers", {}))["adj_book"] = (
+            f"book haircut {aq_haircut*100:.0f}% for net NPA {_nnpa*100:.2f}% (asset quality)")
     retention = 1 - a["payout"]
     N = max(3, round(a["fade_years"]))
     N1 = max(1, round(0.6 * N))             # high-ROE hold phase (was N//2 — too
