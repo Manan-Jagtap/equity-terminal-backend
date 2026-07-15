@@ -301,6 +301,98 @@ def recompute_valuations_status(_admin: models.User = Depends(require_admin)):
     return dict(_recompute_state)
 
 
+# ── One-click fundamentals + profile backfill ────────────────────────────────
+# The browser-triggerable equivalent of the RUN_FUNDAMENTALS_BACKFILL +
+# RUN_PROFILE_SNAPSHOTS scheduler flags — no Railway redeploy, no flag to remove.
+# Budget-guarded (api_budget) and background-threaded, so it's safe to run anytime.
+_backfill_state = {"running": False, "step": None, "started_at": None,
+                   "finished_at": None, "error": None, "log": []}
+_backfill_lock = _threading.Lock()
+
+
+def _backfill_job(do_fundamentals: bool, do_profiles: bool):
+    _backfill_state.update(running=True, step=None, error=None, log=[],
+                           started_at=_dt.datetime.utcnow().isoformat() + "Z", finished_at=None)
+
+    def _log(m):
+        _backfill_state["log"].append(m)
+
+    try:
+        from app.database import SessionLocal
+        from app.ingest.indianapi_ingester import run as indianapi_run, VISIBLE_UNIVERSE
+        if do_fundamentals:
+            _backfill_state["step"] = "fundamentals"
+            from app.coverage import needs_fundamentals
+            from app.ingest.compute_valuations import run as compute_valuations
+            s = SessionLocal()
+            try:
+                targets = needs_fundamentals(s, VISIBLE_UNIVERSE)
+            finally:
+                s.close()
+            _log(f"fundamentals: {len(targets)} names need a backfill")
+            if targets:
+                indianapi_run(tickers=targets, insights=True)
+                compute_valuations()
+                _log("fundamentals ingest + recompute complete")
+        if do_profiles:
+            _backfill_state["step"] = "profiles"
+            import time as _t
+            from app import api_budget
+            from app.profile_routes import (company_profile, _load_snapshot,
+                                            _SNAP_TTL_DAYS, _get as _papi)
+            s = SessionLocal()
+            done = skipped = 0
+            try:
+                vendor_ok = _papi("/stock", {"name": "RELIANCE"}, ttl=60) is not None
+                if not vendor_ok:
+                    _log("profiles: vendor refusing calls (quota/down) — skipped")
+                for tk in (sorted(VISIBLE_UNIVERSE) if vendor_ok else []):
+                    co = s.query(models.Company).filter_by(ticker=tk).first()
+                    if co is None:
+                        continue
+                    ins = s.query(models.CompanyInsight).filter_by(company_id=co.id).first()
+                    snap = _load_snapshot(ins)
+                    if snap and _t.time() - (snap.get("fetched_at") or 0) < _SNAP_TTL_DAYS * 86400:
+                        skipped += 1
+                        continue
+                    if api_budget.would_exceed(s, 5):
+                        _log(f"profiles: budget ceiling at {done} done — stopping")
+                        break
+                    try:
+                        company_profile(tk, db=s)
+                        done += 1
+                    except Exception as e:  # noqa: BLE001
+                        _log(f"  {tk}: {type(e).__name__}")
+                    _t.sleep(1.0)
+            finally:
+                s.close()
+            _log(f"profiles: {done} fetched, {skipped} already fresh")
+    except Exception as e:  # noqa: BLE001 — record, never crash the worker
+        _backfill_state["error"] = f"{type(e).__name__}: {e}"
+    finally:
+        _backfill_state.update(running=False, step=None,
+                               finished_at=_dt.datetime.utcnow().isoformat() + "Z")
+
+
+@router.post("/run-backfill")
+def run_backfill(fundamentals: bool = True, profiles: bool = True,
+                 _admin: models.User = Depends(require_admin)):
+    """One-click equivalent of RUN_FUNDAMENTALS_BACKFILL + RUN_PROFILE_SNAPSHOTS —
+    runs both in a background thread, budget-guarded, no redeploy/flag needed.
+    Poll GET for progress. 409 if already running."""
+    with _backfill_lock:
+        if _backfill_state["running"]:
+            raise HTTPException(409, "A backfill is already running")
+        _threading.Thread(target=_backfill_job, args=(fundamentals, profiles),
+                          daemon=True).start()
+    return {"status": "started", "fundamentals": fundamentals, "profiles": profiles}
+
+
+@router.get("/run-backfill")
+def run_backfill_status(_admin: models.User = Depends(require_admin)):
+    return dict(_backfill_state)
+
+
 @router.get("/coverage-gaps")
 def coverage_gaps(_admin: models.User = Depends(require_admin),
                   db: Session = Depends(get_db)):

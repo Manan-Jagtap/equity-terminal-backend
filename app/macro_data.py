@@ -143,10 +143,29 @@ MACRO_FORECAST = {
 # reads (auto, mining, power, cement, non-oil exports, ports, fuel, steel, GST
 # e-way, airline pax, SCB deposits/credit). We cite the composite's YoY direction
 # (attributed); our own activity_read() also aggregates the public slugs directly.
+# The seed below is only a DEFAULT — a live DB overlay (slug `business_activity_yoy`,
+# written via POST /api/admin/macro/activity-point) takes precedence, so this is
+# refreshable, not frozen. The forecast likewise falls back to a KV overlay.
+BUSINESS_ACTIVITY = "business_activity_yoy"
 BUSINESS_ACTIVITY_REF = {
     "source": "ICRA Research", "name": "ICRA Business Activity Monitor (YoY %)",
     "points": [("2026-02-28", 10.0), ("2026-03-31", 7.6)],
 }
+_MACRO_FORECAST_KV = "macro_forecast_overlay"
+
+
+def macro_forecast(db) -> dict:
+    """The macro outlook — a live KV overlay if the owner has set one, else the
+    dated ICRA default. Never frozen: refreshable without a code change."""
+    try:
+        from app import models
+        row = db.query(models.KVStore).filter_by(key=_MACRO_FORECAST_KV).first() if db else None
+        if row and isinstance(row.value, dict) and row.value.get("rows"):
+            return row.value
+    except Exception:
+        if db:
+            db.rollback()
+    return MACRO_FORECAST
 
 
 def activity_read(db) -> dict:
@@ -176,15 +195,19 @@ def activity_read(db) -> dict:
         rising += 1 if up else 0
         total += 1
 
+    # Composite: prefer a live DB overlay (owner-refreshable via activity-point),
+    # else the dated ICRA default. Either way it is NOT frozen in code.
+    ov_pts = series(db, BUSINESS_ACTIVITY)
     ref = BUSINESS_ACTIVITY_REF
+    points = ov_pts if ov_pts else ref.get("points")
     composite = None
-    if ref.get("points"):
-        (pd, pv) = ref["points"][-1]
-        prev = ref["points"][-2][1] if len(ref["points"]) > 1 else None
+    if points:
+        pd, pv = points[-1]
+        prev = points[-2][1] if len(points) > 1 else None
         composite = {"name": ref["name"], "yoy_pct": pv, "as_of": pd,
                      "trend": ("decelerating" if prev is not None and pv < prev
                                else "accelerating" if prev is not None and pv > prev else None),
-                     "source": ref["source"]}
+                     "source": ref["source"] if not ov_pts else "owner/primary overlay"}
 
     breadth = round(rising / total, 2) if total else None
     if composite:                                # composite drives the label when present
@@ -457,7 +480,7 @@ def dashboard(db) -> dict:
                              "source": src})
         sections.append({"title": title, "series": rows})
     return {"summary": macro_summary(db), "sections": sections,
-            "activity": activity_read(db), "forecast": MACRO_FORECAST,
+            "activity": activity_read(db), "forecast": macro_forecast(db),
             "series_count": len(catalog(db)),
             "note": ("India macro from primary official sources — RBI DBIE, MoSPI, "
                      "GSTN, NPCI, Grid India — never a third-party monitor. Each "

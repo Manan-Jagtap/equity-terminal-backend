@@ -1036,7 +1036,7 @@ def macro_regime(db) -> dict:
             "nifty": nifty, "sector_rs": sec_rs[:12],
             "rs_leaders": leaders, "rs_laggards": laggards,
             "commodities": commodities, "activity": activity,
-            "forecast": macro_data.MACRO_FORECAST, "regime": regime}
+            "forecast": macro_data.macro_forecast(db), "regime": regime}
 
 
 def macro_note(macro: dict) -> str:
