@@ -213,6 +213,12 @@ def _derive_nonfinancial(statements, vs):
                                   cash_series, goodwill_series)
     base_roic = company_roic if company_roic else p["mature_roic"]
     roic_used = _clamp(0.6 * base_roic + 0.4 * p["mature_roic"], p["mature_roic"], 0.50)
+    # High-quality slowdown floor: a DURABLE high-ROIC franchise (HUL, Colgate,
+    # Dabur, Glaxo) in a temporary demand dip shouldn't have one trough year set a
+    # permanent ~5% growth. Floor its near-term growth at a franchise-normal 8%.
+    if not cyclical and roic_used >= 1.2 * p["mature_roic"] and rev_growth < 0.08:
+        rev_growth = 0.08
+        drivers["rev_growth"] += " → floored 8% (durable high-ROIC franchise)"
     reinvest_rate = _clamp(rev_growth / roic_used, 0.10, 0.80) if roic_used else 0.40
     drivers["reinvest_rate"] = (f"g/ROIC (g={_pct(rev_growth)}, "
                                 f"ROIC={_pct(roic_used)} — own {_pct(company_roic)} "

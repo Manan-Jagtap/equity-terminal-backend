@@ -529,9 +529,10 @@ def recommend(co: Dict, a: Dict) -> Dict:
                                 "model likely doesn't fit this name's economics. "
                                 "Model unreliable here.",
                         "good": False, "bad": True})
-    elif (mos is not None and mos < -0.35
-          and max(f.get("roe") or 0, a.get("forecast_roe") or 0,
-                  a.get("terminal_roe") or 0) >= 0.18):
+    elif (mos is not None and mos < -0.30 and (
+            (f.get("roe") or 0) >= 0.16
+            or (a.get("_valuation_sector") in ("BANK", "NBFC")
+                and max(a.get("forecast_roe") or 0, a.get("terminal_roe") or 0) >= 0.16))):
         # Mirror of the +200% gate, for extreme DOWNSIDE — keyed off the DERIVED
         # franchise ROE (forecast/terminal), not just a noisy single reported year.
         # A model valuing a genuinely HIGH-RETURN franchise (≥18% ROE) more than
