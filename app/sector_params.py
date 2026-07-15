@@ -104,6 +104,10 @@ SECTOR_PARAMS: dict[str, dict] = {
     "METAL":         _P(beta=1.30, terminal_growth=0.040, mature_roic=0.12, mature_roe=0.13, exit_pe=11, exit_ev_ebitda=6,  exit_pb=None),
     "CEMENT":        _P(beta=1.05, terminal_growth=0.050, mature_roic=0.14, mature_roe=0.15, exit_pe=24, exit_ev_ebitda=13, exit_pb=None),
     "ENERGY":        _P(beta=1.00, terminal_growth=0.040, mature_roic=0.12, mature_roe=0.14, exit_pe=12, exit_ev_ebitda=7,  exit_pb=None),
+    # Aviation — brutally fuel-cyclical, capital-heavy (aircraft), thin through-
+    # cycle returns and volatile earnings, so LOW multiples. Was silently falling
+    # through to MANUFACTURING and getting rich multiples + absurd upside.
+    "AVIATION":      _P(beta=1.35, terminal_growth=0.050, mature_roic=0.11, mature_roe=0.14, exit_pe=12, exit_ev_ebitda=7,  exit_pb=None),
     "UTILITIES":     _P(beta=0.75, terminal_growth=0.045, mature_roic=0.11, mature_roe=0.13, exit_pe=15, exit_ev_ebitda=9,  exit_pb=None),
     "TELECOM":       _P(beta=0.90, terminal_growth=0.050, mature_roic=0.13, mature_roe=0.15, exit_pe=32, exit_ev_ebitda=9,  exit_pb=None),
     "MANUFACTURING": _P(beta=1.00, terminal_growth=0.050, mature_roic=0.15, mature_roe=0.16, exit_pe=28, exit_ev_ebitda=15, exit_pb=None),
@@ -182,6 +186,8 @@ _RULES: list[tuple[str, str]] = [
     # "petroleum"/"refiner" still win for oil names; "petrochemical" → CHEMICALS.
     ("specialty chemical", "CHEMICALS"), ("agrochemical", "CHEMICALS"),
     ("fertiliz", "CHEMICALS"), ("fertilis", "CHEMICALS"), ("chemical", "CHEMICALS"),
+    # Aviation / airlines — fuel-cyclical, capital-heavy; keep off MANUFACTURING.
+    ("airline", "AVIATION"), ("aviation", "AVIATION"), ("airport", "AVIATION"),
     # Real-estate developers
     ("real estate", "REALTY"), ("realty", "REALTY"),
     # Autos

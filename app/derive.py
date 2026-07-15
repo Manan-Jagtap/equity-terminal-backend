@@ -178,11 +178,14 @@ def _derive_nonfinancial(statements, vs):
     # cannot compound that for years (capitalising M&M's SUV boom produced a
     # +114% MoS — an obvious peak-cycle artifact). Normalise them to a
     # mid-cycle cap between the commodity cap and the secular-growth cap.
-    semi_cyclical = vs in ("AUTO", "CEMENT")
+    # Aviation is fuel-cyclical: a boom-year margin can't be capitalised, and its
+    # 3-yr window (post-COVID recovery) is a poor normal — treat like a semi-cyclic.
+    semi_cyclical = vs in ("AUTO", "CEMENT", "AVIATION")
     # CHEMICALS and CEMENT need THROUGH-CYCLE margins too: chem's 3-yr window is
     # the FY23-26 specialty down-cycle, and cement's reported EBIT is distorted by
     # new-capacity depreciation (EBIT ≈ half of normalized). Normalise over 5y.
-    through_cycle = cyclical or vs in ("CHEMICALS", "CEMENT")
+    # Aviation too — fuel swings make any single 3-yr margin unrepresentative.
+    through_cycle = cyclical or vs in ("CHEMICALS", "CEMENT", "AVIATION")
 
     # Near-term revenue growth: weight the stable multi-year CAGR over a single
     # (possibly trough or peak) YoY, then cap. A 50/50 blend let one soft quarter
