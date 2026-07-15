@@ -49,8 +49,11 @@ THEMES = [
         {"PHARMA"}),
     ("auto",        "Auto & Mobility",        "OEMs & ancillaries — volume × mix × operating leverage.",
         {"AUTO"}),
-    ("materials",   "Materials & Chemicals",  "Chemicals, cables & broad manufacturing — specialty and commoditised inputs.",
-        {"CHEMICALS", "CABLES", "MANUFACTURING"}),
+    # MANUFACTURING is deliberately EXCLUDED — it is the classifier's residual
+    # "couldn't place precisely" bucket (banks/shipping/etc. leak in), so theming
+    # it would mislead. Materials is the clean chemicals + cables set only.
+    ("materials",   "Materials & Chemicals",  "Chemicals & cables — specialty and commoditised industrial inputs.",
+        {"CHEMICALS", "CABLES"}),
 ]
 
 _FACTOR_LABELS = {"value": "Value", "quality": "Quality", "momentum": "Momentum",
