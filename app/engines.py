@@ -278,10 +278,17 @@ def _is_high_payout(co: Dict, a: Dict) -> bool:
 
 
 # Triangulation weights. Non-financials lead with the DCF; financials with RI.
+# The DCF/RI always leads at 0.55/0.65; the cross-check split is SECTOR-APPROPRIATE
+# (from the institutional-model study): capital-heavy businesses are valued on
+# EV/EBITDA, asset-light ones on P/E — so we weight the right multiple higher.
 _BLEND_WEIGHTS = {
     "fin":    [("Residual Income", 0.65), ("Gordon Growth P/B", 0.20), ("P/E (sector)", 0.15)],
     "nonfin": [("FCFF DCF",        0.55), ("Exit Multiple",     0.30), ("P/E (sector)", 0.15)],
+    # Asset-light: earnings-based P/E is the meaningful multiple; EV/EBITDA less so.
+    "nonfin_light": [("FCFF DCF",  0.55), ("Exit Multiple",     0.15), ("P/E (sector)", 0.30)],
 }
+# Sectors whose value is asset-light / earnings-driven → lean the cross-check on P/E.
+_ASSET_LIGHT = {"IT_SERVICES", "CONSUMER", "CONSUMER_DISC", "PHARMA"}
 
 
 def blended(co: Dict, a: Dict) -> Dict:
@@ -300,6 +307,11 @@ def blended(co: Dict, a: Dict) -> Dict:
                 "Gordon Growth P/B": gordon_pb_value(co, a, v),
                 "P/E (sector)": pe_value(co, a)}
         spec = list(_BLEND_WEIGHTS["fin"])
+    elif _vsector(a) in _ASSET_LIGHT:
+        vals = {"FCFF DCF": primary,
+                "Exit Multiple": exit_multiple_value(co, a),
+                "P/E (sector)": pe_value(co, a)}
+        spec = list(_BLEND_WEIGHTS["nonfin_light"])
     else:
         vals = {"FCFF DCF": primary,
                 "Exit Multiple": exit_multiple_value(co, a),
