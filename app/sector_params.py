@@ -200,7 +200,8 @@ _RULES: list[tuple[str, str]] = [
     # MANUFACTURING, which gave them rich multiples and absurd +100% upside).
     ("oil gas", "ENERGY"), ("consumable fuels", "ENERGY"),
     ("oil & gas", "ENERGY"), ("oil and gas", "ENERGY"), ("petroleum", "ENERGY"),
-    ("refiner", "ENERGY"), ("gas distribut", "ENERGY"), ("coal", "ENERGY"), ("energy", "ENERGY"),
+    ("refiner", "ENERGY"), ("gas distribut", "ENERGY"), ("coal", "ENERGY"),
+    ("oil well", "ENERGY"), ("oilfield", "ENERGY"), ("energy", "ENERGY"),
     # Metals / mining
     ("steel", "METAL"), ("aluminium", "METAL"), ("aluminum", "METAL"),
     ("metal", "METAL"), ("mining", "METAL"), ("zinc", "METAL"),
@@ -249,14 +250,22 @@ _RULES: list[tuple[str, str]] = [
     ("real estate", "REALTY"), ("realty", "REALTY"),
     # Autos
     ("automobile", "AUTO"), ("auto component", "AUTO"), ("auto part", "AUTO"),
-    ("two wheeler", "AUTO"), ("two-wheeler", "AUTO"), ("auto", "AUTO"),
+    ("two wheeler", "AUTO"), ("two-wheeler", "AUTO"),
+    ("tyre", "AUTO"), ("tires", "AUTO"), ("auto", "AUTO"),
     # Consumer (staples vs discretionary)
     ("fast moving consumer", "CONSUMER"), ("fmcg", "CONSUMER"), ("packaged food", "CONSUMER"),
     ("beverages", "CONSUMER"), ("tobacco", "CONSUMER"), ("personal product", "CONSUMER"),
-    ("household product", "CONSUMER"), ("consumer staple", "CONSUMER"),
+    # "household prod" catches the vendor's abbreviated "Personal & Household
+    # Prods." (P&G Hygiene, Bajaj Consumer, Cupid) that "household product" missed.
+    ("household prod", "CONSUMER"), ("consumer staple", "CONSUMER"),
     ("retail", "CONSUMER_DISC"), ("apparel", "CONSUMER_DISC"), ("luxury", "CONSUMER_DISC"),
-    ("restaurant", "CONSUMER_DISC"), ("hotel", "CONSUMER_DISC"), ("leisure", "CONSUMER_DISC"),
+    ("footwear", "CONSUMER_DISC"), ("restaurant", "CONSUMER_DISC"),
+    ("hotel", "CONSUMER_DISC"), ("leisure", "CONSUMER_DISC"),
+    # Media & publishing (Navneet, DB Corp) and consumer-durable appliances
+    # (Orient Electric, Electronics Mart) — discretionary, were falling to MFG.
     ("media", "CONSUMER_DISC"), ("entertainment", "CONSUMER_DISC"),
+    ("printing & publishing", "CONSUMER_DISC"), ("publishing", "CONSUMER_DISC"),
+    ("appliance", "CONSUMER_DISC"),
     ("consumer durable", "CONSUMER_DISC"), ("consumer discretion", "CONSUMER_DISC"),
     ("jewell", "CONSUMER_DISC"), ("consumer", "CONSUMER"),
 ]

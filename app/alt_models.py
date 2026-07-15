@@ -39,6 +39,63 @@ SOTP_PRESETS: dict[str, dict] = {
         ("Bajaj Allianz Life Insurance", 33000),
         ("Bajaj Allianz General Insurance", 28000),
         ("Housing / windmill / other holdings", 17000)]},
+
+    # ── Diversified operating conglomerates ─────────────────────────────────
+    # Each below is a genuine multi-business group a single blended DCF/RI
+    # mis-prices — the standard model reads only the consolidated P&L and misses
+    # that the segments deserve different multiples. Segment EVs are ILLUSTRATIVE
+    # (₹ crore): listed-subsidiary segments are the stake's market value (netted
+    # for a holding-company discount where the group perennially trades at one),
+    # operating segments are a reasonable multiple of segment earnings. VERIFY
+    # against the latest disclosures — editable in the SOTP panel. MEDIUM conf.
+
+    # L&T — operating conglomerate: E&C core + listed IT & financial-services
+    # stakes. Financing debt sits INSIDE the L&T Finance stake value, so the
+    # parent net_debt is ~0 for the SOTP.
+    "LT": {"net_debt": 0, "shares": 137.5, "segments": [
+        ("Core E&C + Hi-tech mfg + realty", 380000),
+        ("LTIMindtree stake (~68%)", 92000),
+        ("L&T Technology Services (~74%)", 35000),
+        ("L&T Finance stake (~66%)", 28000),
+        ("Hyderabad Metro / IDPL / other", 15000)]},
+
+    # ITC — cigarettes crown jewel + FMCG-Others + paper + agri + IT + a residual
+    # ~40% ITC Hotels stake (post-2025 demerger). Net cash.
+    "ITC": {"net_debt": -10000, "shares": 1252.0, "segments": [
+        ("Cigarettes", 400000),
+        ("FMCG — Others (foods, personal care)", 70000),
+        ("Paperboards & Packaging", 35000),
+        ("Agri Business", 30000),
+        ("ITC Infotech (IT)", 25000),
+        ("ITC Hotels residual stake (~40%)", 15000)]},
+
+    # Grasim — holdco + operating: listed UltraTech & AB Capital stakes (NET of a
+    # ~20% holding-company discount, which Grasim persistently trades at) plus VSF,
+    # chemicals and the ramping paints business (optionality). Standalone net debt.
+    "GRASIM": {"net_debt": 15000, "shares": 68.0, "segments": [
+        ("UltraTech Cement stake (~55%, net of holdco disc.)", 145000),
+        ("Aditya Birla Capital stake (~50%, net of disc.)", 21000),
+        ("Viscose Staple Fibre (VSF)", 30000),
+        ("Chemicals (chlor-alkali)", 18000),
+        ("Paints — Birla Opus (ramp-up optionality)", 22000),
+        ("B2B e-commerce / other", 4000)]},
+
+    # Vedanta — diversified resources: listed Hindustan Zinc stake + aluminium,
+    # oil & gas (Cairn), power and iron ore. Carries real parent net debt.
+    "VEDL": {"net_debt": 60000, "shares": 391.0, "segments": [
+        ("Hindustan Zinc stake (~63%)", 120000),
+        ("Aluminium (Vedanta Alu + BALCO)", 90000),
+        ("Oil & Gas — Cairn", 35000),
+        ("Power", 15000),
+        ("Iron ore / steel / ferro / other", 25000)]},
+
+    # Bajaj Holdings — pure investment holdco of the Bajaj Auto & Bajaj Finserv
+    # stakes; it perennially trades at a DEEP (~40%+) holding-company discount, so
+    # the stakes are seeded NET of that discount (else SOTP badly overstates it).
+    "BAJAJHLDNG": {"net_debt": 0, "shares": 11.13, "segments": [
+        ("Bajaj Auto stake (~35%, net of holdco disc.)", 50000),
+        ("Bajaj Finserv stake (~41%, net of holdco disc.)", 74000),
+        ("Other quoted/unquoted investments + cash", 15000)]},
 }
 
 
