@@ -449,6 +449,14 @@ def recommend(co: Dict, a: Dict) -> Dict:
     # plus the two data-state sentinels. This is the INDEPENDENT model's own
     # view from margin of safety + composite quality — analyst consensus is
     # surfaced separately and never blended in here.
+    # A genuinely HIGH-RETURN franchise (≥16% ROE — reported, or the derived
+    # franchise ROE for a bank/NBFC): the sector DCF is the leg known to
+    # understate quality, so such a name should read a real REDUCE ("richly
+    # valued, trim") through the moderate-discount zone rather than a confident
+    # AVOID; only an EXTREME discount (< −45%) drops it to LOW CONF (below).
+    _high_roe = ((f.get("roe") or 0) >= 0.16
+                 or (a.get("_valuation_sector") in ("BANK", "NBFC")
+                     and max(a.get("forecast_roe") or 0, a.get("terminal_roe") or 0) >= 0.16))
     if iv is None:                              verdict = "NO DATA"
     elif mos is None:                           verdict = "NO DATA"   # have intrinsic but no usable price
     elif conf["score"] < 0.5:                   verdict = "LOW CONF"
@@ -456,6 +464,7 @@ def recommend(co: Dict, a: Dict) -> Dict:
     elif composite >= 58 and mos > 0.05:        verdict = "ACCUMULATE"
     elif mos >= -0.10:                          verdict = "HOLD"
     elif mos >= -0.25:                          verdict = "REDUCE"
+    elif mos >= -0.45 and _high_roe:            verdict = "REDUCE"
     else:                                       verdict = "AVOID"
 
     # A dedicated model (SOTP for conglomerates, P/EV for insurers) replaced the
@@ -529,10 +538,7 @@ def recommend(co: Dict, a: Dict) -> Dict:
                                 "model likely doesn't fit this name's economics. "
                                 "Model unreliable here.",
                         "good": False, "bad": True})
-    elif (mos is not None and mos < -0.25 and (
-            (f.get("roe") or 0) >= 0.16
-            or (a.get("_valuation_sector") in ("BANK", "NBFC")
-                and max(a.get("forecast_roe") or 0, a.get("terminal_roe") or 0) >= 0.16))):
+    elif mos is not None and mos < -0.45 and _high_roe:
         # Mirror of the +200% gate, for extreme DOWNSIDE — keyed off the DERIVED
         # franchise ROE (forecast/terminal), not just a noisy single reported year.
         # A model valuing a genuinely HIGH-RETURN franchise (≥18% ROE) more than
