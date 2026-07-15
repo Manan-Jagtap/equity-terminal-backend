@@ -306,6 +306,40 @@ def api_baskets(db: Session = Depends(get_db)):
     return payload
 
 
+@app.get("/api/strategy/list")
+def api_strategy_list():
+    """The price strategies the backtester supports (for the rule-builder)."""
+    from app.strategy_backtest import STRATEGIES
+    return {"strategies": [{"id": k, "label": v[0], "rule": v[1]} for k, v in STRATEGIES.items()],
+            "rebalance": [{"id": "M", "label": "Monthly"}, {"id": "Q", "label": "Quarterly"}],
+            "note": ("Point-in-time PRICE strategies on 5-yr split-adjusted history — no look-ahead, "
+                     "equal-weight, benchmarked to the NIFTY 50. A research tool, not investment advice.")}
+
+
+_STRAT_CACHE = {}
+
+
+@app.get("/api/strategy/backtest")
+def api_strategy_backtest(signal: str = "momentum", top_n: int = 15,
+                          rebalance: str = "M", years: float = 5,
+                          db: Session = Depends(get_db)):
+    """Backtest a rule-based price strategy over the 5-yr history vs the NIFTY 50.
+    Every signal is computed from data available up to each rebalance date only
+    (no look-ahead). Cached 10 min per distinct rule. Research aid, not advice."""
+    from app.strategy_backtest import run_backtest
+    key = (signal, int(top_n), rebalance, round(float(years), 2))
+    hit = _STRAT_CACHE.get(key)
+    if hit and (time.time() - hit[0]) < 600:
+        return hit[1]
+    try:
+        out = run_backtest(db, signal=signal, top_n=top_n, rebalance=rebalance, years=years)
+    except Exception:
+        db.rollback()
+        return {"ok": False, "reason": "Backtest failed — price history may still be loading."}
+    _STRAT_CACHE[key] = (time.time(), out)
+    return out
+
+
 @app.get("/api/screen/technical")
 def api_screen_technical(db: Session = Depends(get_db)):
     """Technical read across the visible universe from the 5-yr OHLCV — DMA
