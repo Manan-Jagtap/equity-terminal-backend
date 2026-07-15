@@ -576,24 +576,29 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
                               .get("description"))
         except Exception:
             pass
-        # a short peer set (same valuation sector) for the comparison table
+        # a short peer set for the comparison table — same valuation sector AND a
+        # comparable size (0.2x–5x market cap), so we never pit a small name
+        # against a mega-cap in a different business. Hidden unless ≥2 clean peers.
         peers = []
         try:
             vsec = (rec or {}).get("valuation_sector")
-            if vsec:
+            mc = price * (co.shares_outstanding or 0)
+            if vsec and mc:
                 q = (db.query(models.Valuation, models.Company)
                        .join(models.Company, models.Valuation.company_id == models.Company.id)
                        .filter(models.Valuation.valuation_sector == vsec,
                                models.Company.ticker != co.ticker))
-                rows = q.limit(60).all()
-                mc = price * (co.shares_outstanding or 0)
                 scored = []
-                for val, pco in rows:
+                for val, pco in q.limit(120).all():
                     pmc = (pco.market.price if pco.market else 0) * (pco.shares_outstanding or 0)
-                    scored.append((abs((pmc or 0) - mc), val, pco))
+                    if not pmc or not (0.2 * mc <= pmc <= 5 * mc):
+                        continue
+                    scored.append((abs(pmc - mc), val, pco))
                 for _, val, pco in sorted(scored, key=lambda x: x[0])[:5]:
                     peers.append({"ticker": pco.ticker, "pe": val.pe, "pb": val.pb,
                                   "roe": val.roe, "mos": val.mos, "verdict": val.verdict})
+            if len(peers) < 2:      # a lone/odd "peer" is worse than none
+                peers = []
         except Exception:
             pass
         pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic,
