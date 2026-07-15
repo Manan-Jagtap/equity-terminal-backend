@@ -390,6 +390,13 @@ def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
     # timed the screener out on a cold cache).
     facts_by_cid = _all_latest_facts(db)
     price_by_cid = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    # Batch sentiment (tone + revisions + beat/miss) once for the whole screener.
+    try:
+        from app.sentiment import sentiment_by
+        sent_by = sentiment_by(db)
+    except Exception:
+        db.rollback()
+        sent_by = {}
 
     companies = db.query(models.Company).join(models.MarketSnapshot).all()
     for co in companies:
@@ -431,6 +438,9 @@ def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
             "analyst_target": (cons or {}).get("target"),
             "analyst_upside": (cons or {}).get("upside"),
             "analyst_rating": (cons or {}).get("rating"),
+            # SENTIMENT (narrative momentum; separate column, never in the call)
+            "sentiment": (sent_by.get(co.ticker) or {}).get("score"),
+            "sentiment_label": (sent_by.get(co.ticker) or {}).get("label"),
         })
 
     # Rank: reliable first, then independent verdict (BUY→AVOID), then upside.
@@ -519,6 +529,19 @@ def _consensus_block(db, co, price):
     return analyst_consensus(ins.data if ins else None, price)
 
 
+def _safe_sentiment(db, ticker):
+    """Transparent sentiment (tone + revision + beat/miss), never 500s the page."""
+    try:
+        from app.sentiment import company_sentiment
+        return company_sentiment(db, ticker)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None
+
+
 @app.get("/api/companies/{ticker}")
 def company_detail(ticker: str, db: Session = Depends(get_db)):
     from fastapi.responses import JSONResponse
@@ -536,7 +559,8 @@ def company_detail(ticker: str, db: Session = Depends(get_db)):
         except Exception:
             analyst = None
         return {"company": _public(data), "assumptions": a,
-                "recommendation": rec, "sensitivity": sens, "analyst": analyst}
+                "recommendation": rec, "sensitivity": sens, "analyst": analyst,
+                "sentiment": _safe_sentiment(db, ticker)}
     except Exception as e:
         body = {"error": str(e)}
         if _debug_enabled():
@@ -565,7 +589,8 @@ def recompute(ticker: str, override: AssumptionOverride,
     a_public = {k: v for k, v in a.items() if not k.startswith("_")}
     return {"company": _public(data), "assumptions": a_public,
             "recommendation": rec, "sensitivity": sens,
-            "analyst": _consensus_block(db, co, data.get("price"))}
+            "analyst": _consensus_block(db, co, data.get("price")),
+            "sentiment": _safe_sentiment(db, ticker)}
 
 
 @app.post("/api/companies/{ticker}/onepager")
