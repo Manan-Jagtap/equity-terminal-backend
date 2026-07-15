@@ -117,6 +117,87 @@ def catalog(db) -> dict:
     return out
 
 
+# ── Attributed macro reference points (published forecasts + activity read) ──
+# These are CITED third-party figures (widely reported, source-attributed), not a
+# redistributed data feed — one dated reading, refreshable by the owner via the
+# admin activity-point endpoint. They give the Economy layer a forward view and
+# seed the activity read until the owner wires live ACTIVITY_*_URL sources.
+MACRO_FORECAST = {
+    "source": "ICRA Research", "as_of": "2026-03",
+    "note": "Baseline assumes ~$85/bbl crude (Indian basket).",
+    "rows": [
+        {"metric": "Real GDP growth", "fy26": 7.5, "fy27": 6.5, "unit": "%"},
+        {"metric": "CPI inflation", "fy26": 2.1, "fy27": 4.5, "unit": "%"},
+        {"metric": "WPI inflation", "fy26": 0.7, "fy27": 3.5, "unit": "%"},
+        {"metric": "CAD / GDP", "fy26": 0.9, "fy27": 1.7, "unit": "%"},
+        {"metric": "Fiscal deficit / GDP", "fy26": 4.5, "fy27": 4.6, "unit": "%"},
+    ],
+    # GDP sensitivity to the crude assumption (baseline → stress).
+    "crude_scenarios": [
+        {"crude_usd_bbl": 85, "fy27_gdp": 6.5}, {"crude_usd_bbl": 105, "fy27_gdp": 5.8},
+        {"crude_usd_bbl": 125, "fy27_gdp": 5.0},
+    ],
+}
+
+# ICRA Business Activity Monitor — a 16-indicator composite of PUBLIC high-freq
+# reads (auto, mining, power, cement, non-oil exports, ports, fuel, steel, GST
+# e-way, airline pax, SCB deposits/credit). We cite the composite's YoY direction
+# (attributed); our own activity_read() also aggregates the public slugs directly.
+BUSINESS_ACTIVITY_REF = {
+    "source": "ICRA Research", "name": "ICRA Business Activity Monitor (YoY %)",
+    "points": [("2026-02-28", 10.0), ("2026-03-31", 7.6)],
+}
+
+
+def activity_read(db) -> dict:
+    """Aggregate the high-frequency activity indicators into a single read:
+    per-indicator YoY (PMI by level vs 50), a breadth (share expanding), and a
+    label. Feeds the macro regime and the Economy dashboard. Empty-safe."""
+    indicators = []
+    rising = total = 0
+    for slug, (name, *_rest) in ACTIVITY_META.items():
+        pts = series(db, slug)
+        if len(pts) < 2:
+            continue
+        d1, v1 = _latest(pts)
+        if v1 is None:
+            continue
+        if slug in (PMI_MFG, PMI_SVC):           # diffusion index: level vs 50
+            up = v1 >= 50.0
+            indicators.append({"slug": slug, "name": name, "value": round(v1, 1),
+                               "read": "expansion" if up else "contraction", "as_of": d1})
+        else:                                     # level series: YoY %
+            _, v0 = _year_ago(pts, d1)
+            if not v0:
+                continue
+            yoy = (v1 / v0 - 1) * 100
+            up = yoy > 0
+            indicators.append({"slug": slug, "name": name, "yoy_pct": round(yoy, 1), "as_of": d1})
+        rising += 1 if up else 0
+        total += 1
+
+    ref = BUSINESS_ACTIVITY_REF
+    composite = None
+    if ref.get("points"):
+        (pd, pv) = ref["points"][-1]
+        prev = ref["points"][-2][1] if len(ref["points"]) > 1 else None
+        composite = {"name": ref["name"], "yoy_pct": pv, "as_of": pd,
+                     "trend": ("decelerating" if prev is not None and pv < prev
+                               else "accelerating" if prev is not None and pv > prev else None),
+                     "source": ref["source"]}
+
+    breadth = round(rising / total, 2) if total else None
+    if composite:                                # composite drives the label when present
+        label = ("expanding" if composite["yoy_pct"] >= 6
+                 else "cooling" if composite["yoy_pct"] <= 2 else "moderating")
+    elif breadth is not None:
+        label = "expanding" if breadth >= 0.6 else "cooling" if breadth <= 0.35 else "mixed"
+    else:
+        label = None
+    return {"label": label, "breadth": breadth, "n": total,
+            "composite": composite, "indicators": indicators}
+
+
 # ── small series math ────────────────────────────────────────────────────────
 
 def _latest(pts):
@@ -376,6 +457,7 @@ def dashboard(db) -> dict:
                              "source": src})
         sections.append({"title": title, "series": rows})
     return {"summary": macro_summary(db), "sections": sections,
+            "activity": activity_read(db), "forecast": MACRO_FORECAST,
             "series_count": len(catalog(db)),
             "note": ("India macro from primary official sources — RBI DBIE, MoSPI, "
                      "GSTN, NPCI, Grid India — never a third-party monitor. Each "

@@ -977,6 +977,14 @@ def macro_regime(db) -> dict:
     except Exception as e:
         log.warning(f"macro: rates summary unavailable ({type(e).__name__})")
 
+    # High-frequency activity read (GST/e-way/power/auto/UPI/PMI + the cited
+    # business-activity composite) — the real-economy pulse our price data misses.
+    activity = {}
+    try:
+        activity = macro_data.activity_read(db) or {}
+    except Exception as e:
+        log.warning(f"macro: activity read unavailable ({type(e).__name__})")
+
     # Regime label — deliberately blunt: trend + breadth, nothing exotic.
     # Elevated VIX (top decile of its own year) shades a would-be risk_on down;
     # so does genuine monetary tightening with hot CPI.
@@ -998,6 +1006,10 @@ def macro_regime(db) -> dict:
         regime = "neutral"
     if (regime == "risk_on" and rates.get("stance") == "tightening"
             and ((rates.get("cpi_yoy") or {}).get("pct") or 0) >= 6.0):
+        regime = "neutral"
+    # Broad real-economy cooling shades a would-be risk_on down — the market can
+    # run ahead of activity, but a cooling pulse is a caution flag, not a driver.
+    if regime == "risk_on" and activity.get("label") == "cooling":
         regime = "neutral"
 
     # Breadth history → regime-change detection (KV, self-pruning to ~2 years).
@@ -1023,7 +1035,8 @@ def macro_regime(db) -> dict:
             "breadth_trend": trend, "vix": vix, "rates": rates, "flows": flows,
             "nifty": nifty, "sector_rs": sec_rs[:12],
             "rs_leaders": leaders, "rs_laggards": laggards,
-            "commodities": commodities, "regime": regime}
+            "commodities": commodities, "activity": activity,
+            "forecast": macro_data.MACRO_FORECAST, "regime": regime}
 
 
 def macro_note(macro: dict) -> str:
@@ -1050,6 +1063,14 @@ def macro_note(macro: dict) -> str:
     vx = macro.get("vix") or {}
     if vx.get("pctile_1y") is not None and vx["pctile_1y"] >= 80:
         bits.append(f"India VIX {vx['last']} — {vx['pctile_1y']:.0f}th percentile of its year, elevated")
+    act = macro.get("activity") or {}
+    comp = act.get("composite") or {}
+    if comp.get("yoy_pct") is not None:
+        bits.append(f"Real-economy activity {act.get('label') or 'mixed'} "
+                    f"({comp['name']} {comp['yoy_pct']:+.1f}% YoY"
+                    + (f", {comp['trend']}" if comp.get('trend') else "") + ")")
+    elif act.get("label"):
+        bits.append(f"Real-economy activity {act['label']}")
     fl = macro.get("flows") or {}
     if fl.get("fii_net_5d_cr") is not None:
         f5 = fl["fii_net_5d_cr"]
