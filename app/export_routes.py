@@ -916,7 +916,7 @@ def _relative_val_sheet(ws, ticker, v, rec, analyst):
             _w(ws, f"A{r}", lbl, font=F_LBL, align="left")
             _w(ws, f"B{r}", _num(val, 4), font=F_VAL, fmt=fmt, align="right", border=True); r += 1
     r += 1
-    comps = (v or {}).get("components") or []
+    comps = (rec or {}).get("components") or (v or {}).get("components") or []
     if comps:
         _band(ws, r, "MULTIPLE- & MODEL-BASED FAIR VALUE (engine triangulation)", last_col="D"); r += 1
         for j, h in enumerate(("Method", "Implied value (Rs)", "Weight"), start=1):
@@ -949,7 +949,7 @@ def _relative_val_sheet(ws, ticker, v, rec, analyst):
 def _final_val_sheet(ws, ticker, MODEL, R, v, rec):
     _theme(ws, [30, 15, 13, 15, 30])
     _sheet_title(ws, ticker, "Final Valuation", last_col="E")
-    comps = (v or {}).get("components") or []
+    comps = (rec or {}).get("components") or (v or {}).get("components") or []
     r = 3
     _band(ws, r, "WEIGHTED VALUATION  (football field)", last_col="E"); r += 1
     for j, h in enumerate(("Method", "Value (Rs)", "Weight", "Weighted"), start=1):
@@ -971,7 +971,12 @@ def _final_val_sheet(ws, ticker, MODEL, R, v, rec):
         r += 1
     last = r - 1
     r += 1
-    blended = f"=IFERROR(SUM(D{first}:D{last})/SUM(C{first}:C{last}),0)"
+    # SUM over an empty (inverted) range is #NULL!, so fall back to the engine
+    # intrinsic when the engine returned no component breakdown.
+    if comps:
+        blended = f"=IFERROR(SUM(D{first}:D{last})/SUM(C{first}:C{last}),0)"
+    else:
+        blended = f"='{MODEL}'!{R['iv']}"
     bl_cell = f"B{r}"
     _derived(ws, r, "BLENDED INTRINSIC / SHARE (Rs)", blended, PS, result=True); r += 1
     _w(ws, f"A{r}", "Current price (Rs)", font=F_LBL, align="left")
