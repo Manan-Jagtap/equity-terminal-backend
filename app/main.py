@@ -217,6 +217,7 @@ def _all_latest_facts(db):
 
 _COMPANIES_CACHE = {"ts": 0.0, "data": None}
 _FACTORS_CACHE = {"ts": 0.0, "data": None}
+_TECH_CACHE = {"ts": 0.0, "data": None}
 
 _VERDICT_RANK = {"BUY": 5, "ACCUMULATE": 4, "HOLD": 3, "REDUCE": 2, "AVOID": 1}
 
@@ -281,6 +282,47 @@ def api_factors(db: Session = Depends(get_db)):
                "sectors": sector_strength(ranked),
                "ideas": ranked}
     _FACTORS_CACHE["data"], _FACTORS_CACHE["ts"] = payload, time.time()
+    return payload
+
+
+@app.get("/api/screen/technical")
+def api_screen_technical(db: Session = Depends(get_db)):
+    """Technical read across the visible universe from the 5-yr OHLCV — DMA
+    states, 50/200 golden/death cross, RSI-14, 52-week-range position, 12-1
+    momentum, and volume vs its 50-day average. A screening aid, not advice.
+    Cached 5 min."""
+    import datetime as _dt
+    from app.factors import technicals
+    from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
+    if _TECH_CACHE["data"] is not None and time.time() - _TECH_CACHE["ts"] < 300:
+        return _TECH_CACHE["data"]
+
+    cos = {c.id: c for c in db.query(models.Company).all()
+           if (c.ticker or "").upper() in VISIBLE_UNIVERSE}
+    cutoff = (_dt.date.today() - _dt.timedelta(days=420)).isoformat()
+    series: dict = {}
+    q = (db.query(models.HistoricalPrice.company_id, models.HistoricalPrice.close,
+                  models.HistoricalPrice.volume)
+           .filter(models.HistoricalPrice.company_id.in_(list(cos.keys())),
+                   models.HistoricalPrice.date >= cutoff)
+           .order_by(models.HistoricalPrice.date))
+    for cid, close, vol in q.all():
+        if close:
+            s = series.setdefault(cid, ([], []))
+            s[0].append(close)
+            s[1].append(vol)
+    out = []
+    for cid, (closes, vols) in series.items():
+        t = technicals(closes, [v for v in vols if v])
+        if not t:
+            continue
+        c = cos[cid]
+        out.append({"ticker": c.ticker, "name": c.name, "sector": c.sector, **t})
+    out.sort(key=lambda r: (r.get("mom_12_1") if r.get("mom_12_1") is not None else -1e9),
+             reverse=True)
+    payload = {"count": len(out), "items": out,
+               "note": "Technical read from the 5-yr OHLCV. A screening aid, not advice."}
+    _TECH_CACHE["data"], _TECH_CACHE["ts"] = payload, time.time()
     return payload
 
 

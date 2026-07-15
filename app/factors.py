@@ -72,6 +72,58 @@ def realized_vol(closes, window: int = 252):
     return pstdev(rets) * (252 ** 0.5)
 
 
+def _sma(xs, n):
+    return sum(xs[-n:]) / n if len(xs) >= n else None
+
+
+def rsi(closes, n: int = 14):
+    """Wilder-style RSI over the last n periods. None on too-short a series."""
+    if not closes or len(closes) < n + 1:
+        return None
+    gains = losses = 0.0
+    for i in range(-n, 0):
+        ch = closes[i] - closes[i - 1]
+        gains += ch if ch > 0 else 0
+        losses += -ch if ch < 0 else 0
+    if losses == 0:
+        return 100.0
+    rs = (gains / n) / (losses / n)
+    return round(100 - 100 / (1 + rs), 1)
+
+
+def technicals(closes, vols=None) -> dict | None:
+    """Transparent technical read from a close series (+ optional volumes):
+    DMA states, golden/death cross, RSI, 52-week-range position, 12-1 momentum,
+    and volume vs its 50-day average. Every field None-safe on short history."""
+    if not closes or len(closes) < 20:
+        return None
+    last = closes[-1]
+    s20, s50, s200 = _sma(closes, 20), _sma(closes, 50), _sma(closes, 200)
+    win = closes[-252:]
+    hi, lo = (max(win), min(win)) if win else (None, None)
+    mom = momentum(closes)
+    vol_ratio = None
+    if vols and len(vols) >= 50:
+        avg50 = sum(vols[-50:]) / 50
+        if avg50:
+            vol_ratio = round(vols[-1] / avg50, 2)
+    cross = None
+    if s50 is not None and s200 is not None:
+        cross = "golden" if s50 >= s200 else "death"
+    return {
+        "last": round(last, 2),
+        "above_20dma": (last >= s20) if s20 else None,
+        "above_50dma": (last >= s50) if s50 else None,
+        "above_200dma": (last >= s200) if s200 else None,
+        "cross": cross,                                        # 50/200 DMA regime
+        "rsi14": rsi(closes),
+        "pct_from_52w_high": round((last / hi - 1) * 100, 1) if hi else None,
+        "pct_from_52w_low": round((last / lo - 1) * 100, 1) if lo else None,
+        "mom_12_1": round(mom * 100, 1) if mom is not None else None,
+        "vol_vs_50d": vol_ratio,
+    }
+
+
 def score_universe(rows, weights: dict | None = None) -> list[dict]:
     """rows: list of dicts, each with at least
         {ticker, mos, roe, pe, pb, closes, growth}
