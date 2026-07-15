@@ -41,37 +41,39 @@ This terminal's job is to make all four *systematic and transparent*. Everything
 
 Everything a best-in-class equity decision platform can offer, mapped to what you have (✅ have · 🟡 partial · ⬜ gap):
 
-**Data & coverage** — fundamentals ✅ · prices ✅ (1yr) · 5-yr OHLCV 🟡 · Nifty 100 ✅ / Nifty 500 ⬜ · second data vendor ⬜ · corporate actions ✅ (new) · alt/operational data (Tijori-style) ⬜
+*Status refreshed 15 Jul 2026. ✅ = shipped & live. 🟡 = partial. ⬜ = open. 🔨 = actively building this program. 🔒 = externally gated (data source / owner credential).*
 
-**Screening & discovery** — screener ✅ · custom query builder 🟡 · **multi-factor Alpha rank ✅ (new)** · saved screens ⬜ · thematic/basket discovery ⬜
+**Data & coverage** — fundamentals ✅ · prices ✅ · 5-yr OHLCV ✅ (Dhan) · Nifty 100 ✅ / Nifty 500 ✅ (501 visible) · second data vendor 🔒 (fundamentals single-source IndianAPI; Dhan cross-checks prices) · corporate actions ✅ · alt/operational data (Tijori-style) 🟡 (transcript KPI extractor)
 
-**Fundamental analysis** — statements ✅ · ratios/KPIs ✅ · peer compare ✅ · forensic/quality flags ✅ · segment/SOTP ✅ (new) · operating metrics ⬜
+**Screening & discovery** — screener ✅ · custom query builder 🟡 · **multi-factor Alpha rank ✅** · saved screens ✅ · thematic/basket discovery 🔨
 
-**Valuation** — DCF/RI ✅ · reverse DCF ✅ · Monte Carlo + sensitivity ✅ · exit-multiple & Gordon cross-checks ✅ · **insurer P/EV ✅ (new)** · saved scenarios ⬜ · editable 3-statement model ⬜
+**Fundamental analysis** — statements ✅ · ratios/KPIs ✅ · peer compare ✅ · forensic/quality flags ✅ · segment/SOTP ✅ · operating metrics 🟡 (transcript KPI chips)
 
-**Quant / factor** — **Alpha Score ✅ (new)** · factor backtest sleeves ⬜ · factor exposure of a portfolio ⬜ · smart-beta baskets ⬜
+**Valuation** — DCF/RI ✅ · reverse DCF ✅ · Monte Carlo + sensitivity ✅ · exit-multiple & Gordon cross-checks ✅ · **Dividend Discount Model ✅ (new)** · insurer P/EV ✅ · saved scenarios ✅ · editable 3-statement model 🟡 (live Excel model ✅; in-app editable 🔨)
 
-**Estimates & revisions** — consensus target ✅ · **estimate-revision & earnings-surprise signals ⬜ (high value)** · estimate history/momentum ⬜ · beat/miss track ⬜
+**Quant / factor** — **Alpha Score ✅** · factor backtest sleeves 🔨 · factor exposure of a portfolio ✅ (X-ray) · smart-beta baskets 🔨
 
-**Ownership & flows** — shareholding ✅ · **insider trades ⬜** · FII/DII flows ⬜ · promoter pledge trend 🟡 · bulk/block deals ⬜
+**Estimates & revisions** — consensus target ✅ · earnings-surprise (actuals) ✅ · estimate history/momentum 🔨 · beat/miss track 🔨 · forward consensus-EPS 🔒 (no clean vendor field)
 
-**Events & catalysts** — results calendar ✅ · dividend/split calendar 🟡 (data now stored) · concall/AGM dates ⬜ · index inclusion events ⬜
+**Ownership & flows** — shareholding ✅ · insider trades ✅ · FII/DII flows ✅ · promoter pledge trend ✅ · bulk/block deals ✅ (counts; named holders 🔒)
 
-**News & NLP** — news ✅ · AI research note ✅ · **transcript/annual-report NLP summaries ⬜** · sentiment scoring ⬜
+**Events & catalysts** — results calendar ✅ · dividend/split calendar 🔨 · concall/AGM dates ✅ · index inclusion events ⬜
 
-**Technical & charting** — momentum/RSI/SMA ✅ (engine) · **interactive charts ⬜** · drawing/annotations ⬜ · pattern/technical screener ⬜
+**News & NLP** — news ✅ · AI research note ✅ · transcript/annual-report NLP summaries 🟡 (built; BSE-fetch dormant 🔒) · sentiment scoring 🔨
 
-**Portfolio & risk** — holdings + P&L ✅ · **total return incl. dividends ✅ (new)** · value-weighted MoS ✅ · **factor/beta exposure, VaR, drawdown ⬜** · position-sizing tool 🟡 (framework below) · tax-lot / XIRR ⬜ · vs-benchmark 🟡 (basket now)
+**Technical & charting** — momentum/RSI/SMA ✅ · interactive charts ✅ · drawing/annotations ⬜ · pattern/technical screener 🔨
 
-**Derivatives / options** — ⬜ entirely (Sensibull territory): option chain, IV, OI/PCR, payoff, strategy builder
+**Portfolio & risk** — holdings + P&L ✅ · total return incl. dividends ✅ · value-weighted MoS ✅ · factor/beta exposure, VaR, drawdown ✅ · position-sizing tool ✅ (inverse-vol) · XIRR ✅ · tax-lot 🟡 · vs-benchmark 🔨
 
-**Backtesting** — track record ✅ (forward, live) · **strategy/factor backtest ⬜** · rule builder ⬜
+**Derivatives / options** — option chain ✅ (F&O-gated tab) · IV/greeks/OI/PCR ✅ · payoff & strategy builder 🔨 · *live chain data owner-gated (Dhan entitlement 401)* 🔒
 
-**Alerts & automation** — watchlist verdict/MoS/move alerts ✅ · **Alpha-Score & signal alerts ⬜** · scheduled digests 🟡
+**Backtesting** — track record ✅ (forward, live) · strategy/factor backtest 🔨 · rule builder 🔨
 
-**Collaboration / AI / mobile** — ⌘K palette ✅ · shareable models ⬜ · AI copilot 🟡 (thesis) · **real mobile layout ⬜** · broker connect (decision-support) ⬜
+**Alerts & automation** — watchlist verdict/MoS/move alerts ✅ · Alpha-Score & signal alerts ✅ · scheduled digests 🟡
 
-The pattern is clear: your **analysis core is best-in-class**; the gaps are **signals (revisions/flows), derivatives, charting, portfolio risk analytics, and mobile.** The roadmap below attacks them in ROI order.
+**Collaboration / AI / mobile** — ⌘K palette ✅ · shareable models ✅ (scenarios) · AI copilot 🟡 (thesis + ⌘K NL) · real mobile layout ✅ · broker connect (decision-support) 🔒
+
+The buildable set now in flight (🔨): thematic baskets, factor backtester + rule builder, beat/miss + estimate momentum, dividend calendar, sentiment scoring, technical/pattern screener, options payoff/strategy, in-app editable model, vs-benchmark. Remaining true gaps are **externally gated** (🔒): second fundamentals vendor, forward consensus-EPS, transcript-fetch proxy, named block-deal holders, broker-connect.
 
 ---
 
