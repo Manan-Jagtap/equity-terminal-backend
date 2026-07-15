@@ -8,6 +8,8 @@ credit ratings, announcements) from the stored insight blob.
                                           best-effort call to IndianAPI /documents.
 """
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
@@ -17,6 +19,115 @@ from app.database import get_db
 from app import models
 
 router = APIRouter(prefix="/api", tags=["documents"])
+
+# --- Live BSE announcements layer -------------------------------------------
+# The stored `documents` blob is only refreshed when the IndianAPI-quota-bound
+# ingester next touches a company, so a fresh filing (results, investor deck,
+# transcript) can take days to appear. BSE's own announcements API is quota-free
+# and updates the moment a company files, so we overlay a short rolling window
+# of live BSE filings on top of the blob — the Docs tab then reflects a result
+# as soon as it hits the exchange. Cached per scrip; a slow BSE call is bounded
+# so it can never stall the page.
+_BSE_TTL = 1800  # 30 min
+_bse_cache: dict = {}          # scrip -> (ts, [items])
+_bse_pool = ThreadPoolExecutor(max_workers=2)
+
+
+def _bse_daykey(s) -> str | None:
+    m = re.search(r"(20[0-3]\d)[-/ ]?(\d{2})[-/ ]?(\d{2})", str(s or ""))
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else None
+
+
+def _live_bse_items(scrip: str, days: int = 150) -> list:
+    now = time.time()
+    hit = _bse_cache.get(scrip)
+    if hit and now - hit[0] < _BSE_TTL:
+        return hit[1]
+    items = []
+    try:
+        from app.bse.client import fetch_announcements, BSE_ATTACHMENT_BASE
+        from app.bse.classifier import classify_announcement
+        frm = date.today() - timedelta(days=days)
+        # Single attempt — the 30-min cache and the caller's wait-bound make a
+        # retry storm both unnecessary and harmful to page latency.
+        anns = fetch_announcements(scrip, frm, date.today(), max_retries=1)
+        for a in anns:
+            headline = (a.get("HEADLINE") or a.get("NEWSSUB") or "").strip()
+            subcat = (a.get("SUBCATNAME") or "").strip()
+            att = (a.get("ATTACHMENTNAME") or "").strip()
+            if not headline and not subcat:
+                continue
+            url = f"{BSE_ATTACHMENT_BASE}/{att}" if att else (a.get("NSURL") or None)
+            cls = classify_announcement(headline, subcat)
+            items.append({
+                "headline": headline or subcat, "subcat": subcat,
+                "dt": (a.get("DT_TM") or "").strip(), "url": url,
+                "doc_type": cls.doc_type.value,
+            })
+    except Exception:
+        # Serve the last good payload on failure; never raise into the page.
+        items = hit[1] if hit else []
+    _bse_cache[scrip] = (now, items)
+    return items
+
+
+def _merge_live_bse(ticker: str, docs: dict) -> dict:
+    try:
+        from app.bse.scrip_codes import get_scrip_code
+        scrip = get_scrip_code(ticker.upper())
+        if not scrip:
+            return docs
+        # Warm cache returns instantly; otherwise bound the wait so a slow BSE
+        # call never blocks the docs page (the thread still fills the cache).
+        try:
+            live = _bse_pool.submit(_live_bse_items, scrip).result(timeout=6)
+        except Exception:
+            return docs
+        if not live:
+            return docs
+
+        anns = list(docs.get("announcements") or [])
+        concalls = list(docs.get("concalls") or [])
+        seen_ann = {((a.get("title") or "")[:40].lower(), _bse_daykey(a.get("date")))
+                    for a in anns if isinstance(a, dict)}
+        seen_url = {a.get("url") for a in anns if isinstance(a, dict) and a.get("url")}
+        concall_by_day = {}
+        for c in concalls:
+            if isinstance(c, dict):
+                dk = _bse_daykey(c.get("date"))
+                if dk:
+                    concall_by_day[dk] = c
+
+        new_anns = []
+        for it in live:
+            dk = _bse_daykey(it["dt"])
+            title = it["headline"]
+            # Investor decks / transcripts belong in the Concalls card…
+            if it["doc_type"] in ("IP", "TRANSCRIPT") and dk and it["url"]:
+                row = concall_by_day.get(dk)
+                if row is None:
+                    row = {"date": dk}
+                    concall_by_day[dk] = row
+                    concalls.append(row)
+                if it["doc_type"] == "IP" and not row.get("ppt"):
+                    row["ppt"] = it["url"]
+                if it["doc_type"] == "TRANSCRIPT" and not row.get("transcript"):
+                    row["transcript"] = it["url"]
+                continue
+            # …everything else (results, press releases, board outcomes) lists
+            # under Announcements, newest first, deduped against the blob.
+            key = (title[:40].lower(), dk)
+            if key in seen_ann or (it["url"] and it["url"] in seen_url):
+                continue
+            seen_ann.add(key)
+            new_anns.append({"title": title, "date": (dk or it["dt"] or ""), "url": it["url"]})
+
+        new_anns.sort(key=lambda a: a.get("date") or "", reverse=True)
+        docs["announcements"] = (new_anns + anns)[:40]
+        docs["concalls"] = concalls
+    except Exception:
+        pass                                  # freshness overlay is best-effort
+    return docs
 
 _YEAR_RX = re.compile(r"(20[0-3]\d)")
 _MONTHS = {m: i for i, m in enumerate(
@@ -121,9 +232,10 @@ def company_documents(ticker: str, db: Session = Depends(get_db)):
         ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
         docs = (ins.data or {}).get("documents") if ins else None
         if not isinstance(docs, dict):
-            return {}
+            docs = {}
         import copy
-        return _normalize_docs(copy.deepcopy(docs))
+        docs = _merge_live_bse(co.ticker, copy.deepcopy(docs))
+        return _normalize_docs(docs)
     except Exception:
         try:
             db.rollback()
