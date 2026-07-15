@@ -55,6 +55,12 @@ class Metric:
     # line) — publish nothing rather than an authoritative-looking wrong number.
     # None on either side leaves that side unbounded.
     band:      tuple | None = None
+    # Absolute threshold for the good/bad flag in the metric's NATIVE scale.
+    # "low" metrics are good below it, "high" metrics above it. Required for
+    # "x"-scale multiples — a single 0.05 cutoff marked every cheap P/E, D/E,
+    # EV/EBITDA as bad. When None on a sector-relative multiple we emit NO flag
+    # rather than a wrong one.
+    good_at:   float | None = None
 
     def compute(self, ctx: dict) -> float | None:
         try:
@@ -87,8 +93,14 @@ class Metric:
         if value is None:
             return None
         if self.good_dir == "high":
-            return value > 0
+            return value > (self.good_at if self.good_at is not None else 0)
         if self.good_dir == "low":
+            if self.good_at is not None:
+                return value < self.good_at
+            # sector-relative multiples (P/E, P/B, EV/EBITDA, P/S) have no
+            # absolute "good" line — don't guess a red/green flag.
+            if self.unit == "x":
+                return None
             return value < 0.05
         return None
 
@@ -287,7 +299,7 @@ METRICS: list[Metric] = [
 
     Metric("interest_cover",  "Interest Coverage",    "Liquidity", "x", NON_FIN,
            lambda c: _div(c["ebit_l"], c["int_l"]),
-           good_dir="high", note="EBIT / Interest Expense", band=(-50, 500)),
+           good_dir="high", good_at=3.0, note="EBIT / Interest Expense", band=(-50, 500)),
 
     Metric("op_cf_cover",     "Operating CF / PAT",   "Liquidity", "x", ALL_TEMPLATES_TUPLE,
            lambda c: _div(c["op_cf"], c["pat_l"]),
@@ -296,15 +308,15 @@ METRICS: list[Metric] = [
     # ── LEVERAGE ─────────────────────────────────────────────────────────────
     Metric("debt_equity",     "Debt / Equity",        "Leverage", "x", NON_FIN,
            lambda c: _div(c["borrowings"], c["equity"]),
-           good_dir="low", band=(0, 20)),
+           good_dir="low", good_at=1.0, band=(0, 20)),
 
     Metric("net_debt_equity", "Net Debt / Equity",    "Leverage", "x", NON_FIN,
            lambda c: _div(c["net_debt"], c["equity"]),
-           good_dir="low", band=(-10, 20)),
+           good_dir="low", good_at=1.0, band=(-10, 20)),
 
     Metric("net_debt_ebitda", "Net Debt / EBITDA",    "Leverage", "x", NON_FIN,
            lambda c: _div(c["net_debt"], c["ebitda_l"]),
-           good_dir="low", note="<2x conservative; >4x stretched", band=(-50, 50)),
+           good_dir="low", good_at=2.0, note="<2x conservative; >4x stretched", band=(-50, 50)),
 
     Metric("leverage_ratio",  "Leverage Ratio",       "Leverage", "x", FINANCIAL,
            lambda c: _div(c["total_assets"], c["equity"]),
@@ -500,7 +512,11 @@ def compute_metrics(
     hist_statements: the 'statements' dict from build_financials_response,
         keyed by fiscal_year int.
     """
-    market_cap = price * company.shares_outstanding if price else None
+    # shares_outstanding is None/0 for auto-onboarded rows — market_cap must be
+    # UNKNOWN then, not 0. A 0 market cap made P/S render "0.00x" and flag the
+    # name as attractively cheap, and mcap show "₹0 cr".
+    _sh = company.shares_outstanding
+    market_cap = price * _sh if (price and _sh) else None
 
     ctx = build_context(company, facts, hist_statements, price, market_cap)
 

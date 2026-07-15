@@ -140,7 +140,7 @@ def build_context(company, facts: dict, hist_statements: dict,
         }
 
     shares = company.shares_outstanding
-    market_cap = round(price * shares, 0) if price else None
+    market_cap = round(price * shares, 0) if (price and shares) else None
     intrinsic_bvps = flat_metrics.get("bvps", {}).get("value")
     intrinsic = None  # computed by DCF engine separately; not in metrics
 

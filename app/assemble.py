@@ -110,20 +110,38 @@ def build_company(db: Session, co: models.Company) -> dict:
 
 def _shape_statements(hist_rows) -> dict:
     """Nested { year:int -> { 'PL':{item:val}, 'BS':{...}, 'CF':{...} } } from the
-    last 5 fiscal years — the shape derive.py and the metrics layer expect."""
+    last 5 fiscal years — the shape derive.py and the metrics layer expect.
+
+    Runs the SAME integrity gate the Financials tab uses (misfiled-year columns,
+    sign-flipped cost lines, >80% YoY collapses). Previously only financials.py
+    sanitized, so the DCF/RI intrinsic, the AI thesis and the one-pager — the
+    highest-stakes outputs — were computed from un-gated statements."""
     nested: dict = {}
     for r in hist_rows:
         if r.value is None:
             continue
         nested.setdefault(int(r.fiscal_year), {}).setdefault(r.statement_type, {})[r.line_item] = r.value
     years = sorted(nested.keys())[-5:]
-    return {y: nested[y] for y in years}
+    out = {y: nested[y] for y in years}
+    try:
+        from app.financials import _sanitize_statements
+        financial = any(("nii" in (out[y].get("PL") or {})) or
+                        ("interest_income" in (out[y].get("PL") or {})) for y in out)
+        _sanitize_statements(out, financial)
+    except Exception:
+        pass          # a sanitizer hiccup must never break statement assembly
+    return out
 
 
 def effective_assumptions(db: Session, co: models.Company, data: dict) -> dict:
     """The INDEPENDENT assumption block used for valuation: derived from the
     company's own stored history + sector_params. Replaces the old yfinance-
     seeded Assumptions rows as the live default."""
+    # Discount at TODAY's curve on the on-demand (web) path too — not just the
+    # nightly batch. TTL-cached, so this is one cheap read at most every 30 min
+    # per process, and every recompute surface (detail page, what-if, one-pager,
+    # Excel) now prices off the same live 10Y G-sec as the stored screener rows.
+    SP.refresh_risk_free(db)
     vs = data.get("valuation_sector") or SP.classify_valuation_sector(co.sector, co.template_code)
     is_fin = data.get("is_financial_template",
                       T.is_financial(co.template_code or T.classify(co.sector)) or co.type == "financial")

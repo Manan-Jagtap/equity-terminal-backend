@@ -510,14 +510,18 @@ def recompute(ticker: str, override: AssumptionOverride,
     # Start from the independent derived assumptions, then apply the user's
     # what-if overrides on top.
     a = effective_assumptions(db, co, data)
-    a = {k: v for k, v in a.items() if not k.startswith("_")}
     payload = override.dict(exclude_none=True)
     if "price" in payload:
         data["price"] = payload.pop("price")
     a.update(payload)
+    # Keep the internal keys (_valuation_sector, _drivers) for the engine —
+    # stripping them here previously reverted every stock to MANUFACTURING
+    # sector params on any what-if, jumping the fair value and flipping
+    # verdicts. Hide them only from the JSON response.
     rec = engines.recommend(data, a)
     sens = engines.sensitivity(data, a)
-    return {"company": _public(data), "assumptions": a,
+    a_public = {k: v for k, v in a.items() if not k.startswith("_")}
+    return {"company": _public(data), "assumptions": a_public,
             "recommendation": rec, "sensitivity": sens,
             "analyst": _consensus_block(db, co, data.get("price"))}
 
@@ -532,7 +536,10 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
         price = 0
         try: price = co.market.price or 0
         except Exception: pass
-        market = {"price": price, "chgPct": 0, "mcapCr": price * co.shares_outstanding}
+        # shares can legitimately be None/0 for thin seeds — never crash the PDF
+        sh = co.shares_outstanding or 0
+        market = {"price": price, "chgPct": 0,
+                  "mcapCr": (price * sh) if (price and sh) else None}
         hist_rows = (db.query(models.HistoricalFinancial)
                      .filter_by(company_id=co.id)
                      .order_by(models.HistoricalFinancial.fiscal_year).all())
@@ -543,7 +550,10 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
         metrics = {}
         try:
             from app.metrics import compute_metrics
-            metrics = compute_metrics(co, facts, {}, price, template)
+            # pass the REAL statements (not {}), else every statement-derived
+            # ratio — PAT CAGR, ROCE, growth — silently drops to "—" on the PDF.
+            metrics = compute_metrics(co, facts, financials.get("statements") or {},
+                                      price, template)
         except Exception: pass
         # Use the SAME independent engine as the rest of the terminal (no more
         # divorced inline DCF).

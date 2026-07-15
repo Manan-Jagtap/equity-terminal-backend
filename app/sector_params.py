@@ -35,28 +35,47 @@ valuation updates and stays consistent.
 """
 from __future__ import annotations
 
+import logging
+import time
+
+log = logging.getLogger("sector_params")
+
 # ── Market-wide constants ──────────────────────────────────────────────────
 RISK_FREE: float = 0.069     # fallback; refresh_risk_free() sets the LIVE 10Y
 ERP: float = 0.050           # equity risk premium (see header)
 
+_RF_TS: float = 0.0          # last successful/attempted refresh (monotonic-ish)
 
-def refresh_risk_free(db=None) -> float:
+
+def refresh_risk_free(db=None, ttl: float = 1800.0, force: bool = False) -> float:
     """Point RISK_FREE at the LIVE 10-year G-sec from the macro store (RBI
-    DBIE seed + refresh overlay). Called at the top of every valuation
-    recompute, so the whole model suite discounts at today's curve instead of
-    a hardcoded 6.9%. Clamped to a sane band and silently left at the fallback
-    when the store is unreadable — a valuation must never crash on a macro
-    hiccup."""
-    global RISK_FREE
+    DBIE seed + refresh overlay). Called at the top of every valuation recompute
+    — batch AND on-demand (web) — so the whole model suite discounts at today's
+    curve instead of a hardcoded 6.9%. TTL-cached (default 30 min) so calling it
+    per request is cheap; pass force=True to bypass. Clamped to a sane band and
+    left at the last value when the store is unreadable — a valuation must never
+    crash on a macro hiccup — but now LOGS when a value is dropped so a units
+    regression can't pin the rate silently forever."""
+    global RISK_FREE, _RF_TS
+    now = time.time()
+    if not force and _RF_TS and (now - _RF_TS) < ttl:
+        return RISK_FREE
+    _RF_TS = now
     try:
         from app import macro_data
         pts = macro_data.series(db, macro_data.GSEC_10Y)
-        if pts:
-            rf = pts[-1][1] / 100.0
-            if 0.045 <= rf <= 0.10:
-                RISK_FREE = round(rf, 4)
-    except Exception:
-        pass
+        if not pts:
+            log.warning("refresh_risk_free: 10Y G-sec series empty; keeping %.4f", RISK_FREE)
+            return RISK_FREE
+        rf = pts[-1][1] / 100.0
+        if 0.045 <= rf <= 0.10:
+            RISK_FREE = round(rf, 4)
+        else:
+            log.warning("refresh_risk_free: 10Y G-sec %.5f out of band [0.045,0.10]; "
+                        "keeping %.4f (possible units regression in the macro store)",
+                        rf, RISK_FREE)
+    except Exception as e:
+        log.warning("refresh_risk_free: %s: %s; keeping %.4f", type(e).__name__, e, RISK_FREE)
     return RISK_FREE
 
 

@@ -51,8 +51,21 @@ MOS_HARD_MAX   = 1.00
 TOP_N       = 12
 
 
+def _f(x):
+    """Plain float coercion (no unit guessing) — for fields already known to be
+    fractions (ROE, parsed growth, PAT YoY)."""
+    if x is None:
+        return None
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
 def _frac(x):
-    """Normalise a ratio to a fraction: 0.18 stays 0.18, 18 → 0.18."""
+    """Normalise an AMBIGUOUS-unit ratio to a fraction: 0.18 stays 0.18, 18 →
+    0.18. Only for fields whose source unit is genuinely unknown — never for
+    fields already stored as fractions (that mangles real >150% movers)."""
     if x is None:
         return None
     try:
@@ -263,9 +276,13 @@ def find_hidden_gems(db, limit: int = TOP_N, refresh: bool = False) -> dict:
         shares = shares_by.get(tk)
         cap_cr = (price * shares) if (price and shares) else None
         vinfo = val_by.get(tk) or {}
-        roe = _frac(vinfo.get("roe"))
-        g = _frac(ev.get("growth"))
-        pat_yoy = _frac((ev.get("results") or {}).get("pat_yoy"))
+        # roe (Valuation.roe), growth (parsed by _parse_growth) and pat_yoy
+        # (results yoy) are ALL already fractions — do NOT run them through
+        # _frac, which divided any genuine >150% mover by 100 and then failed
+        # it at the growth gate (turnarounds silently dropped).
+        roe = _f(vinfo.get("roe"))
+        g = _f(ev.get("growth"))
+        pat_yoy = _f((ev.get("results") or {}).get("pat_yoy"))
         covered = bool((ev.get("consensus") or {}).get("rating") or
                        (ev.get("consensus") or {}).get("target"))
         gem = evaluate_name(tk, ev, cap_cr, roe, g, pat_yoy, covered, pe=vinfo.get("pe"))

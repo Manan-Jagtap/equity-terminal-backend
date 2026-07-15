@@ -658,7 +658,7 @@ def _ratios_sheet(ws, years, pl_rows, bs_rows, pl_title, bs_title):
         ("Asset turnover", None, NUMX, lambda j: (f"={P('revenue',j)}/{B('total_assets',j)}" if P('revenue',j) and B('total_assets',j) else None)),
         ("LEVERAGE & COVERAGE", None, None, None),
         ("Debt / equity", "band", NUMX, lambda j: (f"={B(debt_key,j)}/{B(equity_key,j)}" if B(debt_key,j) and B(equity_key,j) else None)),
-        ("Interest coverage", None, NUMX, lambda j: (f"={P('ebit',j)}/-{P('interest_expense',j)}" if P('ebit',j) and P('interest_expense',j) else None)),
+        ("Interest coverage", None, NUMX, lambda j: (f"={P('ebit',j)}/{P('interest_expense',j)}" if P('ebit',j) and P('interest_expense',j) else None)),
     ]
     r = 2
     for label, sec, fmt, fn in rows:

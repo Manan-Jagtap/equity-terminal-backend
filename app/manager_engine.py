@@ -85,6 +85,31 @@ def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
 
+def _parse_growth(g) -> float | None:
+    """Revenue growth as a FRACTION from IndianAPI's /historical_stats body.
+    The real shape is {'Compounded Sales Growth': {'3 Years:':'6%', '5 Years:':
+    '10%', 'TTM:':'5%'}, ...} — nested percent strings, NOT a 'revenue'/'rev_cagr'
+    key. The old code looked for keys that don't exist, so ev['growth'] was
+    ALWAYS None and the whole growth signal was dead (scorecard leg, hidden-gems
+    gate, conviction bump). Prefer the 3-year sales CAGR, then 5-year, then TTM."""
+    if not isinstance(g, dict):
+        try:
+            return float(g) if g is not None else None
+        except (TypeError, ValueError):
+            return None
+    comp = g.get("Compounded Sales Growth") or g.get("Compounded Profit Growth")
+    if not isinstance(comp, dict):
+        return None
+    for want in ("3 year", "5 year", "ttm", "1 year"):
+        for k, val in comp.items():
+            if want in str(k).lower():
+                try:
+                    return float(str(val).replace("%", "").strip()) / 100.0
+                except (TypeError, ValueError):
+                    continue
+    return None
+
+
 def _pct_of(value, series) -> float | None:
     """Percentile (0-100) of `value` within `series` (ignoring Nones)."""
     xs = sorted(v for v in series if v is not None)
@@ -775,9 +800,7 @@ def build_evidence(db) -> dict:
             sur = eps_surprise(ins.get("forecasts")) or {}
         except Exception:
             sur = {}
-        growth = ins.get("growth")
-        if isinstance(growth, dict):
-            growth = growth.get("revenue") or growth.get("rev_cagr") or None
+        growth = _parse_growth(ins.get("growth"))
 
         sector_trust = trust.get(getattr(v, "valuation_sector", None) or "")
         tri = triangulate(getattr(v, "mos", None),
@@ -807,8 +830,12 @@ def build_evidence(db) -> dict:
             "band": band, "quality": quality, "momo": momo,
             "flow": {"inst_delta": (own.get("institutional") or {}).get("delta"),
                      "promoter_delta": (own.get("promoter") or {}).get("delta")},
+            # eps_surprise returns surprise_pct in PERCENT (−0.4 = −0.4%); the
+            # scorecard and conviction consume it as a FRACTION. Convert here so
+            # the surprise leg stops saturating and "beat by 500%" text is fixed.
             "results": {"pat_yoy": res.get("pat_yoy"),
-                        "surprise_pct": sur.get("surprise_pct")},
+                        "surprise_pct": (sur.get("surprise_pct") / 100.0
+                                         if sur.get("surprise_pct") is not None else None)},
             "growth": growth,
             "catalyst": catalysts.get(tk),
             "concall": transcripts.get(tk),
