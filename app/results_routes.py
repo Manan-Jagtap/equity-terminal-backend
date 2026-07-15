@@ -95,3 +95,43 @@ def upcoming_results(db: Session = Depends(get_db)):
                 cur["agenda"] = r["agenda"]
     out = sorted(merged.values(), key=lambda r: (r["date"], r["ticker"]))
     return {"count": len(out), "items": out}
+
+
+@router.get("/results/corporate-actions")
+def corporate_actions_calendar(db: Session = Depends(get_db)):
+    """Dividend / split / bonus calendar across the universe, from the stored
+    CorporateAction ledger. Split into `upcoming` (ex-date today or later) and
+    `recent` (last ~120 days), newest-relevant first. Ex-dates only — never a
+    fabricated one."""
+    import datetime as _dt
+    today = _dt.date.today().isoformat()
+    floor = (_dt.date.today() - _dt.timedelta(days=120)).isoformat()
+
+    co = {c.id: c for c in db.query(models.Company).all()}
+    px = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    upcoming, recent = [], []
+    rows = (db.query(models.CorporateAction)
+              .filter(models.CorporateAction.ex_date.isnot(None),
+                      models.CorporateAction.ex_date >= floor).all())
+    for a in rows:
+        c = co.get(a.company_id)
+        if not c:
+            continue
+        item = {
+            "ticker": c.ticker, "name": c.name, "sector": c.sector,
+            "type": a.action_type, "ex_date": a.ex_date, "record_date": a.record_date,
+            "value": a.value, "ratio": a.ratio,
+            "remarks": (a.raw_remarks or "")[:120] or None,
+        }
+        # Dividend yield on the single payout, when we have a price — context only.
+        if a.action_type == "dividend" and a.value and px.get(a.company_id):
+            try:
+                item["yield_pct"] = round(a.value / px[a.company_id] * 100, 2)
+            except (ZeroDivisionError, TypeError):
+                pass
+        (upcoming if a.ex_date >= today else recent).append(item)
+
+    upcoming.sort(key=lambda r: (r["ex_date"], r["ticker"]))
+    recent.sort(key=lambda r: (r["ex_date"], r["ticker"]), reverse=True)
+    return {"upcoming": upcoming, "recent": recent[:120],
+            "counts": {"upcoming": len(upcoming), "recent": len(recent)}}
