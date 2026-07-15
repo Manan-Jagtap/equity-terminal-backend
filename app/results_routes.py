@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
-from app.results_logic import eps_surprise
+from app.results_logic import eps_surprise, eps_surprise_history
 
 router = APIRouter(prefix="/api", tags=["results"])
 
@@ -34,6 +34,7 @@ def results(db: Session = Depends(get_db)):
         surprise = eps_surprise(d.get("forecasts"))
         if not res and not surprise:
             continue
+        track = eps_surprise_history(d.get("forecasts"))
         v = val_by.get(co.id)
         out.append({
             "ticker": co.ticker, "name": co.name, "sector": co.sector, "type": co.type,
@@ -42,6 +43,9 @@ def results(db: Session = Depends(get_db)):
             "eps": res.get("eps"), "opm": res.get("opm"),
             "sales_yoy": res.get("sales_yoy"), "pat_yoy": res.get("pat_yoy"),
             "surprise": surprise,
+            "beat_rate": (track or {}).get("beat_rate"),
+            "streak": (track or {}).get("streak"),
+            "estimate_momentum": (track or {}).get("momentum"),
             "rating": (v.analyst_rating if v else None),
             "verdict": (v.verdict if v else None),
         })
@@ -95,6 +99,21 @@ def upcoming_results(db: Session = Depends(get_db)):
                 cur["agenda"] = r["agenda"]
     out = sorted(merged.values(), key=lambda r: (r["date"], r["ticker"]))
     return {"count": len(out), "items": out}
+
+
+@router.get("/companies/{ticker}/earnings-track")
+def earnings_track(ticker: str, db: Session = Depends(get_db)):
+    """Per-company EPS beat/miss track — the last several periods' reported vs
+    estimate, a beat rate, current streak, and estimate-momentum read. Empty-safe
+    (returns available:false rather than a fabricated track)."""
+    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
+    if not co:
+        return {"available": False}
+    ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
+    track = eps_surprise_history((ins.data or {}).get("forecasts")) if ins else None
+    if not track:
+        return {"available": False}
+    return {"available": True, "ticker": co.ticker, **track}
 
 
 @router.get("/results/corporate-actions")
