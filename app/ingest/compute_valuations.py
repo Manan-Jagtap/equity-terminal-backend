@@ -156,6 +156,19 @@ def run(nifty50: bool = False, visible: bool = False):
     except Exception as e:
         print(f"  (risk-free refresh skipped: {type(e).__name__}: {e})")
 
+    # Recompute the calculated (regression-vs-universe, sector-shrunk) betas so
+    # this run's DCFs price off measured risk, not a flat sector beta.
+    try:
+        from app import beta as _beta
+        _bdb = SessionLocal()
+        try:
+            n_beta = len(_beta.compute_all(_bdb))
+        finally:
+            _bdb.close()
+        print(f"  calculated betas cached for {n_beta} names")
+    except Exception as e:
+        print(f"  (beta compute skipped: {type(e).__name__}: {e})")
+
     if not (nifty50 or visible):
         # Full rebuild: drop & recreate so the schema always matches the model.
         # (create_all/checkfirst only CREATES missing tables — it never ALTERs an

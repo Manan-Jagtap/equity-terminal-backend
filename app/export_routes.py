@@ -758,10 +758,12 @@ def _beta_sheet(ws, ticker, MODEL, R, is_fin, sector_beta):
     _w(ws, f"B{r}", _num(sector_beta, 4), font=F_VAL, fmt='0.00', align="right", border=True)
     _w(ws, f"C{r}", "sector median", font=F_NOTE, align="left"); r += 2
     _w(ws, f"A{r}",
-       "Method: a bottom-up sector beta, not a single-stock OLS regression — thin "
-       "trading in Indian mid/small-caps makes raw regression betas unstable. The "
-       "sector beta is the fundamental risk of the business, relevered below for "
-       "this company's capital structure.", font=F_NOTE, align="left")
+       "Method: a CALCULATED beta — the stock's ~weekly returns regressed on the "
+       "equal-weighted universe over ~3 years, then shrunk toward the sector prior "
+       "in proportion to the fit (R²). Well-fit liquid names keep their measured "
+       "beta; thin/noisy names lean on the sector prior — the standard cure for "
+       "unstable single-stock betas. Relevered below for capital structure.",
+       font=F_NOTE, align="left")
     ws.merge_cells(f"A{r}:D{r}"); ws.row_dimensions[r].height = 44; r += 2
     if not is_fin:
         _band(ws, r, "HAMADA RELEVERING  (β at this leverage)", last_col="D"); r += 1

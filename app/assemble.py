@@ -145,4 +145,18 @@ def effective_assumptions(db: Session, co: models.Company, data: dict) -> dict:
     vs = data.get("valuation_sector") or SP.classify_valuation_sector(co.sector, co.template_code)
     is_fin = data.get("is_financial_template",
                       T.is_financial(co.template_code or T.classify(co.sector)) or co.type == "financial")
-    return derive_assumptions(data.get("statements") or {}, vs, is_fin)
+    a = derive_assumptions(data.get("statements") or {}, vs, is_fin)
+    # Use the CALCULATED beta (regression vs the equal-weighted universe, shrunk
+    # to the sector prior) when we have one; else keep the sector beta.
+    try:
+        from app import beta as _beta
+        rec = _beta.beta_for(db, co.ticker)
+        if rec and rec.get("beta"):
+            a["beta"] = rec["beta"]
+            drv = a.get("_drivers")
+            if isinstance(drv, dict):
+                drv["beta"] = (f"calc β {rec['beta']} = shrink(raw {rec['raw']}, "
+                               f"R² {rec['r2']}, n={rec['n']}) → sector prior {rec['prior']}")
+    except Exception:
+        pass
+    return a
