@@ -209,7 +209,7 @@ def run_backtest(db, signal="momentum", top_n=15, rebalance="M", years=5):
     equity_s, equity_b = [1.0], [1.0]
     period_s, period_b = [], []
     wins = 0
-    curve = [{"date": rdates[0], "strategy": 1.0, "benchmark": 1.0}]
+    curve = []                 # seeded at the FIRST rebalance that can actually invest
     last_holdings = []
 
     for k in range(len(rdates) - 1):
@@ -238,6 +238,8 @@ def run_backtest(db, signal="momentum", top_n=15, rebalance="M", years=5):
         if not rets:
             continue
         r_s = mean(rets)
+        if not curve:          # anchor the equity curve at the first investable date
+            curve.append({"date": t0, "strategy": 1.0, "benchmark": 1.0})
         # benchmark return over the same window
         if bench:
             b0, b1 = _asof(bench[0], bench[1], t0), _asof(bench[0], bench[1], t1)
@@ -258,10 +260,11 @@ def run_backtest(db, signal="momentum", top_n=15, rebalance="M", years=5):
             wins += 1
         curve.append({"date": t1, "strategy": round(equity_s[-1], 4), "benchmark": round(equity_b[-1], 4)})
 
-        if k == len(rdates) - 2:
-            for val, cid in scored[:top_n]:
-                last_holdings.append({"ticker": meta[cid]["ticker"], "name": meta[cid]["name"],
-                                      "sector": meta[cid]["sector"], "signal": round(val, 4)})
+        # keep the most recent invested period's book (robust if the last
+        # rebalance had no eligible names)
+        last_holdings = [{"ticker": meta[cid]["ticker"], "name": meta[cid]["name"],
+                          "sector": meta[cid]["sector"], "signal": round(val, 4)}
+                         for val, cid in scored[:top_n]]
 
     if len(equity_s) < 3:
         return {"ok": False, "reason": "Not enough overlapping price data to backtest."}
@@ -296,7 +299,11 @@ def run_backtest(db, signal="momentum", top_n=15, rebalance="M", years=5):
         "curve": curve,
         "holdings": last_holdings,
         "benchmark_name": "NIFTY 50" if bench else "Equal-weight universe",
+        "survivorship": True,
         "note": ("Point-in-time price-strategy simulation on 5-yr split-adjusted history, "
-                 "equal-weight, no look-ahead. Past simulated performance is not indicative "
-                 "of future results — a research tool, not investment advice."),
+                 "equal-weight, no look-ahead. SURVIVORSHIP CAVEAT: the pool is today's "
+                 "constituents, so names that delisted or blew up are absent — this flatters "
+                 "returns, especially for momentum, which can also select illiquid microcaps "
+                 "untradeable at size. Costs and taxes are excluded. Past simulated performance "
+                 "is not indicative of future results — a research tool, not investment advice."),
     }
