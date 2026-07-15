@@ -415,7 +415,7 @@ def _fcff_model_sheet(ws, ticker, co, a, v, price, mature_roic):
        "engine's inputs cell B (intrinsic) matches the engine value.",
        font=F_NOTE, align="left")
     ws.merge_cells(f"A{r}:H{r}")
-    return R["iv"]
+    return R
 
 
 def _ri_model_sheet(ws, ticker, co, a, v, price):
@@ -505,7 +505,7 @@ def _ri_model_sheet(ws, ticker, co, a, v, price):
     r += 1
     _w(ws, f"A{r}", "Engine intrinsic (for reconciliation):", font=F_MUTE, align="left")
     _w(ws, f"B{r}", _num(v.get("intrinsic"), 2), font=F_MUTE, fmt=PS, align="right")
-    return R["iv"]
+    return R
 
 
 # ── Company export: statements in standard order, with derived rows ──────────
@@ -710,6 +710,286 @@ def _ratios_sheet(ws, years, pl_rows, bs_rows, pl_title, bs_title):
        "statement figure and the ratios move with it.", font=F_NOTE, align="left")
 
 
+# ── Institutional depth sheets (Beta / WACC / Terminal / Sensitivity / ────────
+#    Relative / Final) — every analytical tab links back to the live model, so
+#    editing a driver on the model sheet flows through the whole workbook.
+
+def _sheet_title(ws, ticker, subtitle, last_col="D"):
+    lastn = ws[f"{last_col}1"].column
+    _w(ws, "A1", f"{ticker} — {subtitle}", font=F_TITLE, fill_c=TEAL, align="left")
+    ws.merge_cells(f"A1:{last_col}1")
+    for col in range(1, lastn + 1):
+        ws.cell(row=1, column=col).fill = _fill(TEAL)
+    ws.row_dimensions[1].height = 22
+
+
+def _twostage_fcff_iv(rev0, N, N1, g1, gt, ebitm, tax, reinv, mroic, wacc, nd, sh):
+    """Python mirror of the FCFF model sheet's formulas — used to fill the
+    sensitivity grids so every cell is consistent with the model's own math."""
+    try:
+        if not sh or sh <= 0 or wacc is None or wacc <= gt:
+            return None
+        rev, pv, nopat_n = rev0, 0.0, 0.0
+        span = max(1, N - N1)
+        for i in range(1, N + 1):
+            g = g1 if i <= N1 else g1 + (gt - g1) * ((i - N1) / span)
+            rev *= (1 + g)
+            nopat = rev * ebitm * (1 - tax)
+            pv += nopat * (1 - reinv) / ((1 + wacc) ** i)
+            if i == N:
+                nopat_n = nopat
+        trr = min(max(gt / mroic, 0), 0.75) if mroic else reinv
+        tfcff = nopat_n * (1 + gt) * (1 - trr)
+        tvpv = (tfcff / (wacc - gt)) / ((1 + wacc) ** N)
+        return (pv + tvpv - (nd or 0)) / sh
+    except (ZeroDivisionError, TypeError):
+        return None
+
+
+def _beta_sheet(ws, ticker, MODEL, R, is_fin, sector_beta):
+    _theme(ws, [36, 15, 15, 46])
+    _sheet_title(ws, ticker, "Beta & CAPM")
+    cell = lambda k: f"'{MODEL}'!{R[k]}"
+    link = lambda k: f"={cell(k)}"
+    r = 3
+    _band(ws, r, "BETA USED", last_col="D"); r += 1
+    _derived(ws, r, "Beta  β (in the model)", link("beta"), '0.00', result=True); r += 1
+    _w(ws, f"A{r}", "Sector reference beta", font=F_LBL, align="left")
+    _w(ws, f"B{r}", _num(sector_beta, 4), font=F_VAL, fmt='0.00', align="right", border=True)
+    _w(ws, f"C{r}", "sector median", font=F_NOTE, align="left"); r += 2
+    _w(ws, f"A{r}",
+       "Method: a bottom-up sector beta, not a single-stock OLS regression — thin "
+       "trading in Indian mid/small-caps makes raw regression betas unstable. The "
+       "sector beta is the fundamental risk of the business, relevered below for "
+       "this company's capital structure.", font=F_NOTE, align="left")
+    ws.merge_cells(f"A{r}:D{r}"); ws.row_dimensions[r].height = 44; r += 2
+    if not is_fin:
+        _band(ws, r, "HAMADA RELEVERING  (β at this leverage)", last_col="D"); r += 1
+        _derived(ws, r, "Debt weight  Wd", link("dw"), PCT); r += 1
+        de = _derived(ws, r, "Debt / equity  D/E", f"=IFERROR({cell('dw')}/(1-{cell('dw')}),0)", '0.00'); r += 1
+        _derived(ws, r, "Tax rate  t", link("tax"), PCT); r += 1
+        bu = _derived(ws, r, "Unlevered β  βu = β/(1+(1−t)·D/E)",
+                      f"=IFERROR({cell('beta')}/(1+(1-{cell('tax')})*{de}),{cell('beta')})", '0.00',
+                      note="asset beta, strips out financial risk"); r += 1
+        _derived(ws, r, "Relevered β  βL = βu·(1+(1−t)·D/E)",
+                 f"={bu}*(1+(1-{cell('tax')})*{de})", '0.00', font=F_BOLD,
+                 note="reconciles to β used"); r += 1
+    r += 1
+    _band(ws, r, "CAPM → COST OF EQUITY", last_col="D"); r += 1
+    _derived(ws, r, "Risk-free  Rf", link("rf"), PCT); r += 1
+    _derived(ws, r, "Equity risk premium  ERP", link("erp"), PCT); r += 1
+    _derived(ws, r, "Cost of equity  Ke = Rf + β·ERP", link("ke"), PCT, font=F_BOLD)
+
+
+def _cost_of_capital_sheet(ws, ticker, MODEL, R, is_fin):
+    _theme(ws, [38, 15, 15, 44])
+    _sheet_title(ws, ticker, "Cost of Equity" if is_fin else "Weighted Average Cost of Capital")
+    cell = lambda k: f"'{MODEL}'!{R[k]}"
+    link = lambda k: f"={cell(k)}"
+    r = 3
+    _band(ws, r, "CAPM — COST OF EQUITY", last_col="D"); r += 1
+    _derived(ws, r, "Risk-free rate  Rf", link("rf"), PCT, note="10Y G-sec, live"); r += 1
+    _derived(ws, r, "Beta  β", link("beta"), '0.00', note="see Beta tab"); r += 1
+    _derived(ws, r, "Equity risk premium  ERP", link("erp"), PCT); r += 1
+    _derived(ws, r, "Cost of equity  Ke = Rf + β·ERP", link("ke"), PCT,
+             font=F_BOLD, result=True); r += 1
+    if is_fin:
+        r += 1
+        _w(ws, f"A{r}", "The residual-income model discounts excess returns at Ke "
+           "(financials are valued on equity cash flows, so WACC does not apply).",
+           font=F_NOTE, align="left"); ws.merge_cells(f"A{r}:D{r}")
+        return
+    r += 1
+    _band(ws, r, "AFTER-TAX COST OF DEBT", last_col="D"); r += 1
+    _derived(ws, r, "Pre-tax cost of debt  Kd", link("cod"), PCT); r += 1
+    _derived(ws, r, "Tax rate  t", link("tax"), PCT); r += 1
+    _derived(ws, r, "After-tax Kd = Kd·(1−t)", f"={cell('cod')}*(1-{cell('tax')})", PCT); r += 1
+    r += 1
+    _band(ws, r, "CAPITAL STRUCTURE & WACC", last_col="D"); r += 1
+    _derived(ws, r, "Weight of debt  Wd", link("dw"), PCT); r += 1
+    _derived(ws, r, "Weight of equity  We = 1−Wd", f"=1-{cell('dw')}", PCT); r += 1
+    _derived(ws, r, "WACC = We·Ke + Wd·Kd·(1−t)", link("wacc"), PCT,
+             font=F_BOLD, result=True); r += 1
+    _derived(ws, r, "Terminal floor  g + 3%", f"={cell('gt')}+0.03", PCT,
+             note="engine floors WACC here so terminal value stays finite"); r += 1
+    _derived(ws, r, "Effective WACC (floored)", f"=MAX({cell('wacc')},{cell('gt')}+0.03)", PCT,
+             font=F_BOLD)
+
+
+def _terminal_growth_sheet(ws, ticker, MODEL, R, is_fin):
+    _theme(ws, [40, 15, 15, 42])
+    _sheet_title(ws, ticker, "Terminal Growth & Fade")
+    cell = lambda k: f"'{MODEL}'!{R[k]}"
+    link = lambda k: f"={cell(k)}"
+    r = 3
+    _band(ws, r, "TERMINAL GROWTH", last_col="D"); r += 1
+    _derived(ws, r, "Terminal growth  g", link("gt"), PCT, result=True); r += 1
+    _derived(ws, r, "Sanity cap: risk-free  Rf", link("rf"), PCT,
+             note="a firm can't outgrow the economy forever → g ≤ Rf"); r += 1
+    _derived(ws, r, "Within bound?", f'=IF({cell("gt")}<={cell("rf")},"yes","REVIEW")',
+             None, font=F_BOLD); r += 1
+    r += 1
+    _band(ws, r, "FADE / CONVERGENCE", last_col="D"); r += 1
+    _derived(ws, r, "Explicit horizon  N (yrs)", link("N"), INTF,
+             note="Gordon-growth terminal value applied FROM year N onward"); r += 1
+    _derived(ws, r, "Franchise phase  N1 (yrs)", link("N1"), INTF,
+             note="high-growth years before the linear fade to g"); r += 1
+    r += 1
+    if not is_fin:
+        _band(ws, r, "TERMINAL ECONOMICS", last_col="D"); r += 1
+        _derived(ws, r, "WACC", link("wacc"), PCT); r += 1
+        _derived(ws, r, "WACC − g spread", f"={cell('wacc')}-{cell('gt')}", PCT,
+                 font=F_BOLD, note="must be > 0"); r += 1
+        _derived(ws, r, "Mature ROIC (terminal)", link("mroic"), PCT); r += 1
+        _derived(ws, r, "Terminal reinvestment = g / ROIC", link("trr"), PCT,
+                 note="Damodaran identity — growth is funded, not free"); r += 1
+    else:
+        _band(ws, r, "TERMINAL ECONOMICS", last_col="D"); r += 1
+        _derived(ws, r, "Cost of equity  Ke", link("ke"), PCT); r += 1
+        _derived(ws, r, "Ke − g spread", f"={cell('ke')}-{cell('gt')}", PCT, font=F_BOLD); r += 1
+        _derived(ws, r, "Terminal ROE", link("troe"), PCT); r += 1
+        _derived(ws, r, "Retention (1 − payout)", link("ret"), PCT)
+
+
+def _sensitivity_sheet(ws, ticker, base, mature_roic, base_wacc):
+    """Two 2-way sensitivity grids, computed with the model's own math."""
+    _theme(ws, [22, 13, 13, 13, 13, 13])
+    _sheet_title(ws, ticker, "Sensitivity Analysis", last_col="F")
+    rev0 = base["rev0"]; N = base["N"]; N1 = base["N1"]
+    g1 = base["g1"]; gt = base["gt"]; ebitm = base["ebitm"]
+    tax = base["tax"]; reinv = base["reinv"]; nd = base["nd"]; sh = base["sh"]
+
+    def grid(ws, top, title, row_label, col_label, row_vals, col_vals, fn):
+        _band(ws, top, title, last_col="F"); top += 1
+        _w(ws, f"A{top}", f"{row_label} ↓  /  {col_label} →", font=F_HEAD,
+           fill_c=INK, align="center", border=True)
+        for j, cv in enumerate(col_vals, start=2):
+            _w(ws, f"{get_column_letter(j)}{top}", cv, font=F_HEAD, fill_c=MUTE,
+               fmt=PCT, align="center", border=True)
+        top += 1
+        for rv in row_vals:
+            _w(ws, f"A{top}", rv, font=F_BOLD, fmt=PCT, fill_c=GREY_LT,
+               align="center", border=True)
+            for j, cv in enumerate(col_vals, start=2):
+                val = fn(rv, cv)
+                is_base = abs(rv - row_vals[len(row_vals) // 2]) < 1e-9 and \
+                    abs(cv - col_vals[len(col_vals) // 2]) < 1e-9
+                _w(ws, f"{get_column_letter(j)}{top}", _num(val, 2),
+                   font=F_BOLD if is_base else F_VAL, fmt=PS, align="right",
+                   border=True, fill_c=TEAL_LT if is_base else None)
+            top += 1
+        return top + 1
+
+    def steps(base_v, deltas):
+        return [round(base_v + d, 6) for d in deltas]
+
+    r = 3
+    wacc_axis = steps(base_wacc, [-0.02, -0.01, 0, 0.01, 0.02])
+    gt_axis = steps(gt, [-0.01, -0.005, 0, 0.005, 0.01])
+    r = grid(ws, r, "INTRINSIC / SHARE  —  WACC × Terminal growth", "WACC", "Term g",
+             wacc_axis, gt_axis,
+             lambda w, g: _twostage_fcff_iv(rev0, N, N1, g1, g, ebitm, tax, reinv,
+                                            mature_roic, w, nd, sh))
+    g1_axis = steps(g1, [-0.04, -0.02, 0, 0.02, 0.04])
+    m_axis = steps(ebitm, [-0.02, -0.01, 0, 0.01, 0.02])
+    grid(ws, r, "INTRINSIC / SHARE  —  Stage-1 growth × EBIT margin", "Growth", "EBIT mgn",
+         g1_axis, m_axis,
+         lambda gg, mm: _twostage_fcff_iv(rev0, N, N1, gg, gt, mm, tax, reinv,
+                                          mature_roic, base_wacc, nd, sh))
+    _w(ws, f"A{r + 8}", "Grids computed from the model's own two-stage math; the "
+       "teal centre cell is the base case and reconciles to the model intrinsic.",
+       font=F_NOTE, align="left")
+
+
+def _relative_val_sheet(ws, ticker, v, rec, analyst):
+    _theme(ws, [30, 16, 15, 44])
+    _sheet_title(ws, ticker, "Relative Valuation")
+    fund = (rec or {}).get("fundamentals") or {}
+    a = analyst or {}
+    r = 3
+    _band(ws, r, "CURRENT TRADING MULTIPLES", last_col="D"); r += 1
+    for lbl, key, fmt in (("P/E", "pe", NUMX), ("P/B", "pb", NUMX),
+                          ("ROE", "roe", PCT), ("EPS (Rs)", "eps", PS),
+                          ("Book value / share (Rs)", "bvps", PS)):
+        val = fund.get(key)
+        if val is not None:
+            _w(ws, f"A{r}", lbl, font=F_LBL, align="left")
+            _w(ws, f"B{r}", _num(val, 4), font=F_VAL, fmt=fmt, align="right", border=True); r += 1
+    r += 1
+    comps = (v or {}).get("components") or []
+    if comps:
+        _band(ws, r, "MULTIPLE- & MODEL-BASED FAIR VALUE (engine triangulation)", last_col="D"); r += 1
+        for j, h in enumerate(("Method", "Implied value (Rs)", "Weight"), start=1):
+            _w(ws, f"{get_column_letter(j)}{r}", h, font=F_HEAD, fill_c=MUTE,
+               align="center" if j > 1 else "left", border=True)
+        r += 1
+        for c in comps:
+            _w(ws, f"A{r}", c.get("method"), font=F_LBL, align="left", border=True)
+            _w(ws, f"B{r}", _num(c.get("capped") if c.get("capped") is not None else c.get("value"), 2),
+               font=F_VAL, fmt=PS, align="right", border=True)
+            _w(ws, f"C{r}", _num(c.get("weight"), 4), font=F_MUTE, fmt=PCT, align="center", border=True)
+            r += 1
+    r += 1
+    if a.get("target") is not None:
+        _band(ws, r, "ANALYST CONSENSUS (external cross-check)", last_col="D"); r += 1
+        _w(ws, f"A{r}", "Consensus target (Rs)", font=F_LBL, align="left")
+        _w(ws, f"B{r}", _num(a.get("target"), 2), font=F_BOLD, fmt=PS, align="right", border=True); r += 1
+        if a.get("low") is not None:
+            _w(ws, f"A{r}", "Target range", font=F_LBL, align="left")
+            _w(ws, f"B{r}", f"{_num(a.get('low'), 0)} – {_num(a.get('high'), 0)}",
+               font=F_VAL, align="right", border=True); r += 1
+        for lbl, key, fmt in (("Rating", "rating", None), ("Implied upside", "upside", PCT),
+                              ("# Analysts", "n", INTF)):
+            if a.get(key) is not None:
+                _w(ws, f"A{r}", lbl, font=F_LBL, align="left")
+                _w(ws, f"B{r}", (_num(a.get(key), 4) if fmt else a.get(key)),
+                   font=F_VAL, fmt=fmt, align="right", border=True); r += 1
+
+
+def _final_val_sheet(ws, ticker, MODEL, R, v, rec):
+    _theme(ws, [30, 15, 13, 15, 30])
+    _sheet_title(ws, ticker, "Final Valuation", last_col="E")
+    comps = (v or {}).get("components") or []
+    r = 3
+    _band(ws, r, "WEIGHTED VALUATION  (football field)", last_col="E"); r += 1
+    for j, h in enumerate(("Method", "Value (Rs)", "Weight", "Weighted"), start=1):
+        _w(ws, f"{get_column_letter(j)}{r}", h, font=F_HEAD, fill_c=MUTE,
+           align="center" if j > 1 else "left", border=True)
+    r += 1
+    first = r
+    for c in comps:
+        method = c.get("method") or ""
+        _w(ws, f"A{r}", method, font=F_LBL, align="left", border=True)
+        # link the DCF/RI row to the live model intrinsic; others use capped value
+        if any(t in method.upper() for t in ("DCF", "FCFF", "RESIDUAL", "RI")):
+            _w(ws, f"B{r}", f"='{MODEL}'!{R['iv']}", font=F_VAL, fmt=PS, align="right", border=True)
+        else:
+            _w(ws, f"B{r}", _num(c.get("capped") if c.get("capped") is not None else c.get("value"), 2),
+               font=F_VAL, fmt=PS, align="right", border=True)
+        _w(ws, f"C{r}", _num(c.get("weight"), 4), font=F_MUTE, fmt=PCT, align="center", border=True)
+        _w(ws, f"D{r}", f"=B{r}*C{r}", font=F_VAL, fmt=PS, align="right", border=True)
+        r += 1
+    last = r - 1
+    r += 1
+    blended = f"=IFERROR(SUM(D{first}:D{last})/SUM(C{first}:C{last}),0)"
+    bl_cell = f"B{r}"
+    _derived(ws, r, "BLENDED INTRINSIC / SHARE (Rs)", blended, PS, result=True); r += 1
+    _w(ws, f"A{r}", "Current price (Rs)", font=F_LBL, align="left")
+    _w(ws, f"B{r}", f"='{MODEL}'!{R['px']}", font=F_VAL, fmt=PS, align="right", border=True); r += 1
+    _w(ws, f"A{r}", "Margin of safety", font=F_BOLD, align="left")
+    _w(ws, f"B{r}", f"=IFERROR({bl_cell}/'{MODEL}'!{R['px']}-1,0)", font=F_BOLD, fmt=PCT,
+       align="right", border=True); r += 1
+    _w(ws, f"A{r}", "Verdict", font=F_BOLD, align="left")
+    _w(ws, f"B{r}", (rec or {}).get("verdict") or "—", font=F_BOLD, align="right", border=True); r += 1
+    _w(ws, f"A{r}", "Engine intrinsic (reconciliation)", font=F_MUTE, align="left")
+    _w(ws, f"B{r}", _num((rec or {}).get("intrinsic"), 2), font=F_MUTE, fmt=PS, align="right"); r += 2
+    _w(ws, f"A{r}",
+       "The DCF/RI row links to the live model, so editing a driver there re-runs "
+       "the blend. At the engine's own inputs, the blended value reproduces the "
+       "engine intrinsic above.", font=F_NOTE, align="left")
+    ws.merge_cells(f"A{r}:E{r}"); ws.row_dimensions[r].height = 40
+
+
 def _xlsx_response(wb: Workbook, filename: str) -> Response:
     buf = io.BytesIO()
     wb.save(buf)
@@ -765,20 +1045,48 @@ def export_company(ticker: str, db: Session = Depends(get_db)):
     # reference into the Summary sheet, which would be circular).
     fair_value = _num((rec or {}).get("intrinsic"), 2)
     model_ws = None
+    R = None
+    mature_roic = SP.params(assumptions.get("_valuation_sector")).get("mature_roic") or 0.12
     if v.get("intrinsic") is not None and cdata:
         try:
             model_ws = wb.create_sheet("DCF Model" if not is_fin else "RI Model")
             if is_fin:
-                iv_ref = _ri_model_sheet(model_ws, co.ticker, cdata, assumptions, v, price)
+                R = _ri_model_sheet(model_ws, co.ticker, cdata, assumptions, v, price)
             else:
-                mature_roic = SP.params(assumptions.get("_valuation_sector")).get("mature_roic") or 0.12
-                iv_ref = _fcff_model_sheet(model_ws, co.ticker, cdata, assumptions, v, price, mature_roic)
-            fair_value = f"='{model_ws.title}'!{iv_ref}"
+                R = _fcff_model_sheet(model_ws, co.ticker, cdata, assumptions, v, price, mature_roic)
+            fair_value = f"='{model_ws.title}'!{R['iv']}"
         except Exception:
             if model_ws is not None:
                 wb.remove(model_ws)
+            model_ws, R = None, None
 
     _summary_sheet(summary, co, price, rec, analyst, fair_value, quarter=quarter, concall=concall)
+
+    # Institutional depth tabs — all link back to the live model sheet.
+    if model_ws is not None and R is not None:
+        MODEL = model_ws.title
+        try:
+            _beta_sheet(wb.create_sheet("Beta"), co.ticker, MODEL, R, is_fin,
+                        SP.params(assumptions.get("_valuation_sector")).get("beta"))
+            _cost_of_capital_sheet(wb.create_sheet("WACC" if not is_fin else "Cost of Equity"),
+                                   co.ticker, MODEL, R, is_fin)
+            _terminal_growth_sheet(wb.create_sheet("Terminal Growth"), co.ticker, MODEL, R, is_fin)
+            if not is_fin:
+                base = {"rev0": _num(cdata["revenue"], 4), "N": max(3, round(assumptions["fade_years"])),
+                        "N1": max(1, int(max(3, round(assumptions["fade_years"])) / 2)),
+                        "g1": assumptions["rev_growth"], "gt": assumptions["terminal_growth"],
+                        "ebitm": assumptions["ebit_margin"], "tax": assumptions["tax_rate"],
+                        "reinv": assumptions["reinvest_rate"], "nd": _num(cdata["net_debt"], 4) or 0,
+                        "sh": _num(cdata["shares"], 6)}
+                base_wacc = v.get("wacc") or ((1 - assumptions["debt_weight"]) *
+                    (assumptions["risk_free"] + assumptions["beta"] * assumptions["erp"]) +
+                    assumptions["debt_weight"] * assumptions["cost_debt"] * (1 - assumptions["tax_rate"]))
+                _sensitivity_sheet(wb.create_sheet("Sensitivity"), co.ticker, base,
+                                   mature_roic, base_wacc)
+            _relative_val_sheet(wb.create_sheet("Relative Valuation"), co.ticker, v, rec, analyst)
+            _final_val_sheet(wb.create_sheet("Final Valuation"), co.ticker, MODEL, R, v, rec)
+        except Exception:
+            pass  # depth tabs are additive — never break the core workbook
 
     stmt_rows = {}
     for stmt_type, title in (("PL", "P&L"), ("BS", "Balance Sheet"), ("CF", "Cash Flow")):
