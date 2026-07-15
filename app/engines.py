@@ -24,6 +24,23 @@ _FEE_FINANCIALS = {"CRISIL", "ICRA", "CARERATNG", "BSE", "MCX", "IEX", "CDSL",
                    "PAYTM", "ABSLAMC", "UTIAMC", "HDFCAMC", "NAM-INDIA", "MFSL",
                    "IIFL", "IIFLCAPS", "ANANDRATHI", "PRUDENT", "CDGL"}
 
+# The GENERAL rule behind the ticker list: any capital-markets FEE business —
+# broking, wealth, asset management, exchanges/depositories, ratings, market
+# infrastructure — earns a capital-light fee annuity, so a book/DCF model
+# mis-values it (Anand Rathi, a broker, printed a DCF BUY at +190%). Match on the
+# raw sector too, so new/unlisted-in-the-set names are caught automatically.
+_FEE_FINANCIAL_SECTOR_HINTS = (
+    "investment services", "capital market", "asset management", "broking",
+    "brokerage", "wealth", "stock exchange", "exchange", "depositor",
+    "rating", "market infrastructure", "financial products distribution")
+
+
+def _is_fee_financial(co: Dict) -> bool:
+    if (co.get("ticker") or "").upper() in _FEE_FINANCIALS:
+        return True
+    sec = (co.get("sector") or "").lower()
+    return any(h in sec for h in _FEE_FINANCIAL_SECTOR_HINTS)
+
 
 def safe(val, default=0.0):
     """Return val if not None, else default."""
@@ -490,13 +507,14 @@ def recommend(co: Dict, a: Dict) -> Dict:
                         "note": "Life insurer — value is embedded value, not book; "
                                 "RI/P-B/P-E understate it. Model not reliable here.",
                         "good": False, "bad": True})
-    elif co.get("ticker") in _FEE_FINANCIALS:
+    elif _is_fee_financial(co):
         verdict = "LOW CONF"
         reliable = False
         reasons.append({"label": "Model", "score": 50,
-                        "note": "Asset-light fee franchise (exchange/AMC/registrar/"
-                                "broking) — value is a capital-light fee annuity, not "
-                                "book equity; the book-based RI model understates it.",
+                        "note": "Capital-markets fee business (broking/AMC/exchange/"
+                                "registrar/ratings) — value is a capital-light fee "
+                                "annuity, not book or a spot-earnings DCF; those models "
+                                "mis-value it. Read the P/E and analyst view instead.",
                         "good": False, "bad": True})
     elif f["roe"] is not None and f["roe"] < 0.04:
         # Negligible OR NEGATIVE current returns (early-stage / pre-profit growth
