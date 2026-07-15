@@ -135,6 +135,7 @@ DEFAULT_SECTOR = "MANUFACTURING"
 # the business is an NBFC (Federal Bank's lending subsidiary).
 TICKER_OVERRIDES: dict[str, str] = {
     "FEDFINA": "NBFC",
+    "INDIGO": "AVIATION",   # sector arrives blank from the vendor → override
 }
 
 

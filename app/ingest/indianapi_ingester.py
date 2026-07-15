@@ -1069,10 +1069,11 @@ NIFTY_50 = {
     "TATASTEEL","TCS","TECHM","TITAN","TMPV","TRENT","ULTRACEMCO","WIPRO",
 }
 
-# Held back at ANY tier: no defensible sector model yet — an airline valued on a
-# generic manufacturing multiple would be confidently wrong. Better hidden than
-# mis-priced (the INDIGO rule).
-EXCLUDED_TICKERS = {"INDIGO"}
+# Held back at ANY tier when there's no defensible sector model — better hidden
+# than mis-priced. INDIGO is now covered: the AVIATION valuation sector + its
+# TICKER_OVERRIDE (sector arrives blank) price it on airline economics, so it no
+# longer needs to be excluded.
+EXCLUDED_TICKERS: set[str] = set()
 
 # Names we actively cover BEYOND the Nifty 50. Every refresh path (intraday,
 # daily EOD, weekly full, valuation precompute, screener scope) uses UNIVERSE,
