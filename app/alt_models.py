@@ -28,6 +28,17 @@ SOTP_PRESETS: dict[str, dict] = {
         ("Adani Airports", 60000), ("Adani New Industries (ANIL)", 120000),
         ("Roads & Infrastructure", 40000), ("Data Centres (AdaniConneX)", 35000),
         ("Mining, IRM & Others", 80000)]},
+    # Bajaj Finserv is a FINANCIAL HOLDCO — its value is its stakes, not a
+    # consolidated-RI number, which mis-prices the look-through (exactly why banks
+    # use SOTP). Segment values are the stakes NET of a ~12% holding-company
+    # discount, ILLUSTRATIVE (verify vs the latest Bajaj Finance market cap +
+    # insurance appraisals; editable in the SOTP panel). This is a HOLDCO, not an
+    # operating bank — operating banks keep their RI (adding subs would double-count).
+    "BAJAJFINSV": {"net_debt": 0, "shares": 159.5, "segments": [
+        ("Bajaj Finance stake (~51%)", 220000),
+        ("Bajaj Allianz Life Insurance", 33000),
+        ("Bajaj Allianz General Insurance", 28000),
+        ("Housing / windmill / other holdings", 17000)]},
 }
 
 
