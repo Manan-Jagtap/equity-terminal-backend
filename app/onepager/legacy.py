@@ -70,7 +70,9 @@ def _thesis(co, rec, metrics, scorecard):
 
 def build_onepager(co, market: dict, financials: dict, metrics: dict,
                    intrinsic: float | None = None, thesis: str | None = None,
-                   rec: dict | None = None, scorecard: dict | None = None) -> bytes:
+                   rec: dict | None = None, scorecard: dict | None = None,
+                   assumptions: dict | None = None, analyst: dict | None = None,
+                   peers: list | None = None, description: str | None = None) -> bytes:
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     c.setTitle(f"{co.name} — Equity Research One-Pager")
@@ -152,19 +154,49 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
             c.setStrokeColor(LINE); c.setLineWidth(0.4); c.line(M + i * scw, y - sh + 5, M + i * scw, y - 5)
     y -= sh + 16
 
-    # ── Two columns: left = P&L + ratios, right = scorecard + valuation ──────
+    # ── Business overview (full width, if we have a real description) ─────────
+    def wrap_at(text, maxc):
+        words, line, out = str(text).split(), [], []
+        for w in words:
+            line.append(w)
+            if len(" ".join(line)) > maxc:
+                out.append(" ".join(line[:-1])); line = [w]
+        if line:
+            out.append(" ".join(line))
+        return out
+
+    if description and len(description.strip()) > 40:
+        y = head(y, "Business Overview")
+        c.setFillColor(INK); c.setFont("Helvetica", 7.6)
+        for ln in wrap_at(description.strip(), 150)[:3]:
+            c.drawString(M, y, ln); y -= 10
+        y -= 6
+
+    # ── Two columns ──────────────────────────────────────────────────────────
     colL, colR = M, W / 2 + 8
     halfW = W / 2 - M - 8
     yL = yR = y
-
-    # LEFT — financial highlights
-    yL = head(yL, "Financial Highlights", x=colL, x2=colL + halfW)
     stmts = financials.get("statements") or {}
     years = sorted(stmts.keys())[-5:]
+    a = assumptions or {}
+    v = (rec or {}).get("valuation") or {}
+
+    def sec(section, key, yr=None):
+        yr = yr if yr is not None else (years[-1] if years else None)
+        d = (stmts.get(yr) or stmts.get(str(yr)) or {}).get(section, {})
+        return d.get(key) if isinstance(d, dict) else None
+
+    def kv_row(x, yy, w, label, value, vcol=INK, lf=7):
+        c.setFillColor(MUTE); c.setFont("Helvetica", lf); c.drawString(x, yy, label)
+        c.setFillColor(vcol); c.setFont("Helvetica-Bold", lf + 0.5)
+        c.drawRightString(x + w, yy, str(value)[:26])
+
+    # LEFT — financial highlights (5-yr P&L)
+    yL = head(yL, "Financial Highlights  ·  Rs Cr", x=colL, x2=colL + halfW)
     rowsdef = ([("Interest Inc.", "interest_income", "revenue"), ("NII", "nii", None),
-                ("PAT", "pat", None)] if is_fin else
+                ("Provisions", "provisions", None), ("PAT", "pat", None)] if is_fin else
                [("Revenue", "revenue", None), ("EBITDA", "ebitda", None),
-                ("EBIT", "ebit", None), ("PAT", "pat", None)])
+                ("EBIT", "ebit", None), ("PBT", "pbt", None), ("PAT", "pat", None)])
     yc = halfW / (len(years) + 1.4)
     c.setFont("Helvetica", 6); c.setFillColor(MUTE)
     for j, yr in enumerate(reversed(years)):
@@ -172,15 +204,15 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
     yL -= 10
     for lbl, k1, k2 in rowsdef:
         bold = lbl == "PAT"
-        c.setFont("Helvetica-Bold" if bold else "Helvetica", 7.5)
+        c.setFont("Helvetica-Bold" if bold else "Helvetica", 7.3)
         c.setFillColor(INK if bold else MUTE); c.drawString(colL, yL, lbl)
         for j, yr in enumerate(reversed(years)):
             pl = (stmts.get(yr) or stmts.get(str(yr)) or {}).get("PL", {})
             val = pl.get(k1) or (pl.get(k2) if k2 else None)
             c.setFillColor(HEAD if (bold and j == 0) else INK)
-            c.setFont("Helvetica-Bold" if bold else "Helvetica", 7.5)
+            c.setFont("Helvetica-Bold" if bold else "Helvetica", 7.3)
             c.drawRightString(colL + halfW - j * yc, yL, _fc(val))
-        yL -= 11
+        yL -= 10.5
     yL -= 6
 
     # LEFT — key ratios grid (2 cols)
@@ -194,14 +226,29 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
     gw = halfW / 2
     for i, (lb, val, fmt) in enumerate(ratios):
         col, row = i % 2, i // 2
-        x = colL + col * gw; yy = yL - row * 13
+        x = colL + col * gw; yy = yL - row * 12.5
         try:
             disp = fmt(float(val)) if val is not None else "—"
         except Exception:
             disp = "—"
         c.setFillColor(MUTE); c.setFont("Helvetica", 6.5); c.drawString(x, yy, lb)
-        c.setFillColor(INK); c.setFont("Helvetica-Bold", 8); c.drawString(x + gw - 40, yy, disp)
-    yL -= ((len(ratios) + 1) // 2) * 13 + 4
+        c.setFillColor(INK); c.setFont("Helvetica-Bold", 8); c.drawString(x + gw - 42, yy, disp)
+    yL -= ((len(ratios) + 1) // 2) * 12.5 + 6
+
+    # LEFT — balance sheet & cash flow (latest FY snapshot)
+    yL = head(yL, "Balance Sheet & Cash Flow  ·  latest FY", x=colL, x2=colL + halfW)
+    bscf = ([("Net worth", sec("BS", "net_worth") or sec("BS", "equity")),
+             ("Total assets", sec("BS", "total_assets")),
+             ("Borrowings", sec("BS", "borrowings") or sec("BS", "total_debt")),
+             ("Cash & equiv.", sec("BS", "cash"))] if is_fin else
+            [("Net worth", sec("BS", "net_worth") or sec("BS", "equity")),
+             ("Total debt", sec("BS", "total_debt") or sec("BS", "borrowings")),
+             ("Operating CF", sec("CF", "operating_cf")),
+             ("Free cash flow", sec("CF", "fcf")),
+             ("Capex", sec("CF", "capex"))])
+    for lb, val in bscf:
+        kv_row(colL, yL, halfW, lb, _fc(val) if val is not None else "—")
+        yL -= 11.5
 
     # RIGHT — scorecard bars
     if scorecard and scorecard.get("scores"):
@@ -216,25 +263,96 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
             if s is not None:
                 col = GREEN if s >= 70 else AMBER if s >= 45 else RED
                 c.setFillColor(col); c.roundRect(bx, yR - 1, bw * min(s, 100) / 100, 3.4, 1.5, fill=1, stroke=0)
-            yR -= 13
-        yR -= 4
+            yR -= 12.5
+        yR -= 5
 
-    # RIGHT — valuation summary
-    yR = head(yR, "Valuation", x=colR, x2=colR + halfW)
-    vrows = [("Method", (rec or {}).get("primary_method") or "FCFF DCF / Residual Income"),
-             ("Discount rate", "Ke = Rf(10Y G-sec) + β·ERP"),
-             ("Fair value", f"Rs {intrinsic:,.0f}" if intrinsic else "—"),
-             ("Current price", f"Rs {price:,.1f}"),
-             ("Margin of safety", f"{mos:+.1f}%" if mos is not None else "—")]
-    for lb, vl in vrows:
-        c.setFillColor(MUTE); c.setFont("Helvetica", 7); c.drawString(colR, yR, lb)
-        col = HEAD if lb == "Fair value" else (GREEN if (lb == "Margin of safety" and (mos or 0) > 0) else RED if lb == "Margin of safety" else INK)
-        c.setFillColor(col); c.setFont("Helvetica-Bold", 7.5); c.drawRightString(colR + halfW, yR, str(vl)[:34])
-        yR -= 12
+    # RIGHT — valuation + the DCF drivers behind it
+    yR = head(yR, "Valuation & DCF Drivers", x=colR, x2=colR + halfW)
+    _p = lambda x, d=1: f"{x*100:.{d}f}%" if isinstance(x, (int, float)) else "—"
+    if is_fin:
+        drivers = [("Method", (rec or {}).get("primary_method") or v.get("method") or "Residual Income"),
+                   ("Forecast ROE", _p(a.get("forecast_roe"))),
+                   ("Terminal ROE", _p(a.get("terminal_roe"))),
+                   ("Cost of equity Ke", _p(v.get("ke"))),
+                   ("Terminal growth", _p(a.get("terminal_growth")))]
+    else:
+        drivers = [("Method", (rec or {}).get("primary_method") or v.get("method") or "FCFF DCF"),
+                   ("Rev. growth (stg-1)", _p(a.get("rev_growth"))),
+                   ("EBIT margin", _p(a.get("ebit_margin"))),
+                   ("WACC", _p(v.get("wacc"))),
+                   ("Terminal growth", _p(a.get("terminal_growth"))),
+                   ("Forecast horizon", f"{int(a['fade_years'])} yrs" if a.get("fade_years") else "—")]
+    for lb, val in drivers:
+        kv_row(colR, yR, halfW, lb, val)
+        yR -= 11.5
+    yR -= 3
 
-    # ── Thesis (full width, below the columns) ───────────────────────────────
-    y = min(yL, yR) - 8
-    y = head(y, "Investment Thesis")
+    # RIGHT — the valuation bridge (PV → EV → equity → per share)
+    bridge = [("PV explicit", v.get("pv_explicit")), ("PV terminal", v.get("tv_pv")),
+              ("Enterprise value", v.get("ev")), ("Equity value", v.get("equity_val"))]
+    bridge = [(lb, vv) for lb, vv in bridge if vv is not None]
+    if bridge:
+        yR -= 2
+        for lb, vv in bridge:
+            kv_row(colR, yR, halfW, lb, f"Rs {_fc(vv)} Cr")
+            yR -= 11
+    kv_row(colR, yR, halfW, "Fair value / share", f"Rs {intrinsic:,.0f}" if intrinsic else "—", vcol=HEAD, lf=7.5)
+    yR -= 11.5
+    kv_row(colR, yR, halfW, "Margin of safety", f"{mos:+.1f}%" if mos is not None else "—",
+           vcol=GREEN if (mos or 0) > 0 else RED, lf=7.5)
+    yR -= 13
+
+    # RIGHT — analyst consensus (the street cross-check)
+    if analyst and (analyst.get("target") or analyst.get("rating")):
+        yR = head(yR, "Analyst Consensus", x=colR, x2=colR + halfW)
+        up = analyst.get("upside")
+        arows = [("Target", f"Rs {analyst['target']:,.0f}" if analyst.get("target") else "—"),
+                 ("Rating", (analyst.get("rating") or "—")),
+                 ("Implied upside", f"{up*100:+.1f}%" if up is not None else "—"),
+                 ("# Analysts", str(analyst.get("n")) if analyst.get("n") else "—")]
+        for lb, val in arows:
+            vcol = GREEN if (lb == "Implied upside" and (up or 0) > 0) else RED if (lb == "Implied upside" and up is not None) else INK
+            kv_row(colR, yR, halfW, lb, val, vcol=vcol)
+            yR -= 11.5
+
+    # ── Peer comparison (full width) ─────────────────────────────────────────
+    y = min(yL, yR) - 10
+    if peers:
+        y = head(y, f"Peer Comparison  ·  {(rec or {}).get('valuation_sector') or co.sector}")
+        cols = [("Ticker", 0.0, "l"), ("P/E", 0.42, "r"), ("P/B", 0.56, "r"),
+                ("ROE", 0.70, "r"), ("MoS", 0.84, "r"), ("Verdict", 1.0, "r")]
+        tw = W - 2 * M
+        c.setFont("Helvetica", 6.2); c.setFillColor(MUTE)
+        for name, frac, al in cols:
+            xx = M + frac * tw
+            (c.drawRightString if al == "r" else c.drawString)(xx, y, name.upper())
+        y -= 3
+        c.setStrokeColor(LINE); c.setLineWidth(0.4); c.line(M, y, W - M, y); y -= 9
+        # own row first (highlighted)
+        def peer_row(tk, pe, pb, roe, ms, vd, own=False):
+            c.setFont("Helvetica-Bold" if own else "Helvetica", 7.2)
+            c.setFillColor(HEAD if own else INK)
+            c.drawString(M, y0[0], tk[:14])
+            c.setFont("Helvetica", 7.2); c.setFillColor(INK)
+            c.drawRightString(M + 0.42 * tw, y0[0], f"{pe:.1f}x" if isinstance(pe, (int, float)) and pe else "—")
+            c.drawRightString(M + 0.56 * tw, y0[0], f"{pb:.2f}x" if isinstance(pb, (int, float)) and pb else "—")
+            c.drawRightString(M + 0.70 * tw, y0[0], f"{roe*100:.1f}%" if isinstance(roe, (int, float)) and roe else "—")
+            c.setFillColor(GREEN if (isinstance(ms, (int, float)) and ms > 0) else RED if isinstance(ms, (int, float)) else INK)
+            c.drawRightString(M + 0.84 * tw, y0[0], f"{ms*100:+.0f}%" if isinstance(ms, (int, float)) else "—")
+            c.setFillColor(_verdict_color(vd)); c.setFont("Helvetica-Bold", 6.8)
+            c.drawRightString(M + tw, y0[0], (vd or "—")[:10])
+        y0 = [y]
+        peer_row(co.ticker, get_m("pe_ratio"), get_m("pb_ratio"), get_m("roe"),
+                 (mos / 100 if mos is not None else None), verdict, own=True)
+        y0[0] -= 11
+        for p in peers[:5]:
+            peer_row(p.get("ticker") or "—", p.get("pe"), p.get("pb"), p.get("roe"),
+                     p.get("mos"), p.get("verdict"))
+            y0[0] -= 11
+        y = y0[0] - 4
+
+    # ── Thesis (full width) ──────────────────────────────────────────────────
+    y = head(y - 2, "Investment Thesis")
     bulls, risks = _thesis(co, rec, metrics, scorecard)
 
     def wrap(text, maxc=112):
@@ -257,6 +375,31 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
             c.drawString(M + 10, y, ln)
             y -= 10.5
         y -= 1.5
+
+    # ── What to watch (forward monitoring triggers — distinct from the risks
+    #    already listed in the thesis) ──────────────────────────────────────
+    watch = []
+    up = (analyst or {}).get("upside")
+    if mos is not None and up is not None and intrinsic:
+        watch.append(f"Model vs street: our fair value Rs {intrinsic:,.0f} ({mos:+.0f}% MoS) vs the "
+                     f"consensus target Rs {(analyst or {}).get('target', 0):,.0f} ({up*100:+.0f}%) — "
+                     f"watch which the next two prints validate.")
+    if mos is not None and mos > 25:
+        watch.append("The wide model-vs-price gap rests on the forecast growth persisting; a "
+                     "deceleration would compress the multiple quickly, so track the growth trajectory.")
+    watch.append("Quarterly results vs the model's revenue/margin path, management guidance on the "
+                 "concall, and any change in promoter holding or pledge.")
+    if y > 120 and watch:
+        y = head(y - 4, "What to Watch")
+        for item in watch[:4]:
+            for k, ln in enumerate(wrap_at(item, 150)):
+                c.setFillColor(AMBER); c.setFont("Helvetica-Bold", 8)
+                if k == 0:
+                    c.drawString(M, y, "•")
+                c.setFillColor(INK); c.setFont("Helvetica", 8)
+                c.drawString(M + 10, y, ln)
+                y -= 10.5
+            y -= 1.5
 
     # ── Footer ───────────────────────────────────────────────────────────────
     c.setStrokeColor(LINE); c.setLineWidth(0.5); c.line(M, 26, W - M, 26)

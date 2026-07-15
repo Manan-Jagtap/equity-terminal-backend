@@ -547,7 +547,7 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
         except Exception: pass
         # Use the SAME independent engine as the rest of the terminal (no more
         # divorced inline DCF).
-        intrinsic, rec = None, None
+        intrinsic, rec, a = None, None, {}
         try:
             data = build_company(db, co)
             a = effective_assumptions(db, co, data)
@@ -565,8 +565,41 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
                 scorecard = build_scorecard(ev)
         except Exception:
             pass
+        # analyst consensus (target / rating / upside) for the street-view block
+        analyst, description = None, None
+        try:
+            from app.consensus import analyst_consensus
+            ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
+            analyst = analyst_consensus(ins.data if ins else None, price)
+            if ins and ins.data:
+                description = (((ins.data.get("profile_snapshot") or {}).get("payload") or {})
+                              .get("description"))
+        except Exception:
+            pass
+        # a short peer set (same valuation sector) for the comparison table
+        peers = []
+        try:
+            vsec = (rec or {}).get("valuation_sector")
+            if vsec:
+                q = (db.query(models.Valuation, models.Company)
+                       .join(models.Company, models.Valuation.company_id == models.Company.id)
+                       .filter(models.Valuation.valuation_sector == vsec,
+                               models.Company.ticker != co.ticker))
+                rows = q.limit(60).all()
+                mc = price * (co.shares_outstanding or 0)
+                scored = []
+                for val, pco in rows:
+                    pmc = (pco.market.price if pco.market else 0) * (pco.shares_outstanding or 0)
+                    scored.append((abs((pmc or 0) - mc), val, pco))
+                for _, val, pco in sorted(scored, key=lambda x: x[0])[:5]:
+                    peers.append({"ticker": pco.ticker, "pe": val.pe, "pb": val.pb,
+                                  "roe": val.roe, "mos": val.mos, "verdict": val.verdict})
+        except Exception:
+            pass
         pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic,
-                                   None, rec=rec, scorecard=scorecard)
+                                   None, rec=rec, scorecard=scorecard,
+                                   assumptions=a, analyst=analyst, peers=peers,
+                                   description=description)
         return Response(content=pdf_bytes, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{co.ticker}_onepager.pdf"',
                                  "Content-Length": str(len(pdf_bytes))})
