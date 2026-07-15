@@ -255,3 +255,47 @@ def macro_activity_point(body: ActivityPoint,
         "name": name, "freq": body.freq or "M",
         "points": [[body.date[:10], float(body.value)]]}})
     return {"slug": body.slug, "written": n, "as_of": body.date[:10], "name": name}
+
+
+# ── Valuation recompute ──────────────────────────────────────────────────────
+# Rebuild the stored `valuations` cache with the CURRENT engine, on demand, so an
+# engine change goes live immediately instead of waiting for the nightly job.
+# Runs in a daemon thread (the full universe takes a couple of minutes and
+# manages its own DB session), with a status endpoint to poll.
+import threading as _threading
+import datetime as _dt
+
+_recompute_state = {"running": False, "scope": None, "started_at": None,
+                    "finished_at": None, "error": None}
+_recompute_lock = _threading.Lock()
+
+
+def _recompute_job(scope: str):
+    _recompute_state.update(running=True, scope=scope, error=None,
+                            started_at=_dt.datetime.utcnow().isoformat() + "Z",
+                            finished_at=None)
+    try:
+        from app.ingest.compute_valuations import run
+        run(nifty50=(scope == "nifty50"), visible=(scope == "visible"))
+    except Exception as e:  # noqa: BLE001 — record, never crash the worker
+        _recompute_state["error"] = f"{type(e).__name__}: {e}"
+    finally:
+        _recompute_state.update(running=False,
+                                finished_at=_dt.datetime.utcnow().isoformat() + "Z")
+
+
+@router.post("/recompute-valuations")
+def recompute_valuations(scope: str = "all",
+                         _admin: models.User = Depends(require_admin)):
+    """Trigger a full (scope=all) or scoped (nifty50 / visible) recompute of the
+    stored valuations. Non-blocking; poll GET for progress. 409 if already running."""
+    with _recompute_lock:
+        if _recompute_state["running"]:
+            raise HTTPException(409, "A recompute is already running")
+        _threading.Thread(target=_recompute_job, args=(scope,), daemon=True).start()
+    return {"status": "started", "scope": scope}
+
+
+@router.get("/recompute-valuations")
+def recompute_valuations_status(_admin: models.User = Depends(require_admin)):
+    return dict(_recompute_state)

@@ -14,6 +14,16 @@ from . import sector_params as SP
 # for the first two; the holdcos read NO CALL until a NAV model lands.
 _CONGLOMERATES = {"RELIANCE", "ADANIENT", "BBTC", "TATAINVEST", "BAJAJHLDNG", "CHOLAHLDNG"}
 
+# Asset-light FEE financials: exchanges, depositories, registrars, AMCs, broking,
+# wealth, data/ratings. Their value is a capital-light fee annuity, not book
+# equity — they trade at 8-12x book, so the book-based Residual Income model
+# structurally understates them exactly like life insurers. Flag → LOW CONF
+# rather than a confident AVOID (a P/E or DCF model would be the right tool).
+_FEE_FINANCIALS = {"CRISIL", "ICRA", "CARERATNG", "BSE", "MCX", "IEX", "CDSL",
+                   "CAMS", "KFINTECH", "NUVAMA", "ANGELONE", "360ONE", "POLICYBZR",
+                   "PAYTM", "ABSLAMC", "UTIAMC", "HDFCAMC", "NAM-INDIA", "MFSL",
+                   "IIFL", "IIFLCAPS", "ANANDRATHI", "PRUDENT", "CDGL"}
+
 
 def safe(val, default=0.0):
     """Return val if not None, else default."""
@@ -39,7 +49,9 @@ def residual_income(co: Dict, a: Dict) -> Dict:
     bvps0 = co["equity"] / co["shares"]
     retention = 1 - a["payout"]
     N = max(3, round(a["fade_years"]))
-    N1 = max(1, N // 2)                     # high-ROE phase length
+    N1 = max(1, round(0.6 * N))             # high-ROE hold phase (was N//2 — too
+                                            # short; elite franchises defend their
+                                            # ROE longer before the fade begins)
     f_roe, t_roe = a["forecast_roe"], a["terminal_roe"]
     bv, pv, rows = bvps0, 0.0, []
     for t in range(1, N + 1):
@@ -75,6 +87,11 @@ def fcff_dcf(co: Dict, a: Dict) -> Dict:
     ke = cost_of_equity(a)
     ew = 1 - a["debt_weight"]
     wacc = ew * ke + a["debt_weight"] * a["cost_debt"] * (1 - a["tax_rate"])
+    # HARD FLOOR: WACC must stay a safe margin above terminal growth. Asset-light
+    # retailers/jewellers carry large working-capital / gold-metal "borrowings"
+    # that the debt_weight reads as cheap leverage, collapsing WACC toward g and
+    # exploding the terminal value (TITAN printed +3000% MoS without this floor).
+    wacc = max(wacc, a["terminal_growth"] + 0.03)
     N = max(3, round(a["fade_years"]))
     N1 = max(1, N // 2)                     # franchise (hold) phase length
     g_t = a["terminal_growth"]
@@ -231,7 +248,7 @@ def blended(co: Dict, a: Dict) -> Dict:
     # reads ~2× the DCF on premium sectors) must not be able to drag the blend far
     # above the intrinsic. Clamp each cross-check to ±50% of the primary before
     # weighting. The raw (uncapped) value is still shown in the breakdown.
-    LO, HI = 0.5 * primary, 1.6 * primary
+    LO, HI = 0.5 * primary, 2.2 * primary
     components = []
     for name, w in spec:
         raw = vals.get(name)
@@ -464,6 +481,14 @@ def recommend(co: Dict, a: Dict) -> Dict:
                         "note": "Life insurer — value is embedded value, not book; "
                                 "RI/P-B/P-E understate it. Model not reliable here.",
                         "good": False, "bad": True})
+    elif co.get("ticker") in _FEE_FINANCIALS:
+        verdict = "LOW CONF"
+        reliable = False
+        reasons.append({"label": "Model", "score": 50,
+                        "note": "Asset-light fee franchise (exchange/AMC/registrar/"
+                                "broking) — value is a capital-light fee annuity, not "
+                                "book equity; the book-based RI model understates it.",
+                        "good": False, "bad": True})
     elif f["roe"] is not None and f["roe"] < 0.04:
         # Negligible OR NEGATIVE current returns (early-stage / pre-profit growth
         # names like Eternal/Zomato, Jio Financial; and outright loss-makers). A
@@ -504,13 +529,17 @@ def recommend(co: Dict, a: Dict) -> Dict:
                                 "model likely doesn't fit this name's economics. "
                                 "Model unreliable here.",
                         "good": False, "bad": True})
-    elif mos is not None and mos < -0.66 and (f.get("roe") or 0) > 0.18:
-        # Mirror of the +200% gate, for extreme DOWNSIDE. A generic sector model
-        # valuing a HIGH-RETURN franchise (ROE > 18%) at under a THIRD of its
-        # price is far more likely STRUCTURALLY UNDERSTATING a premium compounder
-        # than flagging a genuine 3x overvaluation — exactly the false-AVOID the
-        # two-stage redesign exists to prevent. Low-quality names at a big premium
-        # keep their AVOID (genuinely rich); only quality franchises are rescued.
+    elif (mos is not None and mos < -0.35
+          and max(f.get("roe") or 0, a.get("forecast_roe") or 0,
+                  a.get("terminal_roe") or 0) >= 0.18):
+        # Mirror of the +200% gate, for extreme DOWNSIDE — keyed off the DERIVED
+        # franchise ROE (forecast/terminal), not just a noisy single reported year.
+        # A model valuing a genuinely HIGH-RETURN franchise (≥18% ROE) more than
+        # 35% below price is far more likely STRUCTURALLY UNDERSTATING a premium
+        # compounder than flagging a real overvaluation — the false-AVOID cohort
+        # (Nestlé, HUL, Bajaj Finance, Colgate…) that the sector DCF can't justify.
+        # It reads LOW CONF, not a confident AVOID, until the DCF fixes fully land.
+        # Low-return names at a big premium keep their AVOID (genuinely rich).
         verdict = "LOW CONF"
         reliable = False
         reasons.append({"label": "Model", "score": 50,

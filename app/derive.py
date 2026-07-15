@@ -82,19 +82,29 @@ def _networth_series(statements):
     return [(y, v) for y, v in out if v > 0]
 
 
-def _company_roic(ebit_series, networth_series, borrowings_series, tax_rate):
-    """Realised ROIC = NOPAT / invested capital, median over the overlapping
-    recent years. Invested capital = net worth + borrowings (capital employed).
-    Returns None when the inputs aren't available — caller falls back to sector.
+def _company_roic(ebit_series, networth_series, borrowings_series, tax_rate,
+                  cash_series=None, goodwill_series=None):
+    """Realised ROIC = NOPAT / OPERATING invested capital, median over the recent
+    overlapping years. Invested capital = net worth + borrowings − cash &
+    investments − goodwill/intangibles.
 
-    NOTE: this is deliberately conservative — net-cash firms (no borrowings) use
-    net worth alone as the capital base, so a genuinely capital-light franchise
-    reads a very high ROIC, which is then blended/capped by the caller."""
+    Netting out the cash pile and acquisition goodwill is the fix for the biggest
+    understatement in the model: cash-rich compounders (Maruti reads 11.6% on the
+    gross base, ~25-30% operating) and acquisition-heavy staples (HUL, Asian
+    Paints) were dragged to a LOW ROIC by a bloated capital base, which pinned
+    `roic_used` to the sector floor and forced reinvestment to 0.75-0.80 — so the
+    DCF kept only ~20-25% of NOPAT as free cash and printed false AVOIDs across
+    the quality cohort. Operating ROIC is also the right base for the
+    reinvestment identity (how much capital INCREMENTAL growth actually needs).
+    Downstream clamps keep the resulting ROIC in a sane band."""
     nw = dict(networth_series)
     bw = dict(borrowings_series or [])
+    cs = dict(cash_series or [])
+    gw = dict(goodwill_series or [])
     vals = []
     for yr, ebit in ebit_series[-3:]:
-        ic = (nw.get(yr) or 0) + (bw.get(yr) or 0)
+        ic = ((nw.get(yr) or 0) + (bw.get(yr) or 0)
+              - (cs.get(yr) or 0) - (gw.get(yr) or 0))
         if ebit is not None and ic and ic > 0:
             vals.append(ebit * (1 - tax_rate) / ic)
     return median(vals) if vals else None
@@ -108,12 +118,20 @@ def _derive_nonfinancial(statements, vs):
     rev = _series(statements, "PL", "revenue")
     ebit = _series(statements, "PL", "ebit")
     ebitda = _series(statements, "PL", "ebitda")
+    dep = _series(statements, "PL", "depreciation")
     pat = _series(statements, "PL", "pat")
     tax = _series(statements, "PL", "tax")
     pbt = _series(statements, "PL", "pbt")
     borrowings = _series(statements, "BS", "borrowings")
     networth = _networth_series(statements)
     interest = _series(statements, "PL", "interest_expense")
+    # excess cash + goodwill to net out of the ROIC capital base
+    _cash = {}
+    for _yr, _v in (_series(statements, "BS", "cash")
+                    + _series(statements, "BS", "short_term_investments")):
+        _cash[_yr] = _cash.get(_yr, 0.0) + _v
+    cash_series = sorted(_cash.items())
+    goodwill_series = _series(statements, "BS", "goodwill")
 
     # Commodity cyclicals (metals, oil & gas, coal) trade off MID-CYCLE earnings,
     # not the trailing peak. Capitalising peak margins/growth into perpetuity is
@@ -127,31 +145,50 @@ def _derive_nonfinancial(statements, vs):
     # +114% MoS — an obvious peak-cycle artifact). Normalise them to a
     # mid-cycle cap between the commodity cap and the secular-growth cap.
     semi_cyclical = vs in ("AUTO", "CEMENT")
+    # CHEMICALS and CEMENT need THROUGH-CYCLE margins too: chem's 3-yr window is
+    # the FY23-26 specialty down-cycle, and cement's reported EBIT is distorted by
+    # new-capacity depreciation (EBIT ≈ half of normalized). Normalise over 5y.
+    through_cycle = cyclical or vs in ("CHEMICALS", "CEMENT")
 
-    # Near-term revenue growth: blend 3–4yr CAGR with the latest YoY, then cap.
+    # Near-term revenue growth: weight the stable multi-year CAGR over a single
+    # (possibly trough or peak) YoY, then cap. A 50/50 blend let one soft quarter
+    # (PI −16%, Colgate −) set a ~2% perpetual growth on structural compounders.
     cagr = _cagr(rev, max_n=4)
     yoy = None
     if len(rev) >= 2 and rev[-2][1] > 0:
         yoy = rev[-1][1] / rev[-2][1] - 1
-    cand = [g for g in (cagr, yoy) if g is not None]
-    if cand:
-        rev_growth = sum(cand) / len(cand)
+    if cagr is not None and yoy is not None:
+        rev_growth = 0.65 * cagr + 0.35 * yoy
+    elif cagr is not None:
+        rev_growth = cagr
+    elif yoy is not None:
+        rev_growth = yoy
     else:
         rev_growth = p["terminal_growth"] + 0.03
     # commodities: no secular high growth; semi-cyclicals: mid-cycle only
     growth_hi = 0.08 if cyclical else 0.12 if semi_cyclical else 0.18
     rev_growth = _clamp(rev_growth, 0.02, growth_hi)
-    drivers["rev_growth"] = (f"blend(CAGR={_pct(cagr)}, YoY={_pct(yoy)}) "
+    drivers["rev_growth"] = (f"0.65·CAGR({_pct(cagr)})+0.35·YoY({_pct(yoy)}) "
                              f"capped{' (cyclical)' if cyclical else ' (mid-cycle)' if semi_cyclical else ''}")
 
-    # EBIT margin: median over 5y for cyclicals (through-cycle), 3y otherwise.
-    margin_n = 5 if cyclical else 3
+    # EBIT margin: median over 5y through-cycle (cyclicals, chem, cement), 3y else.
+    margin_n = 5 if through_cycle else 3
     ebit_margin = _ratio_median(ebit, rev, lo=0.02, hi=0.45, n=margin_n)
+    # CEMENT: reported EBIT is depreciation-distorted by the capex cycle (EBIT ≈
+    # half of normalized while EBITDA is steady). Rebuild EBIT from the stable
+    # EBITDA margin less a normalized D&A rate.
+    if vs == "CEMENT":
+        em = _ratio_median(ebitda, rev, lo=0.08, hi=0.45, n=5)
+        dm = _ratio_median(dep, rev, lo=0.0, hi=0.15, n=5)
+        if em is not None:
+            ebit_margin = _clamp(em - (dm if dm is not None else 0.07), 0.02, 0.45)
+            drivers["ebit_margin"] = f"EBITDA/Rev(5y {_pct(em)}) − D&A/Rev({_pct(dm)})"
     if ebit_margin is None:
         em = _ratio_median(ebitda, rev, lo=0.04, hi=0.55, n=margin_n)
         ebit_margin = (em * 0.8) if em else 0.14
-    drivers["ebit_margin"] = (f"median(EBIT/Rev, {margin_n}y)" if ebit
-                              else f"0.8×median(EBITDA/Rev, {margin_n}y)")
+    if "ebit_margin" not in drivers:
+        drivers["ebit_margin"] = (f"median(EBIT/Rev, {margin_n}y)" if ebit
+                                  else f"0.8×median(EBITDA/Rev, {margin_n}y)")
 
     # Effective tax rate from PBT (clamp to India statutory band).
     tax_rate = _ratio_median(tax, pbt, lo=0.12, hi=0.32, n=3) or 0.25
@@ -172,7 +209,8 @@ def _derive_nonfinancial(statements, vs):
     # never fabricates cash for ordinary or sub-par ones. The TERMINAL value still
     # fades to the sector mature ROIC in engines.py — high returns now, competed
     # away in perpetuity.
-    company_roic = _company_roic(ebit, networth, borrowings, tax_rate)
+    company_roic = _company_roic(ebit, networth, borrowings, tax_rate,
+                                  cash_series, goodwill_series)
     base_roic = company_roic if company_roic else p["mature_roic"]
     roic_used = _clamp(0.6 * base_roic + 0.4 * p["mature_roic"], p["mature_roic"], 0.50)
     reinvest_rate = _clamp(rev_growth / roic_used, 0.10, 0.80) if roic_used else 0.40
@@ -204,13 +242,18 @@ def _derive_nonfinancial(statements, vs):
     # well-above-sector ROIC and real growth get more franchise years; ordinary
     # businesses keep 8; commodity cyclicals NEVER get an extended runway (their
     # "moat" is the cycle).
+    # The runway is earned from QUALITY (ROIC durability), NOT current growth —
+    # a high-ROE staple in a temporary slowdown is the most durable moat, yet the
+    # old growth gate handed it the SHORTEST 8y horizon. Base the CAP on roic_q.
     fade_years = 8
     if not cyclical:
         roic_q = roic_used / p["mature_roic"] if p.get("mature_roic") else 1.0
-        if roic_q >= 1.5 and rev_growth >= 0.08:
-            fade_years = 14
-        elif roic_q >= 1.2 or rev_growth >= 0.12:
-            fade_years = 11
+        if roic_q >= 1.5:
+            fade_years = 15
+        elif roic_q >= 1.25:
+            fade_years = 12
+        elif roic_q >= 1.1:
+            fade_years = 10
     drivers["fade_years"] = (f"CAP {fade_years}y (ROIC {_pct(roic_used)} vs sector "
                              f"{_pct(p['mature_roic'])}{', cyclical-capped' if cyclical else ''})")
 
@@ -254,8 +297,13 @@ def _derive_financial(statements, vs):
     # OWN realized return more (0.55) — India's best private banks/NBFCs sustain
     # structurally high ROE, and over-fading them to a generic sector mean made
     # the model too bearish on quality financials (ICICI/Axis looked ~20-25% rich).
-    terminal_roe = _clamp(0.55 * forecast_roe + 0.45 * p["mature_roe"], 0.10, 0.22)
-    drivers["terminal_roe"] = "0.55×realized + 0.45×sector mature ROE"
+    # Trust the franchise's OWN realized ROE more (0.70) and raise the ceiling to
+    # 0.26. The old 0.55/0.45 with a 0.22 clamp created a hard terminal-P/B ceiling
+    # of ~2.5x — the engine literally could not value ANY lender above ~2.5x book,
+    # so Bajaj Finance (5.7x), Chola (4.9x), SBI Card all printed a false AVOID.
+    # Weak lenders (forecast_roe ~0.05-0.06) are untouched by the higher ceiling.
+    terminal_roe = _clamp(0.70 * forecast_roe + 0.30 * p["mature_roe"], 0.11, 0.26)
+    drivers["terminal_roe"] = "0.70×realized + 0.30×sector mature ROE"
 
     # Payout from dividends/PAT (dividends stored negative in CF → abs).
     payout = 0.20
@@ -277,7 +325,9 @@ def _derive_financial(statements, vs):
     # ROE < Ke a longer runway would rightly SUBTRACT value, so the quality
     # gate keeps the extension one-sided).
     fade_years = 8
-    if forecast_roe >= 0.15 and payout <= 0.35:
+    if forecast_roe >= 0.18 and payout <= 0.30:
+        fade_years = 15          # elite compounder (Bajaj/Chola-class) holds longer
+    elif forecast_roe >= 0.15 and payout <= 0.35:
         fade_years = 12
     elif forecast_roe >= 0.13:
         fade_years = 10
