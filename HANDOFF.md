@@ -79,7 +79,9 @@ capped 12%, METAL/ENERGY 8%, others 18%). Blend: non-fin DCF 55% + exit
 EV/EBITDA 30% + sector P/E 15%; fin RI 65% + Gordon P/B 20% + P/E 15%.
 Verdict gates via `data_quality`: BUY needs composite ≥ 68, MoS > 15%, HIGH
 confidence; MoS > 2.0 ⇒ implausible ⇒ LOW CONF ⇒ shown as **NO CALL**.
-Ke = Rf 6.9% + sector beta × ERP 5.0% (deliberately not full-CRP;
+Ke = Rf (live 10Y) + CALCULATED beta × ERP 5.0% (regression of ~weekly
+returns on the NIFTY 50 over ~3y, shrunk to the sector prior by fit R² —
+app/beta.py, cached per recompute; sector beta is the fallback) (not full-CRP;
 documented in sector_params.py). Net worth = reported, else capital +
 reserves — never bare share capital.
 
