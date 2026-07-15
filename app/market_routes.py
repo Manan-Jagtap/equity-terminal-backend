@@ -266,16 +266,25 @@ def _active_from_db(limit: int = 10):
         d0 = s.query(func.max(models.HistoricalPrice.date)).scalar()
         if not d0:
             return []
-        top = (s.query(models.HistoricalPrice.company_id,
-                       models.HistoricalPrice.close,
-                       models.HistoricalPrice.volume)
-                 .filter(models.HistoricalPrice.date == d0,
-                         models.HistoricalPrice.volume.isnot(None),
-                         models.HistoricalPrice.volume > 0)
-                 .order_by(models.HistoricalPrice.volume.desc())
-                 .limit(limit + 5).all())
-        if not top:
+        # Rank by traded VALUE (turnover = close × volume), not raw share count —
+        # "most active" on a professional desk means value, which surfaces liquid
+        # large/mid-caps rather than a penny stock with a huge share count. We
+        # can't sort by the product in SQL portably, so pull the top volume rows
+        # (a superset — the highest-turnover names are always high-volume too)
+        # and re-rank in Python by value.
+        rows = (s.query(models.HistoricalPrice.company_id,
+                        models.HistoricalPrice.close,
+                        models.HistoricalPrice.volume)
+                  .filter(models.HistoricalPrice.date == d0,
+                          models.HistoricalPrice.volume.isnot(None),
+                          models.HistoricalPrice.volume > 0,
+                          models.HistoricalPrice.close.isnot(None))
+                  .order_by(models.HistoricalPrice.volume.desc())
+                  .limit(120).all())
+        if not rows:
             return []
+        rows = sorted(rows, key=lambda r: (r.close or 0) * (r.volume or 0), reverse=True)
+        top = rows[:limit + 5]
         cos = {c.id: c for c in s.query(models.Company)
                .filter(models.Company.id.in_([t.company_id for t in top])).all()}
         out = []
@@ -296,8 +305,9 @@ def _active_from_db(limit: int = 10):
                     pct = None
             out.append({
                 "name": co.name, "ticker": co.ticker.upper(),
-                "price": t.close, "pct": pct,
-                "volume": t.volume, "rating": None,
+                "price": t.close, "pct": pct, "volume": t.volume,
+                "value_cr": round(t.close * t.volume / 1e7, 1),  # ₹ crore traded
+                "rating": None,
             })
             if len(out) >= limit:
                 break
