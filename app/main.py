@@ -584,13 +584,18 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
             vsec = (rec or {}).get("valuation_sector")
             mc = price * (co.shares_outstanding or 0)
             if vsec and mc:
+                # explicit price map — the lazy .market relationship came back
+                # empty in this query, zeroing every peer's market cap.
+                price_by = {m.company_id: m.price
+                            for m in db.query(models.MarketSnapshot).all()}
                 q = (db.query(models.Valuation, models.Company)
                        .join(models.Company, models.Valuation.company_id == models.Company.id)
                        .filter(models.Valuation.valuation_sector == vsec,
                                models.Company.ticker != co.ticker))
                 scored = []
-                for val, pco in q.limit(120).all():
-                    pmc = (pco.market.price if pco.market else 0) * (pco.shares_outstanding or 0)
+                for val, pco in q.all():
+                    ppx = price_by.get(pco.id) or 0
+                    pmc = ppx * (pco.shares_outstanding or 0)
                     if not pmc or not (0.2 * mc <= pmc <= 5 * mc):
                         continue
                     scored.append((abs(pmc - mc), val, pco))
