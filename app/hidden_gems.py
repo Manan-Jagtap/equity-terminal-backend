@@ -42,6 +42,12 @@ ROE_MIN     = 0.14      # durable returns on capital
 GROWTH_MIN  = 0.10      # revenue CAGR …
 PAT_YOY_MIN = 0.12      # … or recent PAT growth — a real compounding engine
 MOS_FLOOR   = -0.15     # not meaningfully above our own fair value
+# A DCF printing a huge gap on an under-covered name (no consensus to cross-check)
+# is usually the model, not the market — we don't over-trust it. Above the hard
+# cap the name is dropped; between the sanity and hard cap the gap is flagged as
+# a lead to investigate, not quoted as a fact, and conviction is docked.
+MOS_SANITY_MAX = 0.75
+MOS_HARD_MAX   = 1.00
 TOP_N       = 12
 
 
@@ -98,7 +104,11 @@ def _thesis(ev, sc, cap_cr, roe, g, pat_yoy, covered):
     if gbits:
         out.append("Growth engine: " + " · ".join(gbits) + ".")
     mos = (ev.get("model") or {}).get("mos")
-    if mos is not None and mos > 0.05:
+    if mos is not None and mos > MOS_SANITY_MAX:
+        out.append(f"Our model shows a very large gap (+{mos*100:.0f}%) — at that size read it "
+                   f"as a lead to pressure-test the assumptions, not a fact; extreme DCF "
+                   f"readings are usually the model, not the market.")
+    elif mos is not None and mos > 0.05:
         out.append(f"And it's not priced for it — +{mos*100:.0f}% margin of safety to our "
                    f"independent fair value.")
     elif mos is not None:
@@ -150,6 +160,11 @@ def _rank(ev, sc, roe, g, pat_yoy, cap_cr, covered):
     a = ev.get("alpha")
     if a is not None:
         score += min(5.0, max(-5.0, (a - 50) * 0.1))
+    # dock conviction when the model's valuation gap is implausibly large — an
+    # unreliable input should lower our confidence, not top the list.
+    mos = (ev.get("model") or {}).get("mos")
+    if mos is not None and mos > MOS_SANITY_MAX:
+        score -= 10.0
     return round(_clamp(score), 1)
 
 
@@ -181,6 +196,8 @@ def evaluate_name(tk, ev, cap_cr, roe, g, pat_yoy, covered, pe=None) -> dict | N
     if not has_growth:
         return None
     if mos is not None and mos < MOS_FLOOR:
+        return None
+    if mos is not None and mos > MOS_HARD_MAX:   # too-good-to-be-true → model artifact
         return None
 
     return {
