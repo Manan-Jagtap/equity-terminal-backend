@@ -155,8 +155,9 @@ def effective_assumptions(db: Session, co: models.Company, data: dict) -> dict:
             a["beta"] = rec["beta"]
             drv = a.get("_drivers")
             if isinstance(drv, dict):
-                drv["beta"] = (f"calc β {rec['beta']} = shrink(raw {rec['raw']}, "
-                               f"R² {rec['r2']}, n={rec['n']}) → sector prior {rec['prior']}")
+                drv["beta"] = (f"calc β {rec['beta']} = shrink(raw {rec['raw']} vs "
+                               f"{rec.get('market', 'market')}, R² {rec['r2']}, n={rec['n']}) "
+                               f"→ sector prior {rec['prior']}")
     except Exception:
         pass
     return a

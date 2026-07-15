@@ -66,6 +66,47 @@ def _weekly_returns(index_by_date: dict, dates: list[str]):
     return out
 
 
+def _nifty_index(lookback_days: int):
+    """NIFTY 50 daily closes {date: close} from Dhan — the proper cap-weighted
+    market. None when Dhan is unconfigured/down (caller falls back)."""
+    try:
+        from app.dhan import client, instruments
+        if not client.configured():
+            return None
+        sid = instruments.index_security_id("NIFTY 50")
+        if not sid:
+            return None
+        to = _dt.date.today()
+        frm = to - _dt.timedelta(days=lookback_days + 10)
+        rows = client.historical_daily(sid, frm.isoformat(), to.isoformat(),
+                                       exchange_segment="IDX_I", instrument="INDEX")
+        idx = {r["date"][:10]: r["close"] for r in (rows or [])
+               if r.get("date") and r.get("close")}
+        return idx if len(idx) > 100 else None
+    except Exception:
+        return None
+
+
+def _universe_index(by_co: dict, all_dates: list) -> dict:
+    """Equal-weighted universe index (cross-sectional mean daily return) — the
+    fallback market when the Nifty series isn't available."""
+    prev, idx, lvl = {}, {}, 100.0
+    for d in all_dates:
+        rets = []
+        for cid, m in by_co.items():
+            c = m.get(d)
+            if c is None:
+                continue
+            p = prev.get(cid)
+            if p:
+                rets.append(c / p - 1)
+            prev[cid] = c
+        if len(rets) >= 20:
+            lvl *= (1 + sum(rets) / len(rets))
+            idx[d] = lvl
+    return idx
+
+
 def compute_all(db) -> dict:
     """Compute + cache every name's shrunk beta. Returns {ticker: {...}}."""
     from app import models, sector_params as SP
@@ -82,21 +123,13 @@ def compute_all(db) -> dict:
         return {}
 
     all_dates = sorted({d for m in by_co.values() for d in m})
-    # equal-weighted market daily return (cross-sectional mean), → index levels
-    prev, mkt_idx, lvl = {}, {}, 100.0
-    for d in all_dates:
-        rets = []
-        for cid, m in by_co.items():
-            c = m.get(d)
-            if c is None:
-                continue
-            p = prev.get(cid)
-            if p:
-                rets.append(c / p - 1)
-            prev[cid] = c
-        if len(rets) >= 20:
-            lvl *= (1 + sum(rets) / len(rets))
-            mkt_idx[d] = lvl
+    # Market: the NIFTY 50 (cap-weighted, the standard CAPM benchmark) when
+    # available, else our equal-weighted universe.
+    mkt_idx = _nifty_index(LOOKBACK_DAYS)
+    market = "NIFTY 50"
+    if not mkt_idx:
+        mkt_idx = _universe_index(by_co, all_dates)
+        market = "equal-weighted universe"
     mkt_dates = sorted(mkt_idx)
     mkt_wk = _weekly_returns(mkt_idx, mkt_dates)
     if len(mkt_wk) < MIN_POINTS:
@@ -117,11 +150,11 @@ def compute_all(db) -> dict:
         raw, r2, n = r
         out[co.ticker.upper()] = {"beta": shrink(raw, r2, prior),
                                   "raw": round(raw, 3), "r2": round(r2, 3),
-                                  "n": n, "prior": round(prior, 3)}
+                                  "n": n, "prior": round(prior, 3), "market": market}
     try:
         row = db.query(models.KVStore).filter_by(key=_KV_KEY).first()
         payload = {"as_of": _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
-                   "betas": out}
+                   "market": market, "betas": out}
         if row:
             row.value = payload
         else:
