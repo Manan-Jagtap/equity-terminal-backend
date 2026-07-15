@@ -224,6 +224,21 @@ def _derive_nonfinancial(statements, vs):
         drivers["ebit_margin"] = (f"median(EBIT/Rev, {margin_n}y)" if ebit
                                   else f"0.8×median(EBITDA/Rev, {margin_n}y)")
 
+    # Terminal margin — margins mean-revert. Glide the near-term margin toward the
+    # company's OWN through-cycle level (up-to-7y median), but only ~40% of the way
+    # and bounded ±3.5pp, so an elevated margin fades a little and a depressed one
+    # recovers a little, without a large calibration swing. Cyclicals already start
+    # on a through-cycle margin, so their glide is ≈flat. engines.py does the glide.
+    terminal_ebit_margin = ebit_margin
+    _longrun = _ratio_median(ebit, rev, lo=0.02, hi=0.45, n=7) if ebit else None
+    if _longrun is not None and ebit_margin is not None:
+        _target = ebit_margin + 0.4 * (_longrun - ebit_margin)
+        terminal_ebit_margin = _clamp(_target, ebit_margin - 0.035, ebit_margin + 0.035)
+        if abs(terminal_ebit_margin - ebit_margin) >= 0.003:
+            drivers["ebit_margin"] += (
+                f" → glides to {_pct(terminal_ebit_margin)} (mean-revert to "
+                f"through-cycle {_pct(_longrun)})")
+
     # Effective tax rate from PBT (clamp to India statutory band).
     tax_rate = _ratio_median(tax, pbt, lo=0.12, hi=0.32, n=3) or 0.25
     drivers["tax_rate"] = "median(Tax/PBT, 3y)"
@@ -330,6 +345,7 @@ def _derive_nonfinancial(statements, vs):
         "beta": p["beta"], "risk_free": SP.RISK_FREE, "erp": SP.ERP,
         "rev_growth": round(rev_growth, 4),
         "ebit_margin": round(ebit_margin, 4),
+        "terminal_ebit_margin": round(terminal_ebit_margin, 4),
         "tax_rate": round(tax_rate, 4),
         "reinvest_rate": round(reinvest_rate, 4),
         "debt_weight": round(debt_weight, 4),

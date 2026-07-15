@@ -126,10 +126,13 @@ def fcff_dcf(co: Dict, a: Dict) -> Dict:
     g1 = a["rev_growth"]
     rev, pv, rows = co["revenue"], 0.0, []
     nopat = 0.0
+    m0 = a["ebit_margin"]
+    m_term = a.get("terminal_ebit_margin", m0)         # margins mean-revert; glide
     for t in range(1, N + 1):
         g = g1 if t <= N1 else g1 + (g_t - g1) * ((t - N1) / (N - N1))
         rev = rev * (1 + g)
-        ebit = rev * a["ebit_margin"]
+        margin = m0 if N <= 1 else m0 + (m_term - m0) * ((t - 1) / (N - 1))
+        ebit = rev * margin
         nopat = ebit * (1 - a["tax_rate"])
         fcff = nopat * (1 - a["reinvest_rate"])
         disc = (1 + wacc) ** t
