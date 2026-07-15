@@ -207,10 +207,56 @@ def gordon_pb_value(co: Dict, a: Dict, v: Dict):
     return val if val > 0 else None
 
 
-# Triangulation weights. Non-financials lead with the DCF; financials with RI.
+# Cyclical sectors get a through-cycle EARNING-POWER cross-check (below).
+_CYCLICAL = {"METAL", "ENERGY", "CEMENT", "CHEMICALS"}
+_RELATIVE_METHODS = {"Exit Multiple", "P/E (sector)", "Gordon Growth P/B"}
+
+
+def _wacc(a: Dict) -> float:
+    ke = cost_of_equity(a)
+    ew = 1 - a.get("debt_weight", 0.0)
+    w = (ew * ke + a.get("debt_weight", 0.0) * a.get("cost_debt", ke)
+         * (1 - a.get("tax_rate", 0.25)))
+    return max(w, a.get("terminal_growth", 0.05) + 0.03)
+
+
+def normalized_earnings_value(co: Dict, a: Dict):
+    """Through-cycle earning-power value for cyclicals: NORMALIZED NOPAT (current
+    revenue × the through-cycle EBIT margin, after tax) valued as a perpetuity at
+    WACC with only modest real growth. A spot-year FCFF DCF reads a cyclical's
+    trough (or peak) margin as permanent; this anchors metals/cement/chemicals to
+    MID-CYCLE economics instead. Commodities (metals/energy) get zero real growth;
+    process cyclicals a little. Net of debt, per share. None if inputs missing.
+
+    Deliberately used only as a BOUNDED cross-check in blended() — the 5-yr margin
+    window can itself capture a boom (2021-22 commodity super-cycle), so it is
+    clamped to a band around the DCF there to lift genuine troughs without
+    fabricating a peak-margin BUY."""
+    vs = _vsector(a)
+    rev, shares = co.get("revenue"), co.get("shares")
+    if rev is None or not shares or shares <= 0:
+        return None
+    nopat = rev * (a.get("ebit_margin") or 0) * (1 - (a.get("tax_rate") or 0.25))
+    if nopat <= 0:
+        return None
+    wacc = _wacc(a)
+    g = 0.0 if vs in ("METAL", "ENERGY") else min(a.get("terminal_growth") or 0.04, 0.04)
+    if wacc <= g:
+        return None
+    mroic = SP.params(vs).get("mature_roic") or 0.12
+    reinvest = _clamp(g / mroic, 0.0, 0.40) if mroic else 0.0
+    ev = nopat * (1 - reinvest) / (wacc - g)
+    equity = ev - (co.get("net_debt") or 0.0)
+    val = equity / shares
+    return val if val > 0 else None
+
+
+# Triangulation weights. Non-financials lead with the DCF; financials with RI;
+# cyclicals keep the DCF lead but add the normalized earning-power cross-check.
 _BLEND_WEIGHTS = {
-    "fin":    [("Residual Income", 0.65), ("Gordon Growth P/B", 0.20), ("P/E (sector)", 0.15)],
-    "nonfin": [("FCFF DCF",        0.55), ("Exit Multiple",     0.30), ("P/E (sector)", 0.15)],
+    "fin":      [("Residual Income", 0.65), ("Gordon Growth P/B", 0.20), ("P/E (sector)", 0.15)],
+    "nonfin":   [("FCFF DCF", 0.55), ("Exit Multiple", 0.30), ("P/E (sector)", 0.15)],
+    "cyclical": [("FCFF DCF", 0.45), ("Normalized Earnings", 0.30), ("Exit Multiple", 0.25)],
 }
 
 
@@ -223,38 +269,47 @@ def blended(co: Dict, a: Dict) -> Dict:
     model can't be valued, so callers show '—' rather than a fabricated number."""
     v = valuate(co, a)
     primary = v.get("intrinsic")
+    primary_method = v.get("method")
     is_fin = co.get("type") == "financial"
+    vs = _vsector(a)
 
     if is_fin:
         vals = {"Residual Income": primary,
                 "Gordon Growth P/B": gordon_pb_value(co, a, v),
                 "P/E (sector)": pe_value(co, a)}
         spec = _BLEND_WEIGHTS["fin"]
+    elif vs in _CYCLICAL:
+        vals = {"FCFF DCF": primary,
+                "Normalized Earnings": normalized_earnings_value(co, a),
+                "Exit Multiple": exit_multiple_value(co, a)}
+        spec = _BLEND_WEIGHTS["cyclical"]
     else:
         vals = {"FCFF DCF": primary,
                 "Exit Multiple": exit_multiple_value(co, a),
                 "P/E (sector)": pe_value(co, a)}
         spec = _BLEND_WEIGHTS["nonfin"]
 
-    primary_method = v.get("method")
-
     if primary is None or primary <= 0:
         components = [{"method": name, "value": vals.get(name), "weight": w} for name, w in spec]
         return {"blended": None, "components": components,
                 "primary": primary, "primary_method": primary_method, "valuation": v}
 
-    # The intrinsic DCF/RI leads. The relative multiples are a SANITY BAND — they
-    # can corroborate or nudge the primary, but a rich sector exit multiple (which
-    # reads ~2× the DCF on premium sectors) must not be able to drag the blend far
-    # above the intrinsic. Clamp each cross-check to ±50% of the primary before
-    # weighting. The raw (uncapped) value is still shown in the breakdown.
-    LO, HI = 0.5 * primary, 2.2 * primary
+    # The intrinsic DCF/RI leads and is the anchor. Cross-checks are BOUNDED to it
+    # so a rich sector exit multiple (~2× the DCF on premium names) or a
+    # boom-margin normalized value can't drag the blend away from the intrinsic:
+    #   · relative multiples (exit / P-E / P-B): [0.5, 2.2]× the primary
+    #   · normalized earning power (cyclicals): [0.6, 1.8]× the primary — tighter,
+    #     since its 5-yr margin window can itself capture a cycle peak.
+    # Fundamental methods are never dragged BELOW the primary blindly; the raw
+    # (uncapped) value is still shown in the breakdown for transparency.
     components = []
     for name, w in spec:
         raw = vals.get(name)
         capped = raw
-        if raw is not None and name != primary_method:
-            capped = max(LO, min(HI, raw))
+        if raw is not None and name in _RELATIVE_METHODS:
+            capped = _clamp(raw, 0.5 * primary, 2.2 * primary)
+        elif raw is not None and name == "Normalized Earnings":
+            capped = _clamp(raw, 0.6 * primary, 1.8 * primary)
         components.append({"method": name, "value": raw, "capped": capped, "weight": w})
 
     avail = [c for c in components if c["capped"] is not None and c["capped"] > 0]
