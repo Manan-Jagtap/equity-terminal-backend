@@ -125,11 +125,14 @@ def _derive_nonfinancial(statements, vs):
     borrowings = _series(statements, "BS", "borrowings")
     networth = _networth_series(statements)
     interest = _series(statements, "PL", "interest_expense")
-    # excess cash + goodwill to net out of the ROIC capital base
+    # excess cash + treasury investments + goodwill to net out of the ROIC base.
+    # Cash-rich industrials (Maruti, Bajaj Auto) park most of their treasury in
+    # the non-current `investments` line, not `cash` — so netting only cash left
+    # their capital base bloated and ROIC understated. Net the full treasury.
     _cash = {}
-    for _yr, _v in (_series(statements, "BS", "cash")
-                    + _series(statements, "BS", "short_term_investments")):
-        _cash[_yr] = _cash.get(_yr, 0.0) + _v
+    for _line in ("cash", "cash_equivalents", "short_term_investments", "investments"):
+        for _yr, _v in _series(statements, "BS", _line):
+            _cash[_yr] = _cash.get(_yr, 0.0) + _v
     cash_series = sorted(_cash.items())
     goodwill_series = _series(statements, "BS", "goodwill")
 
@@ -219,7 +222,13 @@ def _derive_nonfinancial(statements, vs):
     if not cyclical and roic_used >= 1.2 * p["mature_roic"] and rev_growth < 0.08:
         rev_growth = 0.08
         drivers["rev_growth"] += " → floored 8% (durable high-ROIC franchise)"
-    reinvest_rate = _clamp(rev_growth / roic_used, 0.10, 0.80) if roic_used else 0.40
+    # Ceiling 0.65 (was 0.80): the g/ROIC identity with a cyclically DEPRESSED
+    # spot ROIC (capital-intensive names mid-build-out read ~sector ROIC) demanded
+    # a ~80% reinvestment that these businesses don't actually run — UltraTech,
+    # Grasim, Ambuja generate real FCF and pay dividends. 0.65 is still heavy
+    # reinvestment; it lifts the maxed-out names without fabricating cash for
+    # ordinary ones (whose roic_used is high enough that they never hit the cap).
+    reinvest_rate = _clamp(rev_growth / roic_used, 0.10, 0.65) if roic_used else 0.40
     drivers["reinvest_rate"] = (f"g/ROIC (g={_pct(rev_growth)}, "
                                 f"ROIC={_pct(roic_used)} — own {_pct(company_roic)} "
                                 f"blended to sector {_pct(p['mature_roic'])})")
@@ -259,6 +268,11 @@ def _derive_nonfinancial(statements, vs):
         elif roic_q >= 1.25:
             fade_years = 12
         elif roic_q >= 1.1:
+            fade_years = 10
+        elif vs in ("CEMENT", "AUTO", "CHEMICALS"):
+            # capital-intensive franchises whose reported ROIC ≈ sector (dragged
+            # by under-utilised recent capacity) still have durable positions
+            # (limestone reserves, distribution, switching costs) worth >8y.
             fade_years = 10
     drivers["fade_years"] = (f"CAP {fade_years}y (ROIC {_pct(roic_used)} vs sector "
                              f"{_pct(p['mature_roic'])}{', cyclical-capped' if cyclical else ''})")
