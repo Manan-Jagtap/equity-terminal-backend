@@ -476,21 +476,88 @@ def _ri_model_sheet(ws, ticker, co, a, v, price):
     return R["iv"]
 
 
-# ── Company export: statements with formula-derived margins ──────────────────
+# ── Company export: statements in standard order, with derived rows ──────────
+# Canonical top-to-bottom ordering (raw line-item keys). Anything not listed is
+# appended after, alphabetically — the statements never render in random order.
+_PL_ORDER = ["revenue", "interest_income", "gross_profit", "other_income", "nii",
+             "sga", "provisions", "ebitda", "depreciation", "ebit",
+             "interest_expense", "pbt", "tax", "pat", "net_profit"]
+_BS_ORDER = ["cash", "cash_equivalents", "short_term_investments", "investments",
+             "receivables", "inventory", "prepaid_expenses", "other_current_assets",
+             "current_assets", "ppe_gross", "accumulated_depreciation",
+             "fixed_assets", "goodwill", "intangibles", "total_assets",
+             "payables", "notes_payable_st", "accrued_expenses", "current_lt_debt",
+             "other_current_liabilities", "current_liabilities", "lt_debt",
+             "borrowings", "total_debt", "total_liabilities",
+             "reserves", "net_worth", "equity", "total_equity"]
+_CF_ORDER = ["operating_cf", "capex", "investing_cf", "financing_cf", "fcf",
+             "net_change_cash"]
+_ORDER = {"PL": _PL_ORDER, "BS": _BS_ORDER, "CF": _CF_ORDER}
 
-_KEY_ROWS = {"Revenue", "Total Revenue", "Net Sales", "EBITDA", "EBIT",
-             "Operating Profit", "PAT", "Net Profit", "Profit After Tax",
-             "Total Assets", "Total Equity", "Net Cash Flow"}
+_BOLD_KEYS = {"revenue", "gross_profit", "nii", "ebitda", "ebit", "pbt", "pat",
+              "net_profit", "current_assets", "total_assets", "current_liabilities",
+              "total_liabilities", "net_worth", "equity", "total_equity",
+              "operating_cf", "fcf", "net_change_cash"}
+
+# balance-sheet grouping → sub-band before the first row of each group
+_BS_GROUP = {}
+for _k in _BS_ORDER[:_BS_ORDER.index("total_assets") + 1]:
+    _BS_GROUP[_k] = "ASSETS"
+for _k in _BS_ORDER[_BS_ORDER.index("payables"):_BS_ORDER.index("total_liabilities") + 1]:
+    _BS_GROUP[_k] = "LIABILITIES"
+for _k in _BS_ORDER[_BS_ORDER.index("reserves"):]:
+    _BS_GROUP[_k] = "EQUITY"
+
+_LABELS = {
+    "revenue": "Revenue", "interest_income": "Interest income",
+    "gross_profit": "Gross profit", "other_income": "Other income",
+    "nii": "Net interest income", "sga": "SG&A / operating expenses",
+    "provisions": "Provisions", "ebitda": "EBITDA",
+    "depreciation": "Depreciation & amortisation", "ebit": "EBIT",
+    "interest_expense": "Interest expense", "pbt": "Profit before tax",
+    "tax": "Tax", "pat": "PAT (net profit)", "net_profit": "Net profit",
+    "cash": "Cash & bank", "cash_equivalents": "Cash equivalents",
+    "short_term_investments": "Short-term investments", "investments": "Investments",
+    "receivables": "Receivables", "inventory": "Inventory",
+    "prepaid_expenses": "Prepaid expenses", "other_current_assets": "Other current assets",
+    "current_assets": "Total current assets", "ppe_gross": "PP&E (gross)",
+    "accumulated_depreciation": "Less: accumulated depreciation",
+    "fixed_assets": "Net fixed assets", "goodwill": "Goodwill",
+    "intangibles": "Intangibles", "total_assets": "TOTAL ASSETS",
+    "payables": "Payables", "notes_payable_st": "Short-term notes payable",
+    "accrued_expenses": "Accrued expenses", "current_lt_debt": "Current portion of LT debt",
+    "other_current_liabilities": "Other current liabilities",
+    "current_liabilities": "Total current liabilities", "lt_debt": "Long-term debt",
+    "borrowings": "Borrowings", "total_debt": "Total debt",
+    "total_liabilities": "TOTAL LIABILITIES", "reserves": "Reserves & surplus",
+    "net_worth": "Net worth", "equity": "Shareholders' equity",
+    "total_equity": "Total equity", "operating_cf": "Cash from operations",
+    "capex": "Capital expenditure", "investing_cf": "Cash from investing",
+    "financing_cf": "Cash from financing", "fcf": "Free cash flow",
+    "net_change_cash": "Net change in cash",
+}
+
+
+def _label(key):
+    return _LABELS.get(key, str(key).replace("_", " ").capitalize())
+
+
+def _ordered_items(keys, stmt_type):
+    order = _ORDER.get(stmt_type, [])
+    idx = {k: i for i, k in enumerate(order)}
+    known = sorted([k for k in keys if k in idx], key=lambda k: idx[k])
+    unknown = sorted([k for k in keys if k not in idx])
+    return known + unknown
 
 
 def _statement_sheet(ws, statements, stmt_type, add_derived=False):
     years = sorted(statements.keys())
     if not years:
         _w(ws, "A1", "No statement data available.", font=F_MUTE)
-        return
+        return {}
     ncol = len(years) + 1
     last_col = get_column_letter(ncol)
-    _theme(ws, [30] + [13] * len(years))
+    _theme(ws, [34] + [13] * len(years))
 
     _w(ws, "A1", "Line Item (Rs Cr)", font=F_HEAD, fill_c=TEAL, align="left", border=True)
     for j, y in enumerate(years, start=2):
@@ -499,61 +566,116 @@ def _statement_sheet(ws, statements, stmt_type, add_derived=False):
     ws.freeze_panes = "B2"
     ws.row_dimensions[1].height = 16
 
-    items = sorted({item for y in years
-                    for item in (statements[y].get(stmt_type) or {})})
+    keys = {item for y in years for item in (statements[y].get(stmt_type) or {})}
+    items = _ordered_items(keys, stmt_type)
     row_of = {}
     r = 2
-    for item in items:
-        bold = item in _KEY_ROWS
-        _w(ws, f"A{r}", item, font=(F_BOLD if bold else F_LBL), align="left")
+    group_seen = set()
+    for key in items:
+        # balance-sheet group sub-band (ASSETS / LIABILITIES / EQUITY)
+        if stmt_type == "BS":
+            grp = _BS_GROUP.get(key)
+            if grp and grp not in group_seen:
+                group_seen.add(grp)
+                _band(ws, r, grp, last_col=last_col, font=F_HEAD, fill_c=MUTE, h=14)
+                r += 1
+        bold = key in _BOLD_KEYS
+        _w(ws, f"A{r}", _label(key), font=(F_BOLD if bold else F_LBL), align="left")
         for j, y in enumerate(years, start=2):
-            val = (statements[y].get(stmt_type) or {}).get(item)
+            val = (statements[y].get(stmt_type) or {}).get(key)
             _w(ws, f"{get_column_letter(j)}{r}", _num(val, 2),
-               font=(F_BOLD if bold else F_VAL), fmt=CR, align="right", border=True)
-        row_of[item] = r
+               font=(F_BOLD if bold else F_VAL), fmt=CR, align="right", border=True,
+               fill_c=(GREY_LT if bold else None))
+        row_of[key] = r
         r += 1
 
     if not add_derived:
-        return
+        return row_of
 
-    def find(*names):
-        for n in names:
-            if n in row_of:
-                return row_of[n]
-        return None
-
-    rev = find("Revenue", "Total Revenue", "Net Sales")
-    ebitda = find("EBITDA", "Operating Profit")
-    ebit = find("EBIT")
-    pat = find("PAT", "Net Profit", "Profit After Tax")
+    rev = row_of.get("revenue")
+    ebitda = row_of.get("ebitda")
+    ebit = row_of.get("ebit")
+    pat = row_of.get("pat") or row_of.get("net_profit")
     if not rev:
         return
     r += 1
-    _band(ws, r, "DERIVED (computed by formula)", last_col=last_col); r += 1
-    derived = []
-    if ebitda:
-        derived.append(("EBITDA margin", ebitda, rev, PCT, True))
-    if ebit:
-        derived.append(("EBIT margin", ebit, rev, PCT, True))
-    if pat:
-        derived.append(("PAT margin", pat, rev, PCT, True))
-    for lbl, num_r, den_r, fmt, is_ratio in derived:
+    _band(ws, r, "PROFITABILITY & GROWTH  (computed by formula)", last_col=last_col); r += 1
+    for lbl, num_r in (("EBITDA margin", ebitda), ("EBIT margin", ebit), ("PAT margin", pat)):
+        if not num_r:
+            continue
         _w(ws, f"A{r}", lbl, font=F_LBL, align="left")
         for j in range(2, ncol + 1):
             cl = get_column_letter(j)
-            _w(ws, f"{cl}{r}", f"=IFERROR({cl}{num_r}/{cl}{den_r},\"\")",
-               font=F_VAL, fmt=fmt, align="right", border=True)
+            _w(ws, f"{cl}{r}", f'=IFERROR({cl}{num_r}/{cl}{rev},"")',
+               font=F_VAL, fmt=PCT, align="right", border=True)
         r += 1
-    # revenue & PAT YoY growth
     for lbl, base_r in (("Revenue growth YoY", rev), ("PAT growth YoY", pat)):
         if not base_r:
             continue
         _w(ws, f"A{r}", lbl, font=F_LBL, align="left")
         for j in range(3, ncol + 1):
             cl, pv = get_column_letter(j), get_column_letter(j - 1)
-            _w(ws, f"{cl}{r}", f"=IFERROR({cl}{base_r}/{pv}{base_r}-1,\"\")",
+            _w(ws, f"{cl}{r}", f'=IFERROR({cl}{base_r}/{pv}{base_r}-1,"")',
                font=F_VAL, fmt=PCT, align="right", border=True)
         r += 1
+    return row_of
+
+
+# ── Company export: a Ratios sheet, computed live off the statement sheets ───
+
+def _ratios_sheet(ws, years, pl_rows, bs_rows, pl_title, bs_title):
+    """Cross-sheet ratio grid: every cell is a formula off the P&L / Balance
+    Sheet tabs, so the ratios stay tied to the statements they come from."""
+    if not years:
+        _w(ws, "A1", "No data for ratios.", font=F_MUTE)
+        return
+    ncol = len(years) + 1
+    last_col = get_column_letter(ncol)
+    _theme(ws, [30] + [13] * len(years))
+
+    _w(ws, "A1", "Ratio", font=F_HEAD, fill_c=TEAL, align="left", border=True)
+    for j, y in enumerate(years, start=2):
+        _w(ws, f"{get_column_letter(j)}1", f"FY{str(y)[-2:]}", font=F_HEAD,
+           fill_c=TEAL, align="center", border=True)
+    ws.freeze_panes = "B2"
+
+    P = lambda k, j: f"'{pl_title}'!{get_column_letter(j)}{pl_rows[k]}" if pl_rows.get(k) else None
+    B = lambda k, j: f"'{bs_title}'!{get_column_letter(j)}{bs_rows[k]}" if bs_rows.get(k) else None
+    equity_key = "net_worth" if bs_rows.get("net_worth") else "equity"
+    debt_key = "total_debt" if bs_rows.get("total_debt") else "borrowings"
+
+    # (label, section, fmt, builder(j) → formula-or-None)
+    rows = [
+        ("PROFITABILITY", None, None, None),
+        ("Gross margin", "band", PCT, lambda j: (f"={P('gross_profit',j)}/{P('revenue',j)}" if P('gross_profit',j) and P('revenue',j) else None)),
+        ("EBITDA margin", None, PCT, lambda j: (f"={P('ebitda',j)}/{P('revenue',j)}" if P('ebitda',j) and P('revenue',j) else None)),
+        ("EBIT margin", None, PCT, lambda j: (f"={P('ebit',j)}/{P('revenue',j)}" if P('ebit',j) and P('revenue',j) else None)),
+        ("PAT margin", None, PCT, lambda j: (f"={P('pat',j)}/{P('revenue',j)}" if P('pat',j) and P('revenue',j) else None)),
+        ("RETURNS", None, None, None),
+        ("Return on equity", "band", PCT, lambda j: (f"={P('pat',j)}/{B(equity_key,j)}" if P('pat',j) and B(equity_key,j) else None)),
+        ("Return on assets", None, PCT, lambda j: (f"={P('pat',j)}/{B('total_assets',j)}" if P('pat',j) and B('total_assets',j) else None)),
+        ("Return on capital employed", None, PCT, lambda j: (f"={P('ebit',j)}/({B(equity_key,j)}+{B(debt_key,j)})" if P('ebit',j) and B(equity_key,j) and B(debt_key,j) else None)),
+        ("Asset turnover", None, NUMX, lambda j: (f"={P('revenue',j)}/{B('total_assets',j)}" if P('revenue',j) and B('total_assets',j) else None)),
+        ("LEVERAGE & COVERAGE", None, None, None),
+        ("Debt / equity", "band", NUMX, lambda j: (f"={B(debt_key,j)}/{B(equity_key,j)}" if B(debt_key,j) and B(equity_key,j) else None)),
+        ("Interest coverage", None, NUMX, lambda j: (f"={P('ebit',j)}/-{P('interest_expense',j)}" if P('ebit',j) and P('interest_expense',j) else None)),
+    ]
+    r = 2
+    for label, sec, fmt, fn in rows:
+        if fn is None:                                # section band
+            _band(ws, r, label, last_col=last_col, font=F_HEAD, fill_c=MUTE, h=14)
+            r += 1
+            continue
+        _w(ws, f"A{r}", label, font=F_LBL, align="left")
+        for j in range(2, ncol + 1):
+            f = fn(j)
+            _w(ws, f"{get_column_letter(j)}{r}",
+               (f"=IFERROR({f[1:]},\"\")" if f else None),
+               font=F_VAL, fmt=fmt, align="right", border=True)
+        r += 1
+    _w(ws, f"A{r + 1}",
+       "Every ratio is a live formula off the P&L and Balance Sheet tabs — edit a "
+       "statement figure and the ratios move with it.", font=F_NOTE, align="left")
 
 
 def _xlsx_response(wb: Workbook, filename: str) -> Response:
@@ -619,8 +741,14 @@ def export_company(ticker: str, db: Session = Depends(get_db)):
 
     _summary_sheet(summary, co, price, rec, analyst, fair_value)
 
+    stmt_rows = {}
     for stmt_type, title in (("PL", "P&L"), ("BS", "Balance Sheet"), ("CF", "Cash Flow")):
-        _statement_sheet(wb.create_sheet(title), statements, stmt_type,
-                         add_derived=(stmt_type == "PL"))
+        stmt_rows[stmt_type] = _statement_sheet(
+            wb.create_sheet(title), statements, stmt_type, add_derived=(stmt_type == "PL")) or {}
+
+    # Ratios sheet — live cross-sheet formulas off P&L + Balance Sheet.
+    if stmt_rows.get("PL") and stmt_rows.get("BS"):
+        _ratios_sheet(wb.create_sheet("Ratios"), sorted(statements.keys()),
+                      stmt_rows["PL"], stmt_rows["BS"], "P&L", "Balance Sheet")
 
     return _xlsx_response(wb, f"{co.ticker}.xlsx")
