@@ -298,6 +298,21 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
         for lb, vv in bridge:
             kv_row(colR, yR, halfW, lb, f"Rs {_fc(vv)} Cr")
             yR -= 11
+    # RIGHT — valuation triangulation (the methods behind the blended fair value;
+    # the Dividend Discount cross-check shows for any payer, weighted only for
+    # stable high payers).
+    comps = [c for c in ((rec or {}).get("components") or [])
+             if (c.get("capped") if c.get("capped") is not None else c.get("value"))]
+    if len(comps) > 1:
+        yR -= 2
+        for c in comps:
+            cv = c.get("capped") if c.get("capped") is not None else c.get("value")
+            wt = c.get("weight") or 0
+            kv_row(colR, yR, halfW, f"{c.get('method')} ({wt*100:.0f}%)",
+                   f"Rs {cv:,.0f}" if cv else "—")
+            yR -= 11
+        yR -= 2
+
     kv_row(colR, yR, halfW, "Fair value / share", f"Rs {intrinsic:,.0f}" if intrinsic else "—", vcol=HEAD, lf=7.5)
     yR -= 11.5
     kv_row(colR, yR, halfW, "Margin of safety", f"{mos:+.1f}%" if mos is not None else "—",

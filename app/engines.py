@@ -224,6 +224,45 @@ def gordon_pb_value(co: Dict, a: Dict, v: Dict):
     return val if val > 0 else None
 
 
+def ddm_value(co: Dict, a: Dict, v: Dict):
+    """Two-stage Dividend Discount Model, per share. Dividends grow along the
+    same stage-1→terminal path the primary model uses (capped so we never model
+    a payer out-growing its earnings), discounted at the cost of equity, with a
+    Gordon terminal. Meaningful only for stable, high payers — blended() weights
+    it there and shows it as an unweighted cross-check everywhere else."""
+    ke = v.get("ke")
+    pat, shares = co.get("net_profit"), co.get("shares")
+    payout = a.get("payout")
+    g_t = a.get("terminal_growth") or 0.05
+    if not ke or ke <= g_t or not shares or shares <= 0:
+        return None
+    if pat is None or pat <= 0 or not payout or payout <= 0:
+        return None
+    dps0 = payout * (pat / shares)
+    if dps0 <= 0:
+        return None
+    N = max(3, round(a.get("fade_years") or 10))
+    N1 = max(1, N // 2)
+    g1 = min(a.get("rev_growth") or 0.08, 0.15)   # a payer can't out-grow earnings forever
+    d, dN, pv = dps0, dps0, 0.0
+    for i in range(1, N + 1):
+        g = g1 if i <= N1 else g1 + (g_t - g1) * ((i - N1) / max(1, N - N1))
+        d *= (1 + g)
+        pv += d / ((1 + ke) ** i)
+        if i == N:
+            dN = d
+    pv += (dN * (1 + g_t) / (ke - g_t)) / ((1 + ke) ** N)
+    return pv if pv > 0 else None
+
+
+def _is_high_payout(co: Dict, a: Dict) -> bool:
+    """A stable, meaningful distributor — utilities, PSUs, mature FMCG, high-
+    payout financials. Only for these does the DDM carry blend weight; the gate
+    is the (3-yr median) payout ratio, so it's objective and self-updating."""
+    pat = co.get("net_profit")
+    return (a.get("payout") or 0) >= 0.40 and pat is not None and pat > 0
+
+
 # Triangulation weights. Non-financials lead with the DCF; financials with RI.
 _BLEND_WEIGHTS = {
     "fin":    [("Residual Income", 0.65), ("Gordon Growth P/B", 0.20), ("P/E (sector)", 0.15)],
@@ -246,12 +285,17 @@ def blended(co: Dict, a: Dict) -> Dict:
         vals = {"Residual Income": primary,
                 "Gordon Growth P/B": gordon_pb_value(co, a, v),
                 "P/E (sector)": pe_value(co, a)}
-        spec = _BLEND_WEIGHTS["fin"]
+        spec = list(_BLEND_WEIGHTS["fin"])
     else:
         vals = {"FCFF DCF": primary,
                 "Exit Multiple": exit_multiple_value(co, a),
                 "P/E (sector)": pe_value(co, a)}
-        spec = _BLEND_WEIGHTS["nonfin"]
+        spec = list(_BLEND_WEIGHTS["nonfin"])
+
+    # Dividend Discount Model — always computed as a cross-check; carries weight
+    # only for stable high payers (else weight 0 → shown, not blended).
+    vals["Dividend Discount"] = ddm_value(co, a, v)
+    spec.append(("Dividend Discount", 0.20 if _is_high_payout(co, a) else 0.0))
 
     primary_method = v.get("method")
 
