@@ -198,7 +198,7 @@ def export_screener(db: Session = Depends(get_db)):
 
 # ── Company export: Summary ──────────────────────────────────────────────────
 
-def _summary_sheet(ws, co, price, rec, analyst, fair_value):
+def _summary_sheet(ws, co, price, rec, analyst, fair_value, quarter=None, concall=None):
     """`fair_value` is either a cross-sheet formula string (e.g. "='DCF Model'!B50")
     linking live to the model, or a plain number when no model sheet was built."""
     _theme(ws, [30, 22, 26, 14, 14, 14, 14, 14])
@@ -258,6 +258,38 @@ def _summary_sheet(ws, co, price, rec, analyst, fair_value):
         _w(ws, f"A{r}", lbl, font=F_LBL, align="left")
         _w(ws, f"B{r}", val, font=F_VAL, fmt=fmt, align="right", border=True)
         r += 1
+
+    # ── Latest reported quarter ───────────────────────────────────────────────
+    if quarter and (quarter.get("sales") is not None or quarter.get("pat") is not None):
+        r += 1
+        _band(ws, r, f"LATEST QUARTER  ·  {quarter.get('quarter') or ''}"); r += 1
+        for lbl, val, fmt in [
+            ("Revenue (Rs cr)", _num(quarter.get("sales"), 1), CR),
+            ("  YoY", _num(quarter.get("sales_yoy"), 4), PCT),
+            ("PAT (Rs cr)", _num(quarter.get("pat"), 1), CR),
+            ("  YoY", _num(quarter.get("pat_yoy"), 4), PCT),
+            ("Operating margin", _num((quarter.get("opm") or 0) / 100, 4) if quarter.get("opm") is not None else None, PCT),
+            ("EPS (Rs)", _num(quarter.get("eps"), 2), PS),
+        ]:
+            _w(ws, f"A{r}", lbl, font=F_LBL, align="left")
+            _w(ws, f"B{r}", val, font=F_VAL, fmt=fmt, align="right", border=True)
+            r += 1
+
+    # ── Management commentary (concall key points) ────────────────────────────
+    pts = (concall or {}).get("points") or {}
+    if concall and concall.get("available") is not False and any(
+            pts.get(k) for k in ("guidance", "demand", "margins", "capex", "risks")):
+        r += 1
+        _band(ws, r, f"MANAGEMENT COMMENTARY  ·  concall {concall.get('quarter') or ''}"); r += 1
+        for lbl, key in (("Guidance", "guidance"), ("Demand", "demand"),
+                         ("Margins", "margins"), ("Capex", "capex"), ("Risks", "risks")):
+            for it in [x for x in (pts.get(key) or []) if x][:2]:
+                _w(ws, f"A{r}", lbl, font=F_BOLD, align="left")
+                ws.merge_cells(f"B{r}:H{r}")
+                _w(ws, f"B{r}", it.strip(), font=F_VAL, align="left")
+                ws.row_dimensions[r].height = 26
+                ws[f"B{r}"].alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+                r += 1
 
     _w(ws, f"A{r + 1}",
        ("Fair value blends the DCF model with relative multiples and analyst "
@@ -704,11 +736,18 @@ def export_company(ticker: str, db: Session = Depends(get_db)):
         rec = engines.recommend(cdata, assumptions)
     except Exception:
         rec, assumptions, cdata = None, assumptions or {}, cdata
+    quarter, concall = None, None
     try:
         ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
         analyst = analyst_consensus(ins.data if ins else None, price)
+        quarter = (ins.data or {}).get("results") if ins else None
     except Exception:
         analyst = None
+    try:
+        from app import transcript_ingester
+        concall = transcript_ingester.load(db, co.ticker)
+    except Exception:
+        concall = None
 
     hist_rows = (db.query(models.HistoricalFinancial)
                    .filter_by(company_id=co.id).all())
@@ -739,7 +778,7 @@ def export_company(ticker: str, db: Session = Depends(get_db)):
             if model_ws is not None:
                 wb.remove(model_ws)
 
-    _summary_sheet(summary, co, price, rec, analyst, fair_value)
+    _summary_sheet(summary, co, price, rec, analyst, fair_value, quarter=quarter, concall=concall)
 
     stmt_rows = {}
     for stmt_type, title in (("PL", "P&L"), ("BS", "Balance Sheet"), ("CF", "Cash Flow")):

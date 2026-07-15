@@ -72,7 +72,9 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
                    intrinsic: float | None = None, thesis: str | None = None,
                    rec: dict | None = None, scorecard: dict | None = None,
                    assumptions: dict | None = None, analyst: dict | None = None,
-                   peers: list | None = None, description: str | None = None) -> bytes:
+                   peers: list | None = None, description: str | None = None,
+                   quarter: dict | None = None, cagr: dict | None = None,
+                   concall: dict | None = None) -> bytes:
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     c.setTitle(f"{co.name} — Equity Research One-Pager")
@@ -401,11 +403,139 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
                 y -= 10.5
             y -= 1.5
 
-    # ── Footer ───────────────────────────────────────────────────────────────
-    c.setStrokeColor(LINE); c.setLineWidth(0.5); c.line(M, 26, W - M, 26)
-    c.setFillColor(FAINT); c.setFont("Helvetica", 6.3)
-    c.drawString(M, 18, "Equity Terminal — independent, evidence-based research. Educational use only; not SEBI-registered investment advice.")
-    c.drawRightString(W - M, 18, datetime.today().strftime("%d %b %Y"))
+    # ── Footer (page 1) ───────────────────────────────────────────────────────
+    def footer(page):
+        c.setStrokeColor(LINE); c.setLineWidth(0.5); c.line(M, 26, W - M, 26)
+        c.setFillColor(FAINT); c.setFont("Helvetica", 6.3)
+        c.drawString(M, 18, "Equity Terminal — independent, evidence-based research. Educational use only; not SEBI-registered investment advice.")
+        c.drawRightString(W - M, 18, f"{datetime.today().strftime('%d %b %Y')}  ·  {page}")
+    footer("1 / 2")
 
+    # ══ PAGE 2 — latest quarter, management commentary, explicit forecast ══════
+    rows_dcf = v.get("rows") or []
+    c.showPage()
+    c.setFillColor(PAPER); c.rect(0, 0, W, H, fill=1, stroke=0)
+    c.setFillColor(HEAD); c.rect(0, H - 4, W, 4, fill=1, stroke=0)
+    y = H - M
+    c.setFillColor(INK); c.setFont("Helvetica-Bold", 16)
+    c.drawString(M, y - 15, f"{co.name[:50]}")
+    c.setFillColor(MUTE); c.setFont("Helvetica", 8.5)
+    c.drawString(M, y - 28, f"{co.ticker}   ·   Results, Management Commentary & Forecast")
+    y -= 46
+
+    # ── Latest reported quarter ───────────────────────────────────────────────
+    if quarter and (quarter.get("sales") is not None or quarter.get("pat") is not None):
+        y = head(y, f"Latest Reported Quarter  ·  {quarter.get('quarter') or ''}")
+        def _yoy(x):
+            return (f"{x*100:+.0f}% YoY" if isinstance(x, (int, float)) else "")
+        qcells = [("Revenue", f"Rs {_fc(quarter.get('sales'))} Cr", _yoy(quarter.get("sales_yoy"))),
+                  ("PAT", f"Rs {_fc(quarter.get('pat'))} Cr", _yoy(quarter.get("pat_yoy"))),
+                  ("Op. margin", f"{quarter.get('opm'):.0f}%" if quarter.get("opm") is not None else "—", ""),
+                  ("EPS", f"Rs {quarter.get('eps'):.1f}" if quarter.get("eps") is not None else "—", "")]
+        qcw = (W - 2 * M) / len(qcells)
+        c.setFillColor(PANEL); c.roundRect(M, y - 34, W - 2 * M, 34, 4, fill=1, stroke=0)
+        for i, (lb, val, yoy) in enumerate(qcells):
+            x = M + i * qcw + 12
+            c.setFillColor(MUTE); c.setFont("Helvetica", 6.4); c.drawString(x, y - 11, lb.upper())
+            c.setFillColor(INK); c.setFont("Helvetica-Bold", 12); c.drawString(x, y - 25, val)
+            if yoy:
+                c.setFillColor(GREEN if yoy.startswith("+") else RED)
+                c.setFont("Helvetica-Bold", 7.5); c.drawRightString(M + (i + 1) * qcw - 8, y - 25, yoy)
+        y -= 44
+        if cagr:
+            def _cg(block, key):
+                for kk, vv in (cagr.get(block) or {}).items():
+                    if key in kk and vv and vv != "%":
+                        return vv
+                return None
+            bits = []
+            s3, s5 = _cg("Compounded Sales Growth", "3 Year"), _cg("Compounded Sales Growth", "5 Year")
+            p3, p5 = _cg("Compounded Profit Growth", "3 Year"), _cg("Compounded Profit Growth", "5 Year")
+            if s3 or s5: bits.append(f"Sales CAGR {s3 or '—'} (3y) · {s5 or '—'} (5y)")
+            if p3 or p5: bits.append(f"Profit CAGR {p3 or '—'} (3y) · {p5 or '—'} (5y)")
+            if bits:
+                c.setFillColor(MUTE); c.setFont("Helvetica", 8)
+                c.drawString(M, y, "Track record — " + "     ".join(bits)); y -= 16
+
+    # ── Management commentary from the earnings call ──────────────────────────
+    pts = (concall or {}).get("points") or {}
+    if concall and concall.get("available") is not False and any(pts.get(k) for k in
+            ("guidance", "demand", "margins", "capex", "risks")):
+        tone = concall.get("tone_score") or 0
+        tone_txt = "confident" if tone >= 0.15 else "cautious" if tone <= -0.15 else "balanced"
+        y = head(y, f"Management Commentary  ·  concall {concall.get('quarter') or ''}  ·  {tone_txt} tone")
+        for lbl, key in (("Guidance", "guidance"), ("Demand", "demand"), ("Margins", "margins"),
+                         ("Capex / investment", "capex"), ("Risks flagged", "risks")):
+            items = [it for it in (pts.get(key) or []) if it][:2]
+            if not items:
+                continue
+            c.setFillColor(HEAD); c.setFont("Helvetica-Bold", 7.6); c.drawString(M, y, lbl.upper()); y -= 11
+            for it in items:
+                for k, ln in enumerate(wrap_at(it.strip(), 148)):
+                    if k == 0:
+                        c.setFillColor(HEAD); c.setFont("Helvetica-Bold", 8); c.drawString(M + 8, y, "·")
+                    c.setFillColor(INK); c.setFont("Helvetica", 7.7); c.drawString(M + 16, y, ln)
+                    y -= 9.8
+                y -= 1.5
+            y -= 2
+    else:
+        y = head(y, "Management Commentary")
+        c.setFillColor(MUTE); c.setFont("Helvetica", 8)
+        c.drawString(M, y, "No processed earnings-call transcript for this name yet — the concall ingester "
+                           "runs daily and back-fills the latest call's guidance, margins and risks.")
+        y -= 16
+
+    # ── Explicit forecast schedule + terminal value ───────────────────────────
+    if rows_dcf:
+        N = len(rows_dcf)
+        N1 = max(1, N // 2)
+        g_t = a.get("terminal_growth")
+        g1 = a.get("rev_growth")
+        y = head(y, "Explicit Forecast & Terminal Value  ·  Rs Cr")
+        if is_fin:
+            cols = [("FY", 0.0, "l"), ("ROE", 0.30, "r"), ("Book value/sh", 0.52, "r"),
+                    ("Residual income", 0.78, "r"), ("PV", 1.0, "r")]
+        else:
+            cols = [("FY", 0.0, "l"), ("Revenue", 0.28, "r"), ("Growth", 0.44, "r"),
+                    ("FCFF", 0.72, "r"), ("PV of FCFF", 1.0, "r")]
+        tw = W - 2 * M
+        c.setFont("Helvetica", 6.4); c.setFillColor(MUTE)
+        for name, frac, al in cols:
+            (c.drawRightString if al == "r" else c.drawString)(M + frac * tw, y, name.upper())
+        y -= 3; c.setStrokeColor(LINE); c.setLineWidth(0.4); c.line(M, y, W - M, y); y -= 10
+        prev_rev = None
+        for i, r in enumerate(rows_dcf):
+            c.setFont("Helvetica", 7.4); c.setFillColor(INK)
+            c.drawString(M, y, f"Year {i + 1}")
+            if is_fin:
+                c.drawRightString(M + 0.30 * tw, y, f"{(r.get('roe') or 0)*100:.1f}%")
+                c.drawRightString(M + 0.52 * tw, y, _fc(r.get("bv_begin")))
+                c.drawRightString(M + 0.78 * tw, y, _fc(r.get("ri")))
+                c.drawRightString(M + tw, y, _fc(r.get("pv")))
+            else:
+                rev = r.get("rev")
+                g = g1 if i == 0 else ((rev / prev_rev - 1) if (rev and prev_rev) else None)
+                c.drawRightString(M + 0.28 * tw, y, _fc(rev))
+                c.setFillColor(MUTE); c.drawRightString(M + 0.44 * tw, y,
+                    f"{g*100:.1f}%" if isinstance(g, (int, float)) else "—")
+                c.setFillColor(INK)
+                c.drawRightString(M + 0.72 * tw, y, _fc(r.get("fcff")))
+                c.drawRightString(M + tw, y, _fc(r.get("pv")))
+                prev_rev = rev
+            y -= 10.5
+        y -= 4
+        note = (f"Two-stage fade: the near-term rate (~{g1*100:.0f}%) holds for ~{N1} year(s), then glides "
+                f"linearly to the {g_t*100:.1f}% terminal (perpetuity) rate by year {N}. A Gordon-growth "
+                f"terminal value at {g_t*100:.1f}% is applied FROM year {N} onward and discounted back — it "
+                f"is the PV of every cash flow beyond the explicit window."
+                if not is_fin and g1 is not None and g_t is not None else
+                (f"ROE fades from the franchise level to the {(g_t or 0.05)*100:.1f}%-growth terminal by year "
+                 f"{N}; the residual-income perpetuity is applied from year {N} onward." if is_fin else ""))
+        if note:
+            c.setFillColor(MUTE); c.setFont("Helvetica", 7.4)
+            for ln in wrap_at(note, 150):
+                c.drawString(M, y, ln); y -= 9.5
+
+    footer("2 / 2")
     c.showPage(); c.save(); buf.seek(0)
     return buf.read()

@@ -586,6 +586,20 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
                               .get("description"))
         except Exception:
             pass
+        # Latest quarter + historical CAGR (from the insight blob) and the concall
+        # key points — the "what management just said / delivered" layer.
+        quarter, cagr, concall = None, None, None
+        try:
+            if ins and ins.data:
+                quarter = ins.data.get("results")
+                cagr = ins.data.get("growth")
+        except Exception:
+            pass
+        try:
+            from app import transcript_ingester
+            concall = transcript_ingester.load(db, co.ticker)
+        except Exception:
+            pass
         # a short peer set for the comparison table — same valuation sector AND a
         # comparable size (0.2x–5x market cap), so we never pit a small name
         # against a mega-cap in a different business. Hidden unless ≥2 clean peers.
@@ -619,7 +633,8 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
         pdf_bytes = build_onepager(co, market, financials, metrics, intrinsic,
                                    None, rec=rec, scorecard=scorecard,
                                    assumptions=a, analyst=analyst, peers=peers,
-                                   description=description)
+                                   description=description, quarter=quarter,
+                                   cagr=cagr, concall=concall)
         return Response(content=pdf_bytes, media_type="application/pdf",
                         headers={"Content-Disposition": f'attachment; filename="{co.ticker}_onepager.pdf"',
                                  "Content-Length": str(len(pdf_bytes))})
