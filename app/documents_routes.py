@@ -162,6 +162,17 @@ def company_scorecard(ticker: str, db: Session = Depends(get_db)):
     return sc
 
 
+@router.get("/manager/hidden-gems")
+def manager_hidden_gems(limit: int = 12, refresh: bool = False, db: Session = Depends(get_db)):
+    """The Fund Manager's hidden-gems / multibagger finder: under-followed
+    small/mid-cap quality compounders (clean forensics, durable ROE, a real
+    growth engine, a fair price) surfaced from the full universe, each with an
+    honest thesis and the risks stated. Potential, never a promise. Cached to
+    the nightly evidence build."""
+    from app.hidden_gems import find_hidden_gems
+    return find_hidden_gems(db, limit=limit, refresh=refresh)
+
+
 @router.get("/companies/{ticker}/transcript-insight")
 def transcript_insight(ticker: str, db: Session = Depends(get_db)):
     """Pre-extracted key points from the latest earnings-call transcript —
