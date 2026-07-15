@@ -269,7 +269,17 @@ def triangulate(model_mos, cons_upside, band_pct,
 
     den = sum(w for _, _, w in votes)
     score = round(sum(s * w for _, s, w in votes) / den, 3) if den else None
-    return {"score": score, "used": [v[0] for v in votes],
+    # A single unchecked witness must not be able to MAX the valuation score —
+    # for under-covered small/mid-caps (no consensus, thin own-history → no
+    # P/E band) the blend used to collapse to whichever lone leg was present, so
+    # one aggressive analyst target or one model MoS could top the ADD ledger
+    # with zero corroboration. Attenuate a lone-witness score toward neutral.
+    n = len(votes)
+    if score is not None and n < 2:
+        score = round(score * 0.5, 3)
+        reasons.append("only one independent valuation witness — score attenuated "
+                       "(no cross-check)")
+    return {"score": score, "used": [v[0] for v in votes], "n_witnesses": n,
             "suspect": suspect, "suspect_reasons": reasons}
 
 

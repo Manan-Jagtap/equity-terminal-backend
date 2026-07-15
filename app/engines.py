@@ -146,30 +146,35 @@ def _vsector(a: Dict) -> str:
 
 
 def exit_multiple_value(co: Dict, a: Dict):
-    """EV/EBITDA exit-multiple value per share (non-financials). None if N/M."""
+    """Sector EV/EBITDA on 1-year-FORWARD EBITDA (standard forward-multiple
+    convention), per share. A rich sector 'exit' multiple on a trailing metric is
+    a spot-relative anchor; forward is the right horizon. It is still only a
+    sanity CROSS-CHECK — blended() bands it around the DCF so it can't override
+    the intrinsic (the sector exit multiples are rich and read ~2× the DCF)."""
     p = SP.params(_vsector(a))
     mult = p.get("exit_ev_ebitda")
     rev, shares = co.get("revenue"), co.get("shares")
     if mult is None or rev is None or not shares or shares <= 0:
         return None
     margin = a.get("ebit_margin") or 0.12
-    ebitda = rev * (margin + 0.03)   # EBIT margin + ~3pp D&A add-back → EBITDA proxy
-    if ebitda <= 0:
+    ebitda_fwd = rev * (1 + (a.get("rev_growth") or 0.08)) * (margin + 0.03)
+    if ebitda_fwd <= 0:
         return None
-    ev = ebitda * mult
+    ev = ebitda_fwd * mult
     net_debt = co.get("net_debt") or 0
     val = (ev - net_debt) / shares
     return val if val > 0 else None
 
 
 def pe_value(co: Dict, a: Dict):
-    """Sector-median P/E value per share. None if loss-making / no data."""
+    """Sector P/E on 1-year-FORWARD earnings, per share. None if loss-making."""
     p = SP.params(_vsector(a))
     pe = p.get("exit_pe")
     pat, shares = co.get("net_profit"), co.get("shares")
     if pe is None or pat is None or pat <= 0 or not shares or shares <= 0:
         return None
-    return (pat * pe) / shares
+    pat_fwd = pat * (1 + (a.get("rev_growth") or 0.08))
+    return (pat_fwd * pe) / shares
 
 
 def gordon_pb_value(co: Dict, a: Dict, v: Dict):
@@ -214,17 +219,32 @@ def blended(co: Dict, a: Dict) -> Dict:
                 "P/E (sector)": pe_value(co, a)}
         spec = _BLEND_WEIGHTS["nonfin"]
 
-    components = [{"method": name, "value": vals.get(name), "weight": w} for name, w in spec]
+    primary_method = v.get("method")
 
     if primary is None or primary <= 0:
+        components = [{"method": name, "value": vals.get(name), "weight": w} for name, w in spec]
         return {"blended": None, "components": components,
-                "primary": primary, "primary_method": v.get("method"), "valuation": v}
+                "primary": primary, "primary_method": primary_method, "valuation": v}
 
-    avail = [c for c in components if c["value"] is not None and c["value"] > 0]
+    # The intrinsic DCF/RI leads. The relative multiples are a SANITY BAND — they
+    # can corroborate or nudge the primary, but a rich sector exit multiple (which
+    # reads ~2× the DCF on premium sectors) must not be able to drag the blend far
+    # above the intrinsic. Clamp each cross-check to ±50% of the primary before
+    # weighting. The raw (uncapped) value is still shown in the breakdown.
+    LO, HI = 0.5 * primary, 1.6 * primary
+    components = []
+    for name, w in spec:
+        raw = vals.get(name)
+        capped = raw
+        if raw is not None and name != primary_method:
+            capped = max(LO, min(HI, raw))
+        components.append({"method": name, "value": raw, "capped": capped, "weight": w})
+
+    avail = [c for c in components if c["capped"] is not None and c["capped"] > 0]
     wsum = sum(c["weight"] for c in avail) or 1.0
-    blend = sum(c["value"] * (c["weight"] / wsum) for c in avail)
+    blend = sum(c["capped"] * (c["weight"] / wsum) for c in avail)
     return {"blended": blend, "components": components,
-            "primary": primary, "primary_method": v.get("method"), "valuation": v}
+            "primary": primary, "primary_method": primary_method, "valuation": v}
 
 
 def sensitivity(co: Dict, a: Dict) -> Dict:
@@ -444,15 +464,18 @@ def recommend(co: Dict, a: Dict) -> Dict:
                         "note": "Life insurer — value is embedded value, not book; "
                                 "RI/P-B/P-E understate it. Model not reliable here.",
                         "good": False, "bad": True})
-    elif f["roe"] is not None and 0 < f["roe"] < 0.04:
-        # Negligible current returns (early-stage / pre-profit growth names like
-        # Eternal/Zomato, Jio Financial). A DCF/RI built on near-zero earnings is
-        # meaningless — don't show a confident AVOID.
+    elif f["roe"] is not None and f["roe"] < 0.04:
+        # Negligible OR NEGATIVE current returns (early-stage / pre-profit growth
+        # names like Eternal/Zomato, Jio Financial; and outright loss-makers). A
+        # DCF/RI built on near-zero or negative earnings is meaningless — a
+        # loss-maker is MORE unreliable than a 3%-ROE name, so it shouldn't get a
+        # confident AVOID either. (The old 0 < roe bound let negatives fall
+        # through to a "reliable" AVOID.)
         verdict = "LOW CONF"
         reliable = False
         reasons.append({"label": "Model", "score": 50,
-                        "note": "Early-stage / negligible current earnings — intrinsic "
-                                "model unreliable on near-zero ROE.",
+                        "note": "Negligible or negative current earnings — intrinsic "
+                                "model unreliable on near-zero/negative ROE.",
                         "good": False, "bad": True})
     elif co.get("ticker") in _CONGLOMERATES:
         # Diversified holding companies / incubators (Reliance: oil+telecom+retail;
@@ -480,6 +503,20 @@ def recommend(co: Dict, a: Dict) -> Dict:
                         "note": f"Implausible margin of safety ({mos*100:.0f}%) — the sector "
                                 "model likely doesn't fit this name's economics. "
                                 "Model unreliable here.",
+                        "good": False, "bad": True})
+    elif mos is not None and mos < -0.66 and (f.get("roe") or 0) > 0.18:
+        # Mirror of the +200% gate, for extreme DOWNSIDE. A generic sector model
+        # valuing a HIGH-RETURN franchise (ROE > 18%) at under a THIRD of its
+        # price is far more likely STRUCTURALLY UNDERSTATING a premium compounder
+        # than flagging a genuine 3x overvaluation — exactly the false-AVOID the
+        # two-stage redesign exists to prevent. Low-quality names at a big premium
+        # keep their AVOID (genuinely rich); only quality franchises are rescued.
+        verdict = "LOW CONF"
+        reliable = False
+        reasons.append({"label": "Model", "score": 50,
+                        "note": f"Model values a high-return franchise {mos*100:.0f}% below "
+                                "price — a single-sector DCF often understates premium "
+                                "compounders. Model unreliable here.",
                         "good": False, "bad": True})
 
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
