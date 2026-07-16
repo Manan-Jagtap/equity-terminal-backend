@@ -193,6 +193,11 @@ def alternative_intrinsic(co: dict, a: dict) -> dict | None:
       · conglomerates with a SOTP preset               → Sum-of-the-Parts
     Returns None (leave the engine's blended value) for everything else. MEDIUM
     confidence by design — the inputs are illustrative."""
+    # A DATA-DRIVEN segment SOTP (reported segment EBIT × sector multiples,
+    # extracted from filings) OVERRIDES the illustrative preset when present.
+    seg = a.get("_segment_sotp")
+    if isinstance(seg, dict) and (seg.get("intrinsic") or 0) > 0:
+        return seg
     ticker = (co.get("ticker") or "").upper()
     if a.get("_valuation_sector") == "INSURANCE":
         return pev_value(ticker, a)

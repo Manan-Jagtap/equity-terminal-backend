@@ -160,4 +160,15 @@ def effective_assumptions(db: Session, co: models.Company, data: dict) -> dict:
                                f"→ sector prior {rec['prior']}")
     except Exception:
         pass
+    # Data-driven segment SOTP (reported segment EBIT × sector multiples), when it
+    # has been extracted for this name — attached so alternative_intrinsic() can
+    # prefer it over the illustrative preset. Guarded; never breaks the valuation.
+    try:
+        from app.segment_sotp import get_segment_sotp
+        seg = get_segment_sotp(db, co.ticker, data.get("net_debt") or 0.0,
+                               data.get("shares") or co.shares_outstanding or 0.0)
+        if seg:
+            a["_segment_sotp"] = seg
+    except Exception:
+        pass
     return a

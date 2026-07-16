@@ -192,6 +192,38 @@ def macro_refresh(_admin: models.User = Depends(require_admin),
     return refresh_all(db)
 
 
+class SegmentRefresh(BaseModel):
+    ticker: str
+    text: str                       # filing / results text containing the Ind-AS 108 segment table
+    net_debt: float | None = None   # ₹cr; parent net debt for the SOTP (default 0)
+    shares: float | None = None     # ₹cr shares; defaults to the company's shares outstanding
+    as_of: str | None = None
+
+
+@router.post("/segment-refresh")
+def segment_refresh(body: SegmentRefresh,
+                    _admin: models.User = Depends(require_admin),
+                    db: Session = Depends(get_db)):
+    """Extract the reported SEGMENT table (Ind-AS 108) from filing text via the LLM,
+    store it, and return the computed data-driven SOTP. The conglomerate then values
+    on real segment financials (segment EBIT × sector multiple / listed-stake value)
+    instead of the illustrative preset. Needs ANTHROPIC_API_KEY."""
+    from app.segment_sotp import extract_segments, store_segments, compute_sotp
+    co = db.query(models.Company).filter_by(ticker=body.ticker.upper()).first()
+    if co is None:
+        raise HTTPException(404, f"Unknown ticker {body.ticker}")
+    segs = extract_segments(co.name or body.ticker, body.text)
+    if not segs:
+        raise HTTPException(422, "No segments extracted — check ANTHROPIC_API_KEY and that "
+                                 "the text contains a segment (Ind-AS 108) table.")
+    nd = body.net_debt if body.net_debt is not None else 0.0
+    sh = body.shares or co.shares_outstanding or 0.0
+    store_segments(db, body.ticker, segs, as_of=body.as_of, net_debt=nd, shares=sh,
+                   source="admin/segment-refresh")
+    return {"ticker": body.ticker.upper(), "segments": segs,
+            "sotp": compute_sotp(segs, nd, sh)}
+
+
 @router.post("/macro/upload")
 async def macro_upload(file: UploadFile = File(...),
                        _admin: models.User = Depends(require_admin),
