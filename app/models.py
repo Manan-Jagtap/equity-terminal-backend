@@ -457,9 +457,10 @@ class TranscriptInsight(Base):
     """Extracted key points from a company's latest earnings-call transcript.
     Populated proactively by app/transcript_ingester.py — the transcript PDF is
     fetched, its text parsed, and structured pointers (guidance, margins, capex,
-    demand, risks) pulled by a deterministic rule-based extractor (always-on,
-    free) plus an optional LLM narrative when ANTHROPIC_API_KEY is set. Keyed
-    one-row-per-company (latest call); `source_url` dedupes re-processing."""
+    demand, risks) plus a management-tone score pulled by a deterministic,
+    100% AI-free rule-based extractor. Keyed one-row-per-company (latest call);
+    `source_url` dedupes re-processing. (`llm_summary` is a retired column, kept
+    for schema compatibility and always null.)"""
     __tablename__ = "transcript_insights"
     id           = Column(Integer, primary_key=True)
     company_id   = Column(Integer, ForeignKey("companies.id"), unique=True, nullable=False, index=True)

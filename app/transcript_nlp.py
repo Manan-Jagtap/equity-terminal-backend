@@ -1,27 +1,22 @@
 """
-app/transcript_nlp.py — earnings-call transcript summarizer (strictly grounded).
+app/transcript_nlp.py — earnings-call transcript fetch + text extraction.
 
 The concall documents ingested from IndianAPI are LINKS, not text — so this
-fetches the transcript PDF at request time, extracts its text (pdfplumber), and
-asks Claude to summarize guidance / tone / risks GROUNDED ONLY in that text,
-plus a quarter-over-quarter language shift when a prior transcript is available.
+fetches the transcript PDF at request time and extracts its text (pdfplumber),
+which the rule-based extractor in transcript_ingester turns into tone + key
+points. 100% AI-free: the old LLM narrative summarizer was retired, so there is
+no Anthropic call and no paid API here anymore.
 
-No-fabrication rule (same as the rest of the terminal): if no transcript text
-can be fetched/extracted, it returns available=False with a clear reason — it
-never invents a summary. Results cache 6h. Reuses the thesis Claude caller.
+No-fabrication rule: if no transcript text can be fetched/extracted, callers get
+None and degrade to 'unavailable' — nothing is ever invented.
 """
 from __future__ import annotations
-import os
-import io
 import re
-import hashlib
+import io
 
 import httpx
 
-from .thesis import call_claude, ThesisCache
-
-_cache = ThesisCache(ttl_seconds=3600 * 6)
-MAX_CHARS = 32000          # ~8k tokens fed to Claude — bounds cost + latency
+MAX_CHARS = 32000          # cap the extracted text handed to the rule extractor
 MAX_BYTES = 25 * 1024 * 1024   # skip absurdly large downloads
 MAX_PAGES = 60             # hard page cap so pdfplumber can't run away
 MIN_TEXT = 500             # below this we treat extraction as failed
@@ -76,78 +71,3 @@ def fetch_transcript_text(url: str) -> str | None:
         return text[:MAX_CHARS] if len(text) >= MIN_TEXT else None
     except Exception:
         return None
-
-
-def build_prompt(company_name: str, ticker: str, quarter, text: str, prev_text: str | None = None):
-    """(system, user) for the transcript summary — strict grounding + fixed headers."""
-    system = (
-        "You are an equity research analyst summarizing an earnings-call transcript. "
-        "Use ONLY the transcript text provided — never add outside facts or invent figures. "
-        "If the transcript does not cover a topic, say so plainly. Be concise, specific and "
-        "neutral. Write in prose under the exact headers given. No disclaimers, no preamble."
-    )
-    diff_block = ("\n\nPRIOR-QUARTER TRANSCRIPT (for language/tone comparison only):\n" + prev_text[:12000]) if prev_text else ""
-    qtxt = f" — {quarter}" if quarter else ""
-    qoq = ("How the tone, confidence and priorities shifted versus the prior-quarter call above — "
-           "cite the change in language." if prev_text else
-           "Not enough transcript history for a quarter-over-quarter comparison this time.")
-    user = f"""Summarize the earnings call for {company_name} ({ticker}){qtxt}.
-
-TRANSCRIPT:
-{text[:MAX_CHARS]}{diff_block}
-
-Use these exact headers:
-
-## Guidance & Outlook
-Forward growth, margins, demand and any explicit targets management gave. Quote guidance only if it is in the transcript.
-
-## Management Tone
-Overall sentiment (confident / cautious / defensive) with the specific language that evidences it.
-
-## Key Risks & Watch-items
-Concerns, headwinds or soft spots management flagged or was pressed on.
-
-## Quarter-over-quarter shift
-{qoq}
-"""
-    return system, user
-
-
-def summarize_transcript(company_name: str, ticker: str, concalls: list, api_key: str = "",
-                         force_refresh: bool = False) -> dict:
-    """concalls: [{date, transcript(url), ...}] (newest first). Fetches the latest
-    transcript (+ the prior one for a diff), summarizes, and caches by transcript URL."""
-    api_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
-    withlink = [c for c in (concalls or []) if c.get("transcript")]
-    if not withlink:
-        return {"ticker": ticker, "available": False,
-                "message": "No concall transcript link is available for this company yet."}
-    latest = withlink[0]
-    key = hashlib.md5(f"{ticker}:{latest.get('transcript')}".encode()).hexdigest()[:12]
-    if not force_refresh:
-        cached = _cache.get(ticker, key)
-        if cached:
-            return {**cached, "cached": True}
-    if not api_key:
-        return {"ticker": ticker, "available": False,
-                "message": "ANTHROPIC_API_KEY is not configured on the backend."}
-
-    text = fetch_transcript_text(latest.get("transcript"))
-    if not text:
-        return {"ticker": ticker, "available": False, "quarter": latest.get("date"),
-                "message": "The transcript link could not be fetched or held no extractable text."}
-    # Single transcript per call for bounded latency (one fetch + one parse).
-    # QoQ language diff is deferred to a background job (see note in the route).
-    prev_text = None
-
-    system, user = build_prompt(company_name, ticker, latest.get("date"), text, prev_text)
-    try:
-        summary = call_claude(system, user, api_key, max_tokens=1100)
-    except Exception as e:
-        return {"ticker": ticker, "available": False,
-                "message": f"Summarization failed: {str(e)[:160]}"}
-
-    result = {"ticker": ticker, "available": True, "quarter": latest.get("date"),
-              "has_prior": bool(prev_text), "summary": summary, "cached": False}
-    _cache.set(ticker, key, result)
-    return result

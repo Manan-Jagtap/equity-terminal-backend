@@ -246,18 +246,14 @@ def company_documents(ticker: str, db: Session = Depends(get_db)):
 
 @router.get("/companies/{ticker}/transcript-summary")
 def transcript_summary(ticker: str, refresh: bool = False, db: Session = Depends(get_db)):
-    """AI summary of the latest earnings-call transcript — guidance, tone, risks,
-    and a quarter-over-quarter language shift. Fetches the transcript PDF and
-    grounds the summary strictly in it (returns available=False, never a made-up
-    summary, when no transcript text can be extracted). Cached 6h."""
-    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
-    if not co:
-        return {"ticker": ticker.upper(), "available": False, "message": "Unknown ticker."}
-    ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
-    docs = (ins.data or {}).get("documents") if (ins and ins.data) else {}
-    concalls = (docs or {}).get("concalls") or []
-    from app.transcript_nlp import summarize_transcript
-    return summarize_transcript(co.name, co.ticker, concalls, force_refresh=refresh)
+    """RETIRED: the LLM concall narrative was removed to keep the platform
+    AI-free. The rules-based concall read (management tone, key points and cited
+    KPIs, all lexicon/heuristic-derived, no paid API) is served by the Scorecard
+    and the /concall-insights endpoint. The frontend treats available=False as
+    'nothing to render here'."""
+    return {"ticker": ticker.upper(), "available": False,
+            "message": ("AI concall summary retired — see the rules-based concall "
+                        "tone & key points in the Scorecard.")}
 
 
 @router.get("/companies/{ticker}/scorecard")

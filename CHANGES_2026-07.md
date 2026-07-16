@@ -181,3 +181,28 @@ on production. Engine **parity 60/60**, backend compiles, frontend build clean.
 Remaining: #95 tax-lots/digests · news-headline sentiment leg · real SOTP segment
 financials · collapse the valuation.js fallback engine · more SOTP conglomerates ·
 the ~170-name IndianAPI backfill (owner) + key rotations (owner).
+
+## Addendum 3 — 16 July 2026 (AI-free: opt-in LLM code paths stripped)
+The platform is now **100% AI-free — no Anthropic key, no paid AI API, ever.**
+Every opt-in `ANTHROPIC_API_KEY` code path was removed (not just disabled), so
+there is no code left that could call a paid model:
+- **Deleted** `app/thesis.py` (LLM "AI Investment Thesis" generator: `call_claude`,
+  `generate_thesis`, prompt/validation) and `app/onepager/extract.py` (the
+  Claude document-extraction one-pager — it had **no callers**, dead code).
+- **`app/thesis_routes.py`** → `GET /companies/{ticker}/thesis` now always returns
+  `{"status":"unavailable"}` (frontend already hides the tab on that). The
+  rules-based read lives in the Verdict / Forensics / Scorecard tabs.
+- **`app/documents_routes.py`** → `GET /companies/{ticker}/transcript-summary`
+  returns `available:false` (retired). The **rules-based concall read survives**:
+  `transcript_ingester.extract_key_points` still parses guidance/risks/KPIs and
+  the **lexicon-based `tone_score`** (confident-vs-cautious word balance) — so the
+  **concall-tone sentiment leg (#87) is fully intact**, just no LLM narrative on top.
+- **`app/transcript_nlp.py`** → keeps `fetch_transcript_text` (PDF fetch/extract,
+  used by the ingester); dropped `summarize_transcript`/`build_prompt` and the
+  `app.thesis` import.
+- **`app/news_routes.py`** → removed the opt-in Anthropic web_search enrichment;
+  news is now solely IndianAPI (recentNews + market-mention fallback).
+- `TranscriptInsight.llm_summary` is now a retired column (kept for schema
+  compatibility, always null). Owner may delete `ANTHROPIC_API_KEY` from Railway.
+- Verified: `py_compile` clean, full `app.main` boot clean, all three retired
+  routes present, sentiment tone leg reads `tone_score` from the DB unchanged.

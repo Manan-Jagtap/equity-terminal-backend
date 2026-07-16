@@ -10,10 +10,11 @@ into structured, stored intelligence:
      scans a call for — forward guidance, margin commentary, capex/expansion,
      demand/order-book, and risks/headwinds — plus a management-tone score
      from the balance of confident vs. cautious language.
-  3. Optionally, when ANTHROPIC_API_KEY is set, a grounded LLM narrative is
-     attached on top (never instead — the rule layer always runs).
-  4. Result is stored one-row-per-company in TranscriptInsight, deduped by
+  3. Result is stored one-row-per-company in TranscriptInsight, deduped by
      transcript URL so a call is processed once.
+
+100% rules-based — no LLM, no paid API. (The `with_llm` params below are kept
+only for call-site compatibility and are now no-ops; llm_summary is never set.)
 
 The tone score and a "guidance direction" flag feed the Fund Manager engine;
 the pointers surface on the company page. No-fabrication: a call with no
@@ -226,16 +227,6 @@ def ingest_one(db, co, with_llm: bool = False) -> str:
     points = extract_key_points(text)
     points["kpis"] = extract_kpis(text)          # operational metrics cited
 
-    llm = None
-    if with_llm:
-        try:
-            from app.transcript_nlp import summarize_transcript
-            res = summarize_transcript(co.name, co.ticker, ccs)
-            if res.get("available"):
-                llm = res.get("summary")
-        except Exception:
-            llm = None
-
     if not row:
         row = models.TranscriptInsight(company_id=co.id, ticker=co.ticker)
         db.add(row)
@@ -243,7 +234,7 @@ def ingest_one(db, co, with_llm: bool = False) -> str:
     row.source_url = url
     row.tone_score = points.get("tone_score")
     row.points = points
-    row.llm_summary = llm
+    row.llm_summary = None          # LLM narrative retired — rules-based points only
     row.char_count = len(text)
     db.commit()
     return "processed"
