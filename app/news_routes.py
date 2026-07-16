@@ -215,6 +215,14 @@ def company_news(ticker: str, refresh: bool = False, db: Session = Depends(get_d
         if mkt_err: debug["market_err"] = mkt_err
 
     merged = _merge(all_items)
+    # Cache a lexicon read of these headlines so the sentiment score gets a news
+    # leg — zero extra API calls (piggybacks the fetch the user just triggered).
+    if merged:
+        try:
+            from app.sentiment import record_news_sentiment
+            record_news_sentiment(db, ticker, merged)
+        except Exception:
+            pass
     result = {"ticker":ticker,"name":co.name,"count":len(merged),
               "sources":sources,"cached":False,"items":merged,"debug":debug}
     _NEWS_CACHE[ticker] = (time.time(), {**result,"cached":True})

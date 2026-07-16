@@ -54,6 +54,30 @@ _NEG = ("cautious", "challenging", "weak", "soft", "headwind", "pressure", "decl
         "subdued", "muted", "difficult", "uncertain", "slowdown", "disappoint",
         "de-growth", "degrowth", "lower", "shortfall", "concern", "sluggish")
 
+# Call boilerplate that has NO analytical content — safe-harbor disclaimers,
+# call openings/handoffs, and operator/Q&A plumbing. These match _FORWARD/_RISK
+# keywords by accident ("outlook", "risk", "forward-looking") and used to fill
+# the guidance/risks buckets with noise, so any sentence containing one is
+# dropped from every bucket.
+_NOISE = ("forward-looking statement", "forward looking statement", "forward-looking statements",
+          "reviewed in conjunction", "risks and uncertainties", "actual results may differ",
+          "safe harbor", "safe harbour", "may be construed", "we do not undertake",
+          "reflects our outlook for the future", "materially from",
+          "thank you for joining", "thanks for joining", "thank you all for joining",
+          "welcome you to", "welcome to the", "welcome everyone", "ladies and gentlemen",
+          "good morning", "good afternoon", "good evening", "on behalf of",
+          "before we begin", "i would like to remind", "like to remind you",
+          "let me hand over", "hand it over", "i now hand", "over to you", "hand over to",
+          "question and answer", "question-and-answer", "first question", "next question",
+          "the floor is now open", "star and one", "press star", "the operator",
+          "recording of this call", "replay of this call", "uploaded on our website",
+          "may now begin", "please go ahead")
+
+
+def _is_noise(low: str) -> bool:
+    return any(p in low for p in _NOISE)
+
+
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
 _NUM = re.compile(r"\d")
 _WS = re.compile(r"\s+")
@@ -109,6 +133,8 @@ def _pick(sents, kws, need_number=False, cap=4, claimed=None) -> list[str]:
     out, seen = [], set()
     for s in sents:
         low = s.lower()
+        if _is_noise(low):
+            continue
         if not any(k in low for k in kws):
             continue
         if need_number and not _NUM.search(s):
