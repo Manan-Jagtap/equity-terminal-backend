@@ -204,6 +204,71 @@ def compute_totals(items: list[dict]) -> dict:
             "weighted_mos": weighted_mos}
 
 
+_NIFTY_CACHE = {"ts": 0.0, "data": None}
+
+
+def _nifty_series():
+    """(dates, closes) for the NIFTY 50 from Dhan, cached 1h. None if the feed
+    is unavailable — the benchmark then just doesn't show."""
+    import time as _t
+    if _NIFTY_CACHE["data"] is not None and _t.time() - _NIFTY_CACHE["ts"] < 3600:
+        return _NIFTY_CACHE["data"]
+    out = None
+    try:
+        import datetime as _dt
+        from app.dhan import client, instruments
+        if client.configured():
+            sid = instruments.index_security_id("NIFTY 50")
+            if sid:
+                frm = (_dt.date.today() - _dt.timedelta(days=365 * 6)).isoformat()
+                rows = client.historical_daily(sid, frm, _dt.date.today().isoformat(),
+                                               exchange_segment="IDX_I", instrument="INDEX")
+                pts = sorted((r["date"], r["close"]) for r in (rows or [])
+                             if r.get("date") and r.get("close"))
+                if len(pts) >= 30:
+                    out = ([d for d, _ in pts], [c for _, c in pts])
+    except Exception:
+        out = None
+    _NIFTY_CACHE["data"], _NIFTY_CACHE["ts"] = out, _t.time()
+    return out
+
+
+def benchmark_block(items: list[dict]) -> dict | None:
+    """Capital-matched NIFTY 50 benchmark: what the SAME rupees invested on the
+    SAME buy dates would be worth in the index today, vs the actual book. Only
+    covers positions that carry a buy date + cost; alpha is the honest apples-to-
+    apples gap. None when the Dhan index feed is unavailable."""
+    import bisect
+    series = _nifty_series()
+    if not series:
+        return None
+    dates, closes = series
+    now = closes[-1]
+
+    def asof(d_iso):
+        i = bisect.bisect_right(dates, d_iso) - 1
+        return closes[i] if i >= 0 else None
+
+    invested = bench_now = port_now = 0.0
+    for i in items:
+        c, bd, v = i.get("cost"), i.get("buy_date"), i.get("value")
+        if not c or not bd or v is None:
+            continue
+        lvl = asof(bd)
+        if not lvl or lvl <= 0:
+            continue
+        invested += c
+        bench_now += c * (now / lvl)
+        port_now += v + (i.get("div_income") or 0.0)
+    if invested <= 0:
+        return None
+    bench_ret = bench_now / invested - 1
+    port_ret = port_now / invested - 1
+    return {"benchmark": "NIFTY 50", "benchmark_return": bench_ret,
+            "portfolio_return": port_ret, "alpha": port_ret - bench_ret,
+            "matched_cost": invested, "as_of": dates[-1]}
+
+
 def _dividend_income(qty: float, added_at, actions: list[dict] | None) -> float:
     """Cash dividends received on this position: qty × Σ per-share dividends with
     ex-date on/after the position was opened, each scaled to the CURRENT per-share
@@ -301,6 +366,10 @@ def list_portfolio(user: models.User = Depends(get_current_user),
             totals["xirr"] = None
     except Exception:
         totals["xirr"] = None
+    try:
+        totals["benchmark"] = benchmark_block(items)
+    except Exception:
+        totals["benchmark"] = None
     return {"items": items, "totals": totals}
 
 
