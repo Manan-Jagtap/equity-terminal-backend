@@ -166,3 +166,18 @@ on production. Engine **parity 60/60**, backend compiles, frontend build clean.
 - **SOTP extended** to L&T, ITC, Grasim, Vedanta, Bajaj Holdings, Godrej
   Industries (illustrative segment EVs, MEDIUM confidence). All live as
   `method=Sum-of-the-Parts`.
+
+## Addendum 2 — 16 July 2026 (feature backlog cleared)
+- **#92 Editable 3-statement model** — new "Model" tab (`ThreeStatementModel.jsx`):
+  driver-based linked P&L → CF → net-debt roll + transparent FCFF DCF, separate
+  from the parity engine. Math unit-verified. Lenders get an RI redirect.
+- **#93 Options strategy builder** — shipped (payoff/breakevens/max-P&L, 8 presets).
+- **#96 Trading-terminal chart** — verified already complete (full indicator suite
+  on lightweight-charts: SMA/EMA/Bollinger/VWAP + RSI/MACD/Stochastic/ATR, volume,
+  drawing tools, live candle, fair-value line). Marked done.
+- **#95 Portfolio** — vs-NIFTY capital-matched benchmark shipped; FIFO tax-lots +
+  digests remain.
+
+Remaining: #95 tax-lots/digests · news-headline sentiment leg · real SOTP segment
+financials · collapse the valuation.js fallback engine · more SOTP conglomerates ·
+the ~170-name IndianAPI backfill (owner) + key rotations (owner).
