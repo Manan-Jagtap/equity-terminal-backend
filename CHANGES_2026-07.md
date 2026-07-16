@@ -230,3 +230,33 @@ adds the tax and digest halves:
   winners+losers): STCG ₹2,000 on ₹10k net ST, LTCG ₹0 (net LT under exemption),
   harvest + timing candidates and the digest all render correctly; no console
   errors; `npm run build` clean; tax/digest math unit-tested.
+
+## Addendum 5 — 16 July 2026 (concall summary rebuilt AI-free + sentiment depth)
+- **`summarize_transcript` REBUILT rules-based (no LLM).** The earnings-call
+  narrative retired with the AI strip is back — assembled 100% deterministically
+  from the same extractors that feed the concall-tone signal (management tone +
+  guidance/margins/capex/demand/risks + cited KPIs) plus a quarter-over-quarter
+  tone shift. `transcript_ingester.summarize_transcript` prefers the stored
+  `TranscriptInsight` (instant), falls back to on-demand fetch+extract, cached 6h;
+  `GET /companies/{ticker}/transcript-summary` serves it (`method:"rules-based"`,
+  `available:true`). `TranscriptSummary.jsx` relabelled "Earnings-call summary"
+  (no AI). Live-verified on TCS: *"clearly confident tone (+0.50 — 57 confident
+  vs 19 cautious cues)"* + a computed QoQ shift. Both `fetch_transcript_text` and
+  `summarize_transcript` now exist, AI-free.
+- **Concall extractor drops boilerplate.** `_NOISE`/`_is_noise` filter safe-harbor
+  disclaimers, call openings/handoffs and operator/Q&A plumbing out of every
+  bucket, so guidance/risks (and the summary + ConcallKeyPoints) carry real
+  signal — no more "thank you for joining" / "forward-looking statement" leaking
+  into guidance.
+- **Sentiment gets a 4th leg — News flow (#87 depth).** `sentiment.py` scores
+  recent headlines with a word-boundary bull/bear lexicon (±12 contribution),
+  populated by caching a score during the existing `/news` fetch
+  (`record_news_sentiment`) — **zero extra API calls, no AI**. Read in
+  `company_sentiment` + `sentiment_by`. Word boundaries prevent substring false
+  positives (urban≠ban, finance≠fine). Unit-tested.
+- **Deferred (documented, not forced):** more SOTP presets for marquee names
+  (overriding a Nifty-50 verdict at MEDIUM conf from illustrative numbers is
+  marquee-name model risk — the structured segment-entry module is the right
+  path); and collapsing `valuation.js` into `engine.js` (a large, parity-sensitive
+  refactor that needs `derive.py` ported to the client — universe-wide verdict
+  risk not worth rushing).
