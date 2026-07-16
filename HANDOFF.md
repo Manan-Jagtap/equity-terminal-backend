@@ -1,6 +1,19 @@
 # EQUITY TERMINAL — HANDOFF DOCUMENT
-*Last updated 12 July 2026. Read top-to-bottom before touching anything.
-Detailed change history: CHANGES_2026-07-04.md (addenda 1–19). Compliance: COMPLIANCE.md.*
+*Last updated 16 July 2026. Read top-to-bottom before touching anything.
+Detailed change history: CHANGES_2026-07.md (latest addendum 16 Jul). Compliance: COMPLIANCE.md.*
+
+> **Recent (16 Jul 2026):** Sentiment scoring, Baskets (`/api/baskets`), Strategy
+> backtester (`/api/strategy/*`), Options strategy builder, Portfolio NIFTY
+> benchmark. Engine parity restored **60/60** (re-run `tests/gen_parity_cases.py`
+> → `node tests/engineParity.mjs` after ANY `engines.py`/`sector_params.py`
+> change). SOTP now covers L&T/ITC/Grasim/Vedanta/Bajaj Holdings/Godrej Inds.
+>
+> **⚠ Top pending (data):** ~170 names sit in MANUFACTURING as un-ingested stubs
+> (vendor sector "Unknown", 0 statements). The classification RULES are sound —
+> these need the fundamentals backfill to onboard them from IndianAPI. Run
+> `POST /api/admin/run-backfill` (admin auth; budget-guarded, may take 2–3 passes)
+> from the **prod terminal** browser console — targets the backend URL, not the
+> Vercel origin. See CHANGES_2026-07.md §16 Jul.
 
 ---
 

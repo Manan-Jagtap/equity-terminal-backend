@@ -166,3 +166,40 @@ Multi-factor **Alpha Score + Ideas** tab · **Portfolio X-ray + inverse-vol sizi
 - It reads existing precomputed valuations + 1-yr price series, so it costs **no API quota** and refreshes with the daily recompute.
 
 *Sources: platform pricing/features — Koyfin, WallStreetPrep, WallStreetZen; India platforms — Finology, Winvesta, RandomDimes; factor evidence — BacktestIndia (18-yr NSE); risk sizing — QuantInsti, QuantifiedStrategies, EnlightenedStockTrading; signals — Sigtrix, Nasdaq, Stockopedia, AAII. Full links in the chat transcript.*
+
+---
+
+## Status update — 16 July 2026
+
+**Shipped since this doc:** sentiment scoring, thematic/smart-beta baskets,
+point-in-time strategy backtester, engine parity restored 60/60, options
+strategy builder, portfolio NIFTY benchmark, full classification audit + 6 rule
+fixes, SOTP for 6 conglomerates (L&T, ITC, Grasim, Vedanta, Bajaj Holdings,
+Godrej Inds).
+
+**Pending, in priority order:**
+
+*Accuracy & data (the moat):*
+1. **Backfill the ~170 "Unknown-sector" stubs** — un-ingested placeholder rows
+   (null sector, 0 statements); needs `POST /api/admin/run-backfill` (owner,
+   budget-guarded). This is the single biggest data-quality win: MANUFACTURING
+   drops from 271 toward its true ~110.
+2. **Real SOTP segment financials** — replace illustrative segment EVs with
+   ingested segment revenue/EBIT + live stake market-caps.
+3. **Collapse the two client engines** — route the `valuation.js` fallback
+   through the parity-locked `engine.js` (needs porting `derive.py` to the client).
+4. **Per-name operational KPIs → bottom-up revenue** — deepen the Tijori-style
+   concall KPI extractor toward true sector driver models.
+
+*Product features (remaining builds):*
+5. **Editable in-app 3-statement model** (#92) — analyst workbench on the engine.
+6. **Trading-terminal chart** (#96, in progress) — full indicator suite.
+7. **Portfolio tax-lots + digests** (#95) — FIFO lots + periodic summaries
+   (the vs-NIFTY benchmark half is shipped).
+
+*Depth:*
+8. News-headline sentiment leg · maturing backtest ledgers (need time) · more
+   SOTP conglomerates · visual QA of the new UIs.
+
+*Owner-only:* rotate the exposed June GitHub PAT · run the backfill · data.gov.in
+OGD + MoSPI keys · confirm Dhan auto-renewal env vars.

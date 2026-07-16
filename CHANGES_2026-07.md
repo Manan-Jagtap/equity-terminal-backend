@@ -120,3 +120,49 @@ GET /api/backtest?cb=<n>       → cohorts carry avg_total_return; "benchmark" b
 **Frontend** (`~/equity-terminal`)
 - Phase A *(committed a8db976)*: `src/components/TrackRecord.jsx`, `src/components/Portfolio.jsx`
 - Phase C *(to commit)*: `src/App.jsx`, `src/lib/engine.js`, `tests/parityCases.json`
+
+---
+
+# Addendum — 16 July 2026 (roadmap sprint)
+
+Six roadmap workstreams shipped + a full classification audit, all live-verified
+on production. Engine **parity 60/60**, backend compiles, frontend build clean.
+
+## Shipped
+- **Sentiment scoring** (`app/sentiment.py`) — transparent 0–100 from concall
+  tone + estimate revision + beat/miss streak; each leg's contribution returned.
+  Wired into `/api/companies/{ticker}` (guarded `_safe_sentiment`) and the
+  screener list (`sentiment_by`). Frontend: Verdict-tab MARKET SENTIMENT card +
+  sortable screener column. Live: 616/1001 names scored.
+- **Baskets** (`app/baskets.py`, `/api/baskets`) — 6 smart-beta factor baskets
+  (Value/Quality/Momentum/Low-Vol/Growth/QARP) + 8 thematic sector-rule baskets,
+  over `ranked_visible`. New **Baskets** frontend page (nav + card grid). The
+  MANUFACTURING residual is excluded from the Materials theme.
+- **Strategy backtester** (`app/strategy_backtest.py`, `/api/strategy/*`) —
+  point-in-time price-strategy sim (momentum, low-vol, trend, 52w, mean-reversion)
+  over 5-yr history vs NIFTY 50, no look-ahead, **survivorship-disclosed**,
+  curve anchored at first investable rebalance. Frontend: **Strategy Lab** tab in
+  Baskets (rule builder + equity curve + metrics + holdings).
+- **Engine parity re-sync** — `src/lib/engine.js` re-ported to `app/engines.py`
+  bit-for-bit (25-sector params, RI 0.6·N + NPA haircut, FCFF WACC floor + margin
+  glide, forward multiples, DDM 4th component + [0.5,2.2]× band cap). Parity
+  **0/60 → 60/60**. `valuation.js` remains a separate fallback engine, documented
+  as NOT under the contract.
+- **Options strategy builder** — new Strategy Builder tab in `OptionsTab.jsx`:
+  multi-leg payoff-at-expiry (8 presets), breakevens, max P&L, priced off the
+  live chain LTPs. Payoff math unit-verified.
+- **Portfolio vs-benchmark** — `benchmark_block` computes capital-matched NIFTY 50
+  alpha (same rupees, same buy dates); "Alpha vs NIFTY" summary card.
+
+## Classification & valuation
+- **Full 1001-name classification audit.** Rules verified sound for the ~830
+  names with a vendor sector. 6 vendor sectors newly mapped (`Personal &
+  Household Prods.`→CONSUMER, Tires→AUTO, Footwear/Appliance/Printing→
+  CONSUMER_DISC, Oil Well→ENERGY). Self-test 13/13.
+- **~170 names remain in MANUFACTURING because they are un-ingested stubs**
+  (vendor sector "Unknown", ticker-case name, 0 statements). NOT a rules bug —
+  needs the fundamentals backfill (`POST /api/admin/run-backfill`) to onboard
+  them from IndianAPI. See HANDOFF §"pending".
+- **SOTP extended** to L&T, ITC, Grasim, Vedanta, Bajaj Holdings, Godrej
+  Industries (illustrative segment EVs, MEDIUM confidence). All live as
+  `method=Sum-of-the-Parts`.
