@@ -96,6 +96,15 @@ SOTP_PRESETS: dict[str, dict] = {
         ("Bajaj Auto stake (~35%, net of holdco disc.)", 50000),
         ("Bajaj Finserv stake (~41%, net of holdco disc.)", 74000),
         ("Other quoted/unquoted investments + cash", 15000)]},
+
+    # Godrej Industries — operating conglomerate: listed Godrej Consumer, Godrej
+    # Properties and Godrej Agrovet stakes (NET of a ~40% holdco discount it
+    # persistently trades at) + chemicals + the Godrej Capital lending arm.
+    "GODREJIND": {"net_debt": 8000, "shares": 33.7, "segments": [
+        ("Godrej Consumer stake (~23%, net of disc.)", 17000),
+        ("Godrej Properties stake (~47%, net of disc.)", 18000),
+        ("Godrej Agrovet stake (~58%, net of disc.)", 5000),
+        ("Chemicals + Godrej Capital + Vikhroli land", 18000)]},
 }
 
 
