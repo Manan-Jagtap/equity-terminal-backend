@@ -373,6 +373,41 @@ def list_portfolio(user: models.User = Depends(get_current_user),
     return {"items": items, "totals": totals}
 
 
+_DIGEST_SNAP_KEY = "portfolio_digest_snap_"
+
+
+@router.get("/digest")
+def portfolio_digest(user: models.User = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """A glanceable digest of the book — value & P&L, biggest movers, model
+    flags on held names, concentration, earnings due, and tax opportunities —
+    plus what changed since the last time it was viewed. Educational, not advice."""
+    from app.portfolio_tax import tax_block
+    from app.portfolio_digest import build_digest, snapshot_from
+    uk = f"u{user.id}"
+    items = _build_items(db, uk)
+    totals = compute_totals(items)
+    tax = tax_block(items)
+    results_due = _results_due(db, within_days=10)
+
+    key = _DIGEST_SNAP_KEY + uk
+    row = db.query(models.KVStore).filter_by(key=key).first()
+    prev_snap = row.value if row else None
+
+    digest = build_digest(items, totals, tax, results_due, prev_snap)
+
+    # Persist today's value so the next visit shows a since-last delta. Only
+    # refresh once a day so repeated loads don't collapse the comparison window.
+    new_snap = snapshot_from(totals)
+    if totals.get("value") is not None and (not prev_snap or prev_snap.get("date") != new_snap["date"]):
+        if row:
+            row.value = new_snap
+        else:
+            db.add(models.KVStore(key=key, value=new_snap))
+        db.commit()
+    return digest
+
+
 @router.get("/xray")
 def portfolio_xray_route(user: models.User = Depends(get_current_user),
                          db: Session = Depends(get_db)):
@@ -593,8 +628,10 @@ def build_analysis(items: list[dict], universe: list[dict]) -> dict:
                  f" still sees MoS {i['mos']*100:+.0f}%"], 3, mos=i.get("mos"))
 
     recs.sort(key=lambda r: r["priority"])
+    from app.portfolio_tax import tax_block
     return {
         "sectors": sectors, "concentration": conc, "term": term,
+        "tax": tax_block(items),
         "verdict_mix": verdicts, "recommendations": recs[:12],
         "disclaimer": ("Educational decision support derived mechanically from the "
                        "terminal's published verdicts, margins of safety, weights and "
