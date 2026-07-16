@@ -246,14 +246,17 @@ def company_documents(ticker: str, db: Session = Depends(get_db)):
 
 @router.get("/companies/{ticker}/transcript-summary")
 def transcript_summary(ticker: str, refresh: bool = False, db: Session = Depends(get_db)):
-    """RETIRED: the LLM concall narrative was removed to keep the platform
-    AI-free. The rules-based concall read (management tone, key points and cited
-    KPIs, all lexicon/heuristic-derived, no paid API) is served by the Scorecard
-    and the /concall-insights endpoint. The frontend treats available=False as
-    'nothing to render here'."""
-    return {"ticker": ticker.upper(), "available": False,
-            "message": ("AI concall summary retired — see the rules-based concall "
-                        "tone & key points in the Scorecard.")}
+    """RULES-BASED summary of the latest earnings call (NO LLM, zero API cost).
+    A readable research-note narrative assembled deterministically from the same
+    extractors that feed the concall-tone signal — management tone, guidance,
+    margins, capex, demand, risks + the numeric KPIs — plus a quarter-over-quarter
+    tone shift. Returns available=False (never a fabricated summary) when no
+    transcript text can be fetched/extracted. Cached 6h."""
+    co = db.query(models.Company).filter_by(ticker=ticker.upper()).first()
+    if not co:
+        return {"ticker": ticker.upper(), "available": False, "message": "Unknown ticker."}
+    from app.transcript_ingester import summarize_transcript
+    return summarize_transcript(db, co.name, co.ticker, force_refresh=refresh)
 
 
 @router.get("/companies/{ticker}/scorecard")

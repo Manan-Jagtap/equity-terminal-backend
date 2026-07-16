@@ -298,3 +298,139 @@ def tone_by_ticker(db) -> dict[str, dict]:
                          "direction": p.get("guidance_direction"),
                          "quarter": r.quarter}
     return out
+
+
+# ── Rules-based earnings-call summary (NO LLM) ───────────────────────────────
+# A readable narrative assembled deterministically from the same extractors that
+# feed the concall-tone signal — guidance/margins/capex/demand/risks + the
+# lexicon tone score + the numeric KPIs — plus a quarter-over-quarter tone shift
+# computed from the prior call. 100% AI-free, zero API cost.
+_SUMMARY_CACHE: dict[str, tuple[float, dict]] = {}
+_SUMMARY_TTL = 3600 * 6
+
+_SECTIONS = [("guidance", "Guidance & outlook"), ("margins", "Margins & costs"),
+             ("capex", "Capex & expansion"), ("demand", "Demand & order book"),
+             ("risks", "Key risks & watch-items")]
+
+
+def _tone_word(t: float) -> str:
+    return ("clearly confident" if t >= 0.5 else "confident" if t >= 0.2 else
+            "broadly balanced" if t > -0.2 else "cautious" if t > -0.5 else
+            "clearly cautious")
+
+
+def _fmt_kpi(k: dict) -> str:
+    u = k.get("unit") or ""
+    sep = "" if u in ("%", "x") else " "
+    return f"{k.get('metric')} — {k.get('value')}{sep}{u}".strip()
+
+
+def build_summary_md(points: dict, kpis: list | None, prior_tone: float | None) -> str:
+    """A markdown research-note-style summary from the deterministic extraction.
+    Headers use '## ' so the frontend's renderMd styles them."""
+    lines: list[str] = []
+    tone = points.get("tone_score")
+    pos, neg = points.get("tone_pos_hits"), points.get("tone_neg_hits")
+    direction = points.get("guidance_direction")
+
+    lines.append("## Management tone")
+    if tone is not None:
+        lead = f"Management struck a {_tone_word(tone)} tone (tone score {tone:+.2f}"
+        if pos is not None and neg is not None:
+            lead += f" — {pos} confident vs {neg} cautious cues"
+        lead += ")."
+        if direction and direction != "neutral":
+            lead += f" The forward-guidance language skews {direction}."
+        elif direction == "neutral":
+            lead += " Forward guidance reads roughly balanced."
+        lines.append(lead)
+    else:
+        lines.append("Tone could not be scored from the transcript text.")
+
+    for key, title in _SECTIONS:
+        rows = points.get(key) or []
+        if rows:
+            lines.append("")
+            lines.append(f"## {title}")
+            for s in rows[:5]:
+                lines.append(f"• {s}")
+
+    if kpis:
+        lines.append("")
+        lines.append("## Operational metrics cited")
+        for k in kpis[:10]:
+            lines.append(f"• {_fmt_kpi(k)}")
+
+    lines.append("")
+    lines.append("## Quarter-over-quarter shift")
+    if prior_tone is not None and tone is not None:
+        d = tone - prior_tone
+        shift = ("more confident" if d > 0.1 else "more cautious" if d < -0.1
+                 else "little changed")
+        lines.append(f"Management tone is {shift} versus the prior call "
+                     f"(this call {tone:+.2f} vs {prior_tone:+.2f}).")
+    else:
+        lines.append("Not enough transcript history for a quarter-over-quarter "
+                     "comparison this time.")
+    return "\n".join(lines)
+
+
+def summarize_transcript(db, company_name: str, ticker: str,
+                         force_refresh: bool = False) -> dict:
+    """Rules-based summary of the latest earnings call (NO LLM). Prefers the
+    stored TranscriptInsight (already extracted by the nightly ingester — instant);
+    falls back to fetching + extracting the transcript on demand. Adds a
+    quarter-over-quarter tone shift from the prior call, best-effort. Cached 6h."""
+    from app import models
+    import time as _t
+    ticker = (ticker or "").upper()
+    co = db.query(models.Company).filter_by(ticker=ticker).first()
+    if not co:
+        return {"ticker": ticker, "available": False, "message": "Unknown ticker."}
+    ccs = _concalls_for(db, co)
+    if not ccs:
+        return {"ticker": ticker, "available": False,
+                "message": "No concall transcript link is available for this company yet."}
+    latest = ccs[0]
+    url = latest.get("transcript")
+    ck = f"{ticker}:{url}"
+    if not force_refresh:
+        c = _SUMMARY_CACHE.get(ck)
+        if c and _t.time() - c[0] < _SUMMARY_TTL:
+            return {**c[1], "cached": True}
+
+    # Fast path: the nightly ingester already extracted this exact transcript.
+    row = db.query(models.TranscriptInsight).filter_by(company_id=co.id).first()
+    quarter = latest.get("date")
+    if row and row.source_url == url and row.points:
+        points = row.points
+        quarter = row.quarter or quarter
+    else:
+        from app.transcript_nlp import fetch_transcript_text
+        text = fetch_transcript_text(url)
+        if not text:
+            return {"ticker": ticker, "available": False, "quarter": quarter,
+                    "message": "The transcript link could not be fetched or held "
+                               "no extractable text."}
+        points = extract_key_points(text)
+        points["kpis"] = extract_kpis(text)
+
+    # QoQ: extract the PRIOR call's tone for the shift line (best-effort — one
+    # bounded fetch; skipped silently if unavailable).
+    prior_tone = None
+    if len(ccs) > 1 and ccs[1].get("transcript"):
+        try:
+            from app.transcript_nlp import fetch_transcript_text
+            ptext = fetch_transcript_text(ccs[1]["transcript"])
+            if ptext:
+                prior_tone = extract_key_points(ptext).get("tone_score")
+        except Exception:
+            prior_tone = None
+
+    summary = build_summary_md(points, points.get("kpis"), prior_tone)
+    result = {"ticker": ticker, "available": True, "quarter": quarter,
+              "has_prior": prior_tone is not None, "summary": summary,
+              "tone_score": points.get("tone_score"), "method": "rules-based",
+              "cached": False}
+    _SUMMARY_CACHE[ck] = (_t.time(), result)
+    return result
