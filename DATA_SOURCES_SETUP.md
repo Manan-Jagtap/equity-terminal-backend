@@ -62,3 +62,31 @@ RBI + SEBI + PIB regulatory radar · OECD India Composite Leading Indicator.
 2. `MOSPI_GDP_URL` — quarterly growth.
 3. `OGD_WPI_URL` — producer inflation.
 4. Activity `ACTIVITY_*_URL` where a live source exists; else the monthly POST.
+
+## 2b. MoSPI eSankhyiki (CPI / IIP / WPI) — the REST API behind the portal
+
+The eSankhyiki portal (esankhyiki.mospi.gov.in → macroindicators → "API" tab) is a
+JS app; its data comes from a REST backend. Reverse-engineered from the app bundle
+(16 Jul 2026):
+
+- **Data host / base:** `https://datainnovation.mospi.gov.in/api/`
+  (also referenced: `https://api.mospi.gov.in/api/esankhyiki/`). Swagger UI:
+  `https://esankhyiki.mospi.gov.in/EC/swagger-ui/index.html` (auth-gated).
+- **CPI endpoints:** `/api/cpi/getCpiFilterByLevelAndBaseYear` (INDEX levels — use
+  this for MOSPI_CPI_URL), `/api/cpi/getInflation` (the RATE ~5% — the parser's
+  index band (80,400) will REJECT this; don't point CPI at it).
+- IIP / WPI: the API tab exposes equivalent endpoints per product.
+
+**To turn it on (owner, ~2 min — the fetcher + parser already exist):**
+1. Open the CPI **API tab** in your browser; copy the exact GET URL that returns
+   the all-India CPI **index** series (with its query params, and `{key}` if a key
+   is shown — eSankhyiki appears keyless).
+2. Railway (backend + scheduler): `MOSPI_CPI_URL` = that URL. Same for
+   `MOSPI_IIP_URL` (IIP index) and optionally repoint WPI.
+3. Trigger `POST /api/admin/macro/refresh` (or wait for the Monday job).
+4. If a card stays blank, the response shape is new — paste me a sample and I'll
+   add it to `_parse_gov_rows` (it already handles {data:[{Year,Month,Index}]},
+   {records:[…]}, and flat [{date,value}]).
+
+NB: the datainnovation host was unreachable from the build sandbox, so the exact
+request params must be copied from the API tab (as with the OGD/WPI flow).
