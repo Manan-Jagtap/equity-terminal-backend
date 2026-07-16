@@ -178,9 +178,9 @@ on production. Engine **parity 60/60**, backend compiles, frontend build clean.
 - **#95 Portfolio** — vs-NIFTY capital-matched benchmark shipped; FIFO tax-lots +
   digests remain.
 
-Remaining: #95 tax-lots/digests · news-headline sentiment leg · real SOTP segment
-financials · collapse the valuation.js fallback engine · more SOTP conglomerates ·
-the ~170-name IndianAPI backfill (owner) + key rotations (owner).
+Remaining: news-headline sentiment leg · real SOTP segment financials · collapse
+the valuation.js fallback engine · more SOTP conglomerates · the ~170-name
+IndianAPI backfill (owner) + key rotations (owner).
 
 ## Addendum 3 — 16 July 2026 (AI-free: opt-in LLM code paths stripped)
 The platform is now **100% AI-free — no Anthropic key, no paid AI API, ever.**
@@ -206,3 +206,27 @@ there is no code left that could call a paid model:
   compatibility, always null). Owner may delete `ANTHROPIC_API_KEY` from Railway.
 - Verified: `py_compile` clean, full `app.main` boot clean, all three retired
   routes present, sentiment tone leg reads `tone_score` from the DB unchanged.
+
+## Addendum 4 — 16 July 2026 (#95 Portfolio: tax view + digest — roadmap closed)
+The last backlog item. vs-NIFTY capital-matched benchmark shipped earlier; this
+adds the tax and digest halves:
+- **`app/portfolio_tax.py`** (`tax_block`, wired into `/api/portfolio/analysis`):
+  position-level unrealised capital gains split short- vs long-term, and the tax
+  IF the whole book were sold today under current Indian listed-equity rules —
+  **STCG 20%**, **LTCG 12.5%** on the gain above the **₹1,25,000** annual
+  exemption — with the legal loss set-off order (ST loss → ST then LT gains; LT
+  loss → LT gains only). Plus **tax-loss-harvest** candidates and **ST→LT-timing**
+  candidates (short-term winners crossing 12 months soon, where waiting steps the
+  rate 20%→12.5%). One averaged lot per name (the portfolio model's shape).
+- **`app/portfolio_digest.py`** + **`GET /api/portfolio/digest`**: a glanceable
+  digest — value/P&L, biggest movers, model flags on held names (AVOID/REDUCE),
+  single-name concentration, earnings due this week, the tax opportunities, and a
+  **since-last-look delta** (the prior value is snapshotted per user in KVStore,
+  refreshed once a day so the comparison window doesn't collapse on reloads).
+- Frontend `Portfolio.jsx`: a **Digest** toggle+card and a **Capital gains & tax**
+  panel in the Analyse section. Both mechanical restatements of published data —
+  not tax or investment advice; the panels carry a "verify with a CA" note.
+- Verified end-to-end against a seeded local backend (4 holdings spanning LT/ST
+  winners+losers): STCG ₹2,000 on ₹10k net ST, LTCG ₹0 (net LT under exemption),
+  harvest + timing candidates and the digest all render correctly; no console
+  errors; `npm run build` clean; tax/digest math unit-tested.
