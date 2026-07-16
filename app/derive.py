@@ -381,7 +381,18 @@ def _derive_financial(statements, vs):
     forecast_roe = _ratio_median(pat, networth, lo=0.06, hi=0.30, n=3)
     if forecast_roe is None:
         forecast_roe = p["mature_roe"]
-    drivers["forecast_roe"] = "median(PAT/NetWorth, 3y)"
+    # Ground the forecast in the LATEST realized ROE. A lender whose ROE has
+    # DECLINED (LIC HF: 3y median ~15% but now ~13.5%) must not be valued on its
+    # better past — cap the forecast at a small premium to the most recent year.
+    _latest_roe = None
+    try:
+        if pat and networth and pat[-1][0] == networth[-1][0] and networth[-1][1]:
+            _latest_roe = pat[-1][1] / networth[-1][1]
+    except Exception:
+        _latest_roe = None
+    if _latest_roe is not None and 0.03 < _latest_roe < 0.35 and forecast_roe > _latest_roe * 1.10:
+        forecast_roe = _latest_roe * 1.10
+    drivers["forecast_roe"] = "median(PAT/NetWorth, 3y), capped near latest realized"
 
     # Fade realized ROE toward the sector's mature ROE, but weight the franchise's
     # OWN realized return more (0.55) — India's best private banks/NBFCs sustain
@@ -392,8 +403,14 @@ def _derive_financial(statements, vs):
     # of ~2.5x — the engine literally could not value ANY lender above ~2.5x book,
     # so Bajaj Finance (5.7x), Chola (4.9x), SBI Card all printed a false AVOID.
     # Weak lenders (forecast_roe ~0.05-0.06) are untouched by the higher ceiling.
-    terminal_roe = _clamp(0.70 * forecast_roe + 0.30 * p["mature_roe"], 0.11, 0.26)
-    drivers["terminal_roe"] = "0.70×realized + 0.30×sector mature ROE"
+    # A STRONG franchise (forecast above the sector mature ROE) reverts DOWN toward
+    # it; a below-average lender must NEVER be modelled improving UP to the sector's
+    # best — that was the LIC-HF bug (forecast 15% → terminal pulled to 16% via the
+    # 0.30×18% NBFC mature term, inflating a fake +138% BUY). Cap terminal at the
+    # forecast so the blend can only fade excess returns down, never manufacture them.
+    terminal_roe = _clamp(min(forecast_roe, 0.70 * forecast_roe + 0.30 * p["mature_roe"]),
+                          0.08, 0.26)
+    drivers["terminal_roe"] = "min(forecast, 0.70×realized + 0.30×sector mature)"
 
     # Payout from dividends/PAT (dividends stored negative in CF → abs).
     payout = 0.20

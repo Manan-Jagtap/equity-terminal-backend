@@ -215,12 +215,20 @@ def exit_multiple_value(co: Dict, a: Dict):
 
 
 def pe_value(co: Dict, a: Dict):
-    """Sector P/E on 1-year-FORWARD earnings, per share. None if loss-making."""
+    """Sector P/E on 1-year-FORWARD earnings, per share. None if loss-making.
+    For financials the sector P/E is a GROWTH-lender multiple, so it's scaled by
+    realized-vs-mature ROE — a 13.5%-ROE HFC is not worth an 18x Bajaj-Finance P/E."""
     p = SP.params(_vsector(a))
     pe = p.get("exit_pe")
     pat, shares = co.get("net_profit"), co.get("shares")
     if pe is None or pat is None or pat <= 0 or not shares or shares <= 0:
         return None
+    if co.get("type") == "financial":
+        eq = co.get("equity")
+        roe = (pat / eq) if (eq and eq > 0) else None
+        mature = p.get("mature_roe") or 0.15
+        if roe is not None and mature:
+            pe = pe * max(0.4, min(1.0, roe / mature))
     pat_fwd = pat * (1 + (a.get("rev_growth") or 0.08))
     return (pat_fwd * pe) / shares
 
@@ -553,6 +561,16 @@ def recommend(co: Dict, a: Dict) -> Dict:
     elif mos >= -0.25:                          verdict = "REDUCE"
     elif mos >= -0.45 and _high_roe:            verdict = "REDUCE"
     else:                                       verdict = "AVOID"
+
+    # LENDER model-vs-market divergence gate. A bank/NBFC the independent model
+    # values 80%+ above the market price is a large disagreement: the RI model is
+    # trusting a forecast ROE the market is clearly discounting for structural
+    # reasons it can't see (LIC HF: model ~1.5x book vs a 0.73x market). That is NOT
+    # a confident BUY — drop it to the honest LOW CONF / "no confident call" state
+    # (with the analyst consensus surfaced) rather than a fabricated high upside.
+    if (co.get("type") == "financial" and mos is not None and mos >= 0.80
+            and verdict in ("BUY", "ACCUMULATE")):
+        verdict = "LOW CONF"
 
     # A dedicated model (SOTP for conglomerates, P/EV for insurers) replaced the
     # single-engine intrinsic above → keep the computed verdict, but CAP confidence
