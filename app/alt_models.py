@@ -105,6 +105,17 @@ SOTP_PRESETS: dict[str, dict] = {
         ("Godrej Properties stake (~47%, net of disc.)", 18000),
         ("Godrej Agrovet stake (~58%, net of disc.)", 5000),
         ("Chemicals + Godrej Capital + Vikhroli land", 18000)]},
+
+    # Aditya Birla Capital — a diversified FINANCIAL conglomerate (a consolidated
+    # RI/book number mis-prices the look-through, like other holdcos): NBFC lending
+    # book + housing finance + the listed ABSL AMC stake + life & health insurance
+    # + broking. Segment values NET of a ~20% holding-company discount. ILLUSTRATIVE.
+    "ABCAPITAL": {"net_debt": 0, "shares": 260.0, "segments": [
+        ("Aditya Birla Finance (NBFC book)", 42000),
+        ("Housing finance", 7000),
+        ("ABSL AMC stake (~46%, net of disc.)", 9000),
+        ("Life insurance (ABSLI)", 12000),
+        ("Health insurance + broking / other", 6000)]},
 }
 
 
