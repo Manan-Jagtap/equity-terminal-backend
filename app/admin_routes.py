@@ -192,11 +192,20 @@ def macro_refresh(_admin: models.User = Depends(require_admin),
     return refresh_all(db)
 
 
+class SegmentRow(BaseModel):
+    name: str
+    kind: str | None = None            # "operating" (default) or "stake"
+    ebit: float | None = None          # ₹cr segment result (for operating segments)
+    value: float | None = None         # ₹cr stake market value (for listed-subsidiary segments)
+    sector: str | None = None          # SECTOR key → picks the EV/EBITDA multiple
+    revenue: float | None = None
+
+
 class SegmentRefresh(BaseModel):
     ticker: str
-    text: str                       # filing / results text containing the Ind-AS 108 segment table
-    net_debt: float | None = None   # ₹cr; parent net debt for the SOTP (default 0)
-    shares: float | None = None     # ₹cr shares; defaults to the company's shares outstanding
+    segments: list[SegmentRow]         # read straight off the filing's segment table
+    net_debt: float | None = None      # ₹cr; parent net debt for the SOTP (default 0)
+    shares: float | None = None        # ₹cr shares; defaults to the company's shares outstanding
     as_of: str | None = None
 
 
@@ -204,18 +213,19 @@ class SegmentRefresh(BaseModel):
 def segment_refresh(body: SegmentRefresh,
                     _admin: models.User = Depends(require_admin),
                     db: Session = Depends(get_db)):
-    """Extract the reported SEGMENT table (Ind-AS 108) from filing text via the LLM,
-    store it, and return the computed data-driven SOTP. The conglomerate then values
-    on real segment financials (segment EBIT × sector multiple / listed-stake value)
-    instead of the illustrative preset. Needs ANTHROPIC_API_KEY."""
-    from app.segment_sotp import extract_segments, store_segments, compute_sotp
+    """Store REPORTED segment financials (Ind-AS 108 — read straight off the filing,
+    no AI) and return the computed data-driven SOTP. The conglomerate then values on
+    real segments (segment EBIT × sector multiple / listed-stake value) instead of
+    the illustrative preset. Pass an empty `segments` list to clear a name back to
+    the preset."""
+    from app.segment_sotp import store_segments, compute_sotp, normalise_segments
     co = db.query(models.Company).filter_by(ticker=body.ticker.upper()).first()
     if co is None:
         raise HTTPException(404, f"Unknown ticker {body.ticker}")
-    segs = extract_segments(co.name or body.ticker, body.text)
+    segs = normalise_segments([s.model_dump() for s in body.segments])
     if not segs:
-        raise HTTPException(422, "No segments extracted — check ANTHROPIC_API_KEY and that "
-                                 "the text contains a segment (Ind-AS 108) table.")
+        raise HTTPException(422, "No valid segments — each row needs a name and either an "
+                                 "ebit (operating) or a value (listed stake).")
     nd = body.net_debt if body.net_debt is not None else 0.0
     sh = body.shares or co.shares_outstanding or 0.0
     store_segments(db, body.ticker, segs, as_of=body.as_of, net_debt=nd, shares=sh,

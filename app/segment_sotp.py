@@ -3,31 +3,27 @@ app/segment_sotp.py — data-driven Sum-of-the-Parts from REPORTED segment finan
 
 Indian companies report Segment Information (Ind-AS 108) in every quarterly /
 annual filing: segment revenue + segment result (≈ segment EBIT). IndianAPI
-doesn't carry it, so this module:
+doesn't carry it, so the numbers are entered ONCE per conglomerate (a ~5-row
+read off the public filing — no AI, no API cost) and this module values each
+segment TRANSPARENTLY:
 
-  1. EXTRACTS the segment table from filing text with an LLM (Claude Haiku, the
-     same raw-HTTP path news_routes uses — opt-in, ANTHROPIC_API_KEY).
-  2. VALUES each segment transparently — an operating segment at
-     `segment EBIT × the SECTOR EV/EBITDA multiple`, a listed-subsidiary segment
-     at the stake's market value — summed, less net debt, per share.
+  · an operating segment at `segment EBIT × the SECTOR EV/EBITDA multiple`
+  · a listed-subsidiary segment at the stake's market value
 
-That turns the conglomerate SOTPs from hand-picked round numbers into a
-self-justifying breakdown you can audit segment by segment. Stored in KVStore
-under SEG_KEY as {TICKER: {as_of, source, net_debt, shares, segments:[…]}}; when
-present it OVERRIDES the illustrative preset in alt_models.alternative_intrinsic.
+summed, less net debt, per share. That turns the conglomerate SOTPs from
+hand-picked round numbers into a self-justifying breakdown you can audit segment
+by segment. Stored in KVStore under SEG_KEY as
+{TICKER: {as_of, source, net_debt, shares, segments:[…]}}; when present it
+OVERRIDES the illustrative preset in alt_models.alternative_intrinsic.
 
-A segment is one of:
+Each segment is one of:
   {"name": str, "kind": "operating", "ebit": <₹cr>, "sector": <SECTOR key>}
   {"name": str, "kind": "stake",     "value": <₹cr stake market value>}
   {"name": str, "value": <₹cr>}      # explicit fallback
 """
 from __future__ import annotations
-import os
-import json as _json
 
 SEG_KEY = "segment_financials_v1"
-_HAIKU = "claude-haiku-4-5-20251001"
-_ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
 
 def _multiple_for(sector_key: str) -> float:
@@ -84,8 +80,28 @@ def compute_sotp(segments: list[dict], net_debt: float, shares: float) -> dict |
     }
 
 
+def normalise_segments(raw: list) -> list[dict]:
+    """Clean a list of user-entered segment rows into the stored shape. Drops rows
+    with neither an ebit nor a value."""
+    out = []
+    for s in raw if isinstance(raw, list) else []:
+        if not isinstance(s, dict) or not s.get("name"):
+            continue
+        if s.get("ebit") is None and s.get("value") is None:
+            continue
+        out.append({
+            "name": str(s["name"])[:60],
+            "kind": (s.get("kind") or ("stake" if s.get("value") is not None and s.get("ebit") is None else "operating")),
+            "ebit": s.get("ebit"),
+            "value": s.get("value"),
+            "sector": (s.get("sector") or "MANUFACTURING"),
+            "revenue": s.get("revenue"),
+        })
+    return out
+
+
 def get_segment_sotp(db, ticker: str, net_debt: float, shares: float) -> dict | None:
-    """Stored segment-SOTP for a ticker, computed live. None if not extracted yet."""
+    """Stored segment-SOTP for a ticker, computed live. None if none entered yet."""
     from app.manager_engine import _kv_get
     store = _kv_get(db, SEG_KEY) or {}
     rec = store.get((ticker or "").upper())
@@ -102,66 +118,12 @@ def get_segment_sotp(db, ticker: str, net_debt: float, shares: float) -> dict | 
 def store_segments(db, ticker: str, segments: list[dict], *, as_of: str | None = None,
                    net_debt: float | None = None, shares: float | None = None,
                    source: str | None = None) -> dict:
-    """Merge one company's extracted segments into the KVStore."""
+    """Merge one company's segments into the KVStore."""
     from app.manager_engine import _kv_put, _kv_get
     store = dict(_kv_get(db, SEG_KEY) or {})
     store[(ticker or "").upper()] = {
-        "segments": segments, "as_of": as_of, "source": source,
+        "segments": normalise_segments(segments), "as_of": as_of, "source": source,
         "net_debt": net_debt, "shares": shares,
     }
     _kv_put(db, SEG_KEY, store)
     return store[(ticker or "").upper()]
-
-
-# ── LLM extraction ───────────────────────────────────────────────────────────
-_PROMPT = """You are a financial-data extractor. From the filing text below for {name},
-extract the SEGMENT INFORMATION (Ind-AS 108) for the MOST RECENT period reported.
-
-Return ONLY a JSON array, one object per business segment, with keys:
-  "name"    : segment name (string)
-  "revenue" : segment revenue in Rs crore (number, null if absent)
-  "ebit"    : segment result / segment profit before interest & tax, in Rs crore (number, null if absent)
-  "kind"    : "operating" for a business segment; "stake" if the segment is really a listed-subsidiary holding
-  "sector"  : ONE of BANK NBFC INSURANCE IT_SERVICES CONSUMER CONSUMER_DISC PHARMA AUTO METAL CEMENT
-              ENERGY UTILITIES TELECOM MANUFACTURING CHEMICALS REALTY AVIATION CABLES CAPITAL_GOODS
-              CONSTRUCTION DEFENCE TEXTILES LOGISTICS PAPER SUGAR — your best single classification.
-Ignore "unallocated" / elimination rows. Numbers in Rs crore (convert if in millions/lakhs).
-No prose, no markdown — just the JSON array.
-
-FILING TEXT:
-{text}
-"""
-
-
-def extract_segments(company_name: str, text: str, api_key: str | None = None) -> list[dict]:
-    """Extract the reported segment table from filing text via Claude. Returns
-    [] on any failure (never raises)."""
-    import requests
-    api_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
-    if not api_key or not text:
-        return []
-    body = {
-        "model": _HAIKU, "max_tokens": 1500,
-        "messages": [{"role": "user",
-                      "content": _PROMPT.format(name=company_name, text=text[:60000])}],
-    }
-    try:
-        r = requests.post(_ANTHROPIC_URL, json=body, timeout=60,
-                          headers={"content-type": "application/json", "x-api-key": api_key,
-                                   "anthropic-version": "2023-06-01"})
-        r.raise_for_status()
-        txt = "".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text").strip()
-        if txt.startswith("```"):
-            txt = txt.strip("`").split("\n", 1)[-1] if "\n" in txt else txt.strip("`")
-        i, j = txt.find("["), txt.rfind("]")
-        arr = _json.loads(txt[i:j + 1]) if i >= 0 and j > i else []
-        out = []
-        for s in arr if isinstance(arr, list) else []:
-            if isinstance(s, dict) and s.get("name"):
-                out.append({"name": str(s["name"])[:60],
-                            "revenue": s.get("revenue"), "ebit": s.get("ebit"),
-                            "kind": (s.get("kind") or "operating"),
-                            "sector": (s.get("sector") or "MANUFACTURING")})
-        return out
-    except Exception:
-        return []
