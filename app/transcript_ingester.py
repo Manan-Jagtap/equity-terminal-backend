@@ -78,6 +78,22 @@ def _is_noise(low: str) -> bool:
     return any(p in low for p in _NOISE)
 
 
+def _clean_points(points: dict) -> dict:
+    """Drop boilerplate sentences from the extracted buckets AT READ TIME. New
+    extractions are already filtered in _pick, but insights the nightly ingester
+    stored before the filter shipped keep their boilerplate — and it dedupes by
+    URL so it never re-extracts. Applying the same filter on read fixes those
+    without a re-fetch. Idempotent on already-clean points."""
+    if not isinstance(points, dict):
+        return points
+    out = dict(points)
+    for key in ("guidance", "margins", "capex", "demand", "risks"):
+        rows = out.get(key)
+        if isinstance(rows, list):
+            out[key] = [s for s in rows if not _is_noise((s or "").lower())]
+    return out
+
+
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9])")
 _NUM = re.compile(r"\d")
 _WS = re.compile(r"\s+")
@@ -308,7 +324,7 @@ def load(db, ticker: str) -> dict | None:
     if not row:
         return None
     return {"ticker": row.ticker, "quarter": row.quarter, "source_url": row.source_url,
-            "tone_score": row.tone_score, "points": row.points or {},
+            "tone_score": row.tone_score, "points": _clean_points(row.points or {}),
             "llm_summary": row.llm_summary, "char_count": row.char_count,
             "processed_at": row.processed_at.isoformat() if row.processed_at else None}
 
@@ -440,6 +456,7 @@ def summarize_transcript(db, company_name: str, ticker: str,
                                "no extractable text."}
         points = extract_key_points(text)
         points["kpis"] = extract_kpis(text)
+    points = _clean_points(points)   # scrub boilerplate from pre-filter stored insights
 
     # QoQ: extract the PRIOR call's tone for the shift line (best-effort — one
     # bounded fetch; skipped silently if unavailable).
