@@ -570,6 +570,70 @@ def run_data_integrity():
 # Integrity sweep — Sunday 03:00 UTC (8:30am IST), after the 00:30 full refresh.
 schedule.every().sunday.at("03:00").do(run_data_integrity)
 
+
+# ── Coverage self-heal: automatic stub backfill + targeted re-ingests ────────
+# The audit found ~145 un-ingested stubs (NO DATA) plus a handful of names whose
+# stored equity column is misfiled (absurd MoS, LOW-CONF gated). Owner mandate:
+# quota is not a constraint — backfill until coverage is COMPLETE, automatically.
+# KV `reingest_targets_v1` holds forced re-ingests (processed first, self-
+# clearing); gaps come from coverage.needs_fundamentals each run.
+REINGEST_KEY = "reingest_targets_v1"
+INITIAL_REINGEST = ["RAJESHEXPO", "BOSCH-HCIL", "CLEANMAX", "APOLLO", "ASHOKA"]
+BACKFILL_BATCH = int(os.getenv("BACKFILL_BATCH", "40"))
+
+
+def run_coverage_backfill():
+    from app.database import SessionLocal
+    from app.coverage import needs_fundamentals
+    from app.ingest.indianapi_ingester import run as indianapi_run, VISIBLE_UNIVERSE
+    from app.ingest.compute_valuations import run as compute_valuations
+    from app.manager_engine import _kv_get, _kv_put
+    s = SessionLocal()
+    try:
+        forced = _kv_get(s, REINGEST_KEY)
+        if forced is None:                      # first run seeds the audit's list
+            forced = list(INITIAL_REINGEST)
+        gaps = needs_fundamentals(s, VISIBLE_UNIVERSE)
+    finally:
+        s.close()
+    todo = list(dict.fromkeys([*forced, *gaps]))   # forced first, deduped
+    if not todo:
+        log.info("coverage backfill: coverage complete — nothing to do")
+        return
+    batch = todo[:BACKFILL_BATCH]
+    log.info(f"coverage backfill: {len(todo)} outstanding → ingesting {len(batch)} "
+             f"({len(forced)} forced re-ingests queued)")
+    try:
+        indianapi_run(tickers=batch, insights=True)
+        compute_valuations()
+        s2 = SessionLocal()
+        try:                                     # clear processed forced entries
+            done = set(batch)
+            _kv_put(s2, REINGEST_KEY, [t for t in forced if t not in done])
+        finally:
+            s2.close()
+        log.info(f"coverage backfill: batch of {len(batch)} ingested + revalued")
+    except Exception as e:
+        log.error(f"coverage backfill failed: {e}")
+
+
+# Daily 20:30 UTC (2:00am IST — quiet hours). ~4 days clears the 145 stubs at
+# the default batch of 40; self-terminates into a no-op once coverage is full.
+schedule.every().day.at("20:30").do(run_coverage_backfill)
+
+
+def run_encrypted_backup():
+    """Owned weekly backup: every table → JSONL.gz → Fernet-encrypt (BACKUP_KEY
+    passphrase, held by the owner) → R2. Ciphertext-only off-stack (DPDP);
+    restore/cutover via scripts/restore_backup.py. Skips loudly without the key."""
+    from app.backup import run_backup
+    out = run_backup()
+    log.info(f"encrypted backup: {out}")
+
+
+# Sunday 04:00 UTC (9:30am IST), after the integrity sweep. Keeps 8 weeklies.
+schedule.every().sunday.at("04:00").do(run_encrypted_backup)
+
 # Results calendar (board-meeting dates) — Saturday 04:00 IST = Fri 22:30 UTC
 schedule.every().friday.at("22:30").do(run_results_calendar)
 

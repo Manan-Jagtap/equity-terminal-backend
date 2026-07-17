@@ -1,0 +1,38 @@
+# Local rehearsal of the AWS topology (web + scheduler + Postgres) — the same
+# image AWS will run. From the repo ROOT:
+#   docker compose -f deploy/aws/docker-compose.yml up --build
+# Then: curl http://localhost:8080/api/health
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: terminal
+      POSTGRES_PASSWORD: terminal-local     # local rehearsal only
+      POSTGRES_DB: terminal
+    ports: ["5433:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U terminal"]
+      interval: 5s
+      retries: 10
+
+  web:
+    build: { context: ../.., dockerfile: deploy/aws/Dockerfile }
+    environment:
+      DATABASE_URL: postgresql+pg8000://terminal:terminal-local@db:5432/terminal
+      AUTH_SECRET: local-rehearsal-secret
+      ADMIN_EMAILS: ""
+    ports: ["8080:8080"]
+    depends_on:
+      db: { condition: service_healthy }
+
+  scheduler:
+    build: { context: ../.., dockerfile: deploy/aws/Dockerfile }
+    command: ["python", "scheduler.py"]
+    environment:
+      DATABASE_URL: postgresql+pg8000://terminal:terminal-local@db:5432/terminal
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  pgdata:

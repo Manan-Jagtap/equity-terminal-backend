@@ -15,3 +15,5 @@ openpyxl==3.1.5
 python-multipart==0.0.20
 httpx
 dnspython
+alembic==1.18.5
+cryptography

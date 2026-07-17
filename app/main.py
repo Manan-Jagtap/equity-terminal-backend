@@ -23,6 +23,11 @@ from .consensus import analyst_consensus
 from .schemas import AssumptionOverride
 from . import concepts as K
 
+# Ordered schema migrations first (stamp-or-upgrade; see migrations_boot.py),
+# then create_all as an additive belt-and-braces for brand-new dev databases.
+from .migrations_boot import run_boot_migrations
+run_boot_migrations()
+
 Base.metadata.create_all(bind=engine)
 
 # create_all never ALTERs existing tables — additive columns need a nudge.

@@ -166,9 +166,22 @@ disclosed**, never silently reweighted.
 | Fri 21:00 | FM calibration (monthly, first Friday) |
 | Fri 21:30 | Universe refresh (monthly, first Friday) |
 | Fri 22:30 | Results calendar (board meetings) |
+| Daily 20:30 | **Coverage self-heal** — auto-backfill of un-ingested stubs + KV-queued forced re-ingests (`BACKFILL_BATCH`/day, default 40; self-terminates when coverage is full) |
 | Sun 00:30 | Weekly full refresh (rolling fundamentals cohort) |
 | Sun 03:00 | **Data-integrity sweep** (`data_integrity.py` → KV `data_integrity_v1`; admin GET/POST `/api/admin/data-integrity[/run]`) |
+| Sun 04:00 | **Encrypted backup** — every table → JSONL.gz → Fernet (`BACKUP_KEY`) → R2, ciphertext-only off-stack (DPDP); restore/cutover via `scripts/restore_backup.py`; keeps 8 weeklies |
 | Sun 23:30 | Macro refresh (DBIE / OGD / MoSPI, env-gated) |
+
+**Schema migrations:** Alembic owns the schema (`alembic/`, baseline
+`974cc2004deb`). The web process stamps-or-upgrades at boot
+(`app/migrations_boot.py`: existing DB without a version table → stamp head,
+no changes; otherwise upgrade). Future changes: edit `app/models.py` →
+`alembic revision --autogenerate -m "…"` → review → commit.
+
+**AWS migration pack:** `deploy/aws/` — Dockerfile (web + scheduler roles),
+local docker-compose rehearsal, and `MIGRATION_AWS.md`, a click-by-click
+runbook targeting **ap-south-1 (Mumbai)** (the DPDP residency fix); the
+encrypted backup + `restore_backup.py` are the data-cutover vehicle.
 
 ## 6. Data model (Postgres; `app/models.py`)
 
