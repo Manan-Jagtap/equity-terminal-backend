@@ -23,6 +23,18 @@ from .consensus import analyst_consensus
 from .schemas import AssumptionOverride
 from . import concepts as K
 
+# Error telemetry — armed only when SENTRY_DSN is set (free tier is enough).
+# Unhandled exceptions in any route then reach a human instead of dying in logs;
+# without the env var this is a no-op and adds nothing to the request path.
+if os.getenv("SENTRY_DSN"):
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=os.getenv("SENTRY_DSN"),
+                        traces_sample_rate=0.0,        # errors only, no perf spans
+                        send_default_pii=False)
+    except Exception:
+        pass
+
 Base.metadata.create_all(bind=engine)
 
 # create_all never ALTERs existing tables — additive columns need a nudge.

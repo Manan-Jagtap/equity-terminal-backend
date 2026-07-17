@@ -1,0 +1,35 @@
+name: CI
+
+# The guardrail the enterprise audit found missing: the test suite had been
+# broken at COLLECTION for weeks with nobody noticing, because nothing ran it.
+# Every push/PR now runs the full backend suite; a red X is the alarm.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+      - name: Run test suite
+        env:
+          DATABASE_URL: "sqlite:////tmp/ci_terminal.db"
+        run: python -m pytest tests/ -q
+      - name: Regenerate parity fixtures (must not crash)
+        # The frontend repo compares against committed fixtures; this proves the
+        # generators still run against the current engine/derive code so the
+        # cross-repo regeneration step can never rot silently.
+        run: |
+          python tests/gen_parity_cases.py /tmp/parityCases.json
+          python tests/gen_derive_cases.py /tmp/deriveCases.json

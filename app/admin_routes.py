@@ -242,6 +242,24 @@ def segment_refresh(body: SegmentRefresh,
             "sotp": compute_sotp(segs, nd, sh)}
 
 
+@router.get("/data-integrity")
+def data_integrity(_admin: models.User = Depends(require_admin),
+                   db: Session = Depends(get_db)):
+    """Latest continuous data-integrity sweep (red/amber/green + findings).
+    Runs weekly from the scheduler; POST /data-integrity/run for on-demand."""
+    from app.data_integrity import load_sweep
+    return load_sweep(db) or {"status": "never_run",
+                              "note": "No sweep stored yet — POST /api/admin/data-integrity/run."}
+
+
+@router.post("/data-integrity/run")
+def data_integrity_run(_admin: models.User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    """Run the integrity sweep now and persist it (read-only over the DB)."""
+    from app.data_integrity import store_sweep
+    return store_sweep(db)
+
+
 @router.get("/segment-financials")
 def segment_financials(_admin: models.User = Depends(require_admin),
                        db: Session = Depends(get_db)):

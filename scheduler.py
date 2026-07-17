@@ -550,6 +550,26 @@ schedule.every().day.at("01:00").do(run_transcript_ingest)
 # Weekly full refresh — 6:00am IST Sunday = 00:30 UTC
 schedule.every().sunday.at("00:30").do(run_full)
 
+
+def run_data_integrity():
+    """Continuous data-integrity sweep (the audit's checks as a standing
+    control) — after the Sunday full refresh so it grades fresh data."""
+    from app.database import SessionLocal
+    from app.data_integrity import store_sweep
+    db = SessionLocal()
+    try:
+        out = store_sweep(db)
+        log.info(f"data-integrity sweep: {out['status']} · "
+                 f"{out['n_findings']} findings over {out['n_companies']} names")
+    except Exception as e:
+        log.error(f"data-integrity sweep failed: {e}")
+    finally:
+        db.close()
+
+
+# Integrity sweep — Sunday 03:00 UTC (8:30am IST), after the 00:30 full refresh.
+schedule.every().sunday.at("03:00").do(run_data_integrity)
+
 # Results calendar (board-meeting dates) — Saturday 04:00 IST = Fri 22:30 UTC
 schedule.every().friday.at("22:30").do(run_results_calendar)
 

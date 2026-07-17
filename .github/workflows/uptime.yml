@@ -1,0 +1,31 @@
+name: Uptime check
+
+# Free alerting channel (the 7-hour-outage lesson): every 30 minutes, assert
+# prod /api/health returns 200. A failure fails the workflow run, and GitHub
+# emails the repo owner — no external monitoring account needed. (GitHub cron
+# is best-effort; treat this as a backstop, not a pager.)
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Probe /api/health (3 attempts, 30s apart)
+        run: |
+          URL="https://equity-terminal-backend-production.up.railway.app/api/health"
+          for i in 1 2 3; do
+            code=$(curl -s -m 20 -o /tmp/h.json -w "%{http_code}" "$URL" || echo 000)
+            body=$(cat /tmp/h.json 2>/dev/null)
+            echo "attempt $i: HTTP $code $body"
+            if [ "$code" = "200" ] && echo "$body" | grep -q '"ok"'; then
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::Production health check FAILED after 3 attempts (HTTP $code)"
+          exit 1

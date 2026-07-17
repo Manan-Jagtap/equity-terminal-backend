@@ -167,6 +167,7 @@ disclosed**, never silently reweighted.
 | Fri 21:30 | Universe refresh (monthly, first Friday) |
 | Fri 22:30 | Results calendar (board meetings) |
 | Sun 00:30 | Weekly full refresh (rolling fundamentals cohort) |
+| Sun 03:00 | **Data-integrity sweep** (`data_integrity.py` → KV `data_integrity_v1`; admin GET/POST `/api/admin/data-integrity[/run]`) |
 | Sun 23:30 | Macro refresh (DBIE / OGD / MoSPI, env-gated) |
 
 ## 6. Data model (Postgres; `app/models.py`)
@@ -241,6 +242,13 @@ npm run build
 # after EVERY backend push — before any feature-specific polling
 curl https://<railway-domain>/api/health                     # must: {"status":"ok"}
 ```
+
+**CI enforcement (added 17 Jul 2026):** these checks now run automatically —
+GitHub Actions on every push/PR run the backend suite + parity generators
+(backend repo) and both parity harnesses + build + a Playwright runtime smoke in
+seed mode (frontend repo). A separate 30-min cron workflow probes prod
+`/api/health` and fails (→ GitHub email) when it isn't 200. Backend error
+telemetry arms itself when `SENTRY_DSN` is set (no-op otherwise).
 
 Conventions: never `git add -A` in the backend repo (untracked scratch files) — stage
 explicit paths. Keep this document synchronized when the system changes.
