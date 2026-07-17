@@ -127,3 +127,22 @@ def store_segments(db, ticker: str, segments: list[dict], *, as_of: str | None =
     }
     _kv_put(db, SEG_KEY, store)
     return store[(ticker or "").upper()]
+
+
+def load_store(db) -> dict:
+    """The whole verified-segment store: {TICKER: {segments, as_of, source, …}}."""
+    from app.manager_engine import _kv_get
+    return dict(_kv_get(db, SEG_KEY) or {})
+
+
+def delete_segments(db, ticker: str) -> bool:
+    """Remove one company's verified segments — it falls back to the illustrative
+    preset (or the plain engine blend). True if an entry was removed."""
+    from app.manager_engine import _kv_put, _kv_get
+    store = dict(_kv_get(db, SEG_KEY) or {})
+    tk = (ticker or "").upper()
+    if tk not in store:
+        return False
+    del store[tk]
+    _kv_put(db, SEG_KEY, store)
+    return True

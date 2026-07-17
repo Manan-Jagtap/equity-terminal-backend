@@ -218,20 +218,50 @@ def segment_refresh(body: SegmentRefresh,
     real segments (segment EBIT × sector multiple / listed-stake value) instead of
     the illustrative preset. Pass an empty `segments` list to clear a name back to
     the preset."""
-    from app.segment_sotp import store_segments, compute_sotp, normalise_segments
+    from app.segment_sotp import store_segments, compute_sotp, normalise_segments, delete_segments
     co = db.query(models.Company).filter_by(ticker=body.ticker.upper()).first()
     if co is None:
         raise HTTPException(404, f"Unknown ticker {body.ticker}")
     segs = normalise_segments([s.model_dump() for s in body.segments])
     if not segs:
-        raise HTTPException(422, "No valid segments — each row needs a name and either an "
-                                 "ebit (operating) or a value (listed stake).")
+        # The documented clear path: an empty list reverts the name to its
+        # illustrative preset (previously this 422'd, contradicting the docstring).
+        removed = delete_segments(db, body.ticker)
+        return {"ticker": body.ticker.upper(), "cleared": removed, "segments": [], "sotp": None}
     nd = body.net_debt if body.net_debt is not None else 0.0
     sh = body.shares or co.shares_outstanding or 0.0
     store_segments(db, body.ticker, segs, as_of=body.as_of, net_debt=nd, shares=sh,
                    source="admin/segment-refresh")
     return {"ticker": body.ticker.upper(), "segments": segs,
             "sotp": compute_sotp(segs, nd, sh)}
+
+
+@router.get("/segment-financials")
+def segment_financials(_admin: models.User = Depends(require_admin),
+                       db: Session = Depends(get_db)):
+    """The verified-segment store, each name with its computed SOTP, plus which
+    SOTP conglomerates still ride ILLUSTRATIVE presets (i.e. need a verified
+    entry). Powers the in-app segment editor."""
+    from app.segment_sotp import load_store, compute_sotp
+    from app.alt_models import SOTP_PRESETS
+    store = load_store(db)
+    out = {}
+    for tk, rec in store.items():
+        out[tk] = {**rec, "sotp": compute_sotp(rec.get("segments") or [],
+                                               rec.get("net_debt") or 0.0,
+                                               rec.get("shares") or 0.0)}
+    return {"store": out,
+            "presets_only": sorted(t for t in SOTP_PRESETS if t not in store),
+            "preset_tickers": sorted(SOTP_PRESETS.keys())}
+
+
+@router.delete("/segment-financials/{ticker}")
+def segment_financials_delete(ticker: str,
+                              _admin: models.User = Depends(require_admin),
+                              db: Session = Depends(get_db)):
+    """Remove a name's verified segments — it reverts to the illustrative preset."""
+    from app.segment_sotp import delete_segments
+    return {"ticker": ticker.upper(), "cleared": delete_segments(db, ticker)}
 
 
 @router.post("/macro/upload")

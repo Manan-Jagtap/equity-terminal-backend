@@ -260,3 +260,42 @@ adds the tax and digest halves:
   path); and collapsing `valuation.js` into `engine.js` (a large, parity-sensitive
   refactor that needs `derive.py` ported to the client — universe-wide verdict
   risk not worth rushing).
+
+## Addendum 6 — 17 July 2026 (both deferred items done properly, on request)
+**1. valuation.js COLLAPSED into the parity core (frontend 984d536).** The old
+772-line second client engine is now a ~100-line adapter; every client-computed
+intrinsic flows through `engine.js` with assumptions from the NEW
+**`src/lib/derive.js` — a faithful port of `app/derive.py` under its own parity
+harness**: `tests/gen_derive_cases.py` (backend, 48 fixtures spanning cyclicals,
+CEMENT's EBITDA rebuild, financials with declining ROE, net-worth rebuilds,
+single-year snapshots, empty statements) → `tests/deriveParity.mjs` → **48/48 at
+1e-9**. Engine parity untouched (**60/60**). There are now TWO parity contracts —
+re-run BOTH after touching engines.py / derive.py / sector_params.py.
+Mechanics worth knowing: `snapshotStatements` grounds a no-history name in its
+real margin/ROE exactly like the backend treats one ingested year;
+`isEngineDialect` gates assumption overrides (legacy camelCase seeds share the
+`beta`/`erp`/`payout` names — pre-gate that leak skewed a fallback WACC from
+9.3% to 12.5%); recommend.js gained the backend's lender divergence gate;
+DCFModel's fallback sliders seed from the derived base case, so in seed mode
+DCF tab = screener = header. Browser-verified: extreme-MoS lenders now show
+NO CALL in the fallback screener; zero console errors.
+
+**2. SOTP verified segment financials — the path is now complete.**
+- Backend: `GET /api/admin/segment-financials` (store + computed SOTP per name +
+  which conglomerates still ride ILLUSTRATIVE presets),
+  `DELETE /api/admin/segment-financials/{ticker}`, and the documented
+  empty-list clear on POST /segment-refresh actually clears now (was a 422).
+  `segment_sotp.py` gains `load_store`/`delete_segments`.
+- Frontend: the SegmentSOTP panel (conglomerate Valuation tab) carries an
+  admin-gated editor — segment rows straight off the Ind-AS 108 filing
+  (operating EBIT × sector multiple with a sector picker; listed stakes at
+  market value), net debt/shares/as-of, Save → verified segments OVERRIDE the
+  preset and drive the headline verdict, Clear → reverts. Shows each
+  component's basis and a "verified segments" badge. Admin-ness is feature-
+  detected (the GET 403s quietly for everyone else).
+- Verified end-to-end on a seeded local backend: API round-trip (store ITC 4
+  segments → SOTP ₹533/share → company-detail blended = 533 → clear/delete),
+  and the UI flow (enter → "Saved — SOTP ₹478/share now drives the verdict",
+  math exact, badge, revert note). Owner can now upgrade RELIANCE/LT/GRASIM/
+  VEDL/… from illustrative presets to reported numbers in ~5 rows each,
+  in-app, no curl.
