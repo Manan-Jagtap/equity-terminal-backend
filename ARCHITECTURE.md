@@ -1,272 +1,246 @@
-# Equity Research Terminal — Architecture
+# Equity Terminal — System Architecture
 
-> Living document. Reflects the codebase as of May 2026. Update it when the system changes.
-> The point of this file: anyone (you, a future collaborator, or an AI assistant in a fresh session)
-> should be able to read it and understand what exists, why, and what comes next — without
-> re-deriving it from the code.
+> Living document. Reflects the codebase as of **17 Jul 2026** (post enterprise-audit).
+> Anyone — you, a collaborator, or an assistant in a fresh session — should be able to read
+> this and understand what exists, why, and how it fits, without re-deriving it from code.
+> Companions: [HANDOFF.md](HANDOFF.md) (operating guide) · [CHANGES_2026-07.md](CHANGES_2026-07.md)
+> (changelog) · FM_ENGINE_CHECKLIST.md (fund-manager roadmap).
 
 ---
 
 ## 1. Mission
 
-An equity research terminal for Indian markets. Type a ticker, get a complete, trustworthy
-picture: financials, sector-correct valuation, asset quality, peer comparison, the latest
-quarter's story, and a defensible buy/hold/avoid view — every number traceable to the filing
-it came from.
+An equity research terminal for Indian markets: type a ticker, get a complete, trustworthy
+picture — financials, sector-correct valuation, asset quality, peers, the latest quarter's
+story, and a defensible verdict — every number traceable to the filing it came from.
 
-### The realistic version of "finest in the world"
+Bloomberg/FactSet are unbeatable on breadth; they are beatable on **focus and judgment**.
+Two rules govern everything:
 
-Bloomberg / FactSet / CapIQ are 30-year products with thousands of engineers and eight-figure
-annual data licenses. We do not out-feature them on breadth. They are beatable on **focus and
-judgment**: a terminal that deeply understands Indian NBFCs and banks — sector-correct
-valuation, rigorous number verification, analyst-grade one-pagers — is something the giants do
-generically and we can do excellently. Narrow and excellent beats broad and generic.
-
-### The one rule that governs everything
-
-**"Accurate enough for serious research."** A terminal with beautiful UI and wrong numbers is
-worse than useless — it looks authoritative while being dangerous. Accuracy is not a feature;
-it is the spine of the architecture (see §5).
+1. **Accurate enough for serious research.** A beautiful UI with wrong numbers is worse
+   than useless. Missing data → an honest `NO DATA` / `LOW CONF`, never a fabricated input.
+2. **100% AI-free.** All analysis is deterministic and auditable (lexicons, rules,
+   arithmetic). There is no LLM call anywhere in the pipeline — by owner mandate.
 
 ---
 
-## 2. System map
+## 2. System context
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  PRESENTATION    React + Vite (Vercel)                             │
-│  App.jsx · Company.jsx · components/ · lib/                        │
-│  company page · financials · valuation · ratios · one-pager        │
-│  viewer · screener · peer comparison · charts                      │
-└────────────────────────────┬───────────────────────────────────── ┘
-                             │  REST / JSON
-┌────────────────────────────┴───────────────────────────────────── ┐
-│  API LAYER       FastAPI (Railway)  —  app/main.py                  │
-│  /api/companies · /{ticker}/financials · /{ticker}/history ·        │
-│  /valuation · /{ticker}/news · /onepager · /api/bse/*               │
-└────────────────────────────┬───────────────────────────────────── ┘
-        ┌───────────────┬─────┴────────┬─────────────────┬──────────┐
-        │               │              │                 │          │
-┌───────┴──────┐ ┌──────┴──────┐ ┌─────┴───────┐ ┌───────┴──────┐ ┌─┴────────┐
-│ COMPUTATION  │ │INTELLIGENCE │ │ NORMALIZE   │ │ STORAGE      │ │ INGESTION│
-│ engines.py   │ │ thesis.py   │ │ templates.py│ │ Postgres     │ │ ingest/  │
-│ metrics.py   │ │ onepager.py │ │ concepts.py │ │ (models.py)  │ │ bse/     │
-│ financials.py│ │ (LLM calls) │ │ assemble.py │ │ R2 (r2/)     │ │          │
-└──────────────┘ └─────────────┘ └─────────────┘ └──────┬───────┘ └────┬─────┘
-                                                         │              │
-                          ┌──────────────────────────────┴──────────────┴───┐
-                          │  DATA SOURCES                                     │
-                          │  BSE/NSE XBRL filings · investor presentations ·  │
-                          │  concall transcripts · price data · corp actions  │
-                          └────────────────────────────────────────────────── ┘
-```
+Two repos, three services, one Postgres:
 
----
+| Piece | Repo | Host | Deploy |
+|---|---|---|---|
+| Frontend SPA | `~/equity-terminal` (React 18 + Vite) | Vercel | `git push main` → auto |
+| Backend API (`web`) | `~/Downloads/backend` (FastAPI, 1× uvicorn) | Railway | `git push main` → auto; smoke `/api/health` after every push |
+| Scheduler | same backend repo, `scheduler.py` | Railway (separate service) | same push |
+| Database | Postgres (Railway) / SQLite locally | Railway | — |
+| Documents | Cloudflare R2 (quarterly PDFs) | Cloudflare | — |
 
-## 3. Current codebase — what each module does
+```mermaid
+graph LR
+  subgraph Client["Browser"]
+    SPA["React SPA on Vercel<br/>App shell + lazy views"]
+    CORE["lib parity core<br/>engine.js + derive.js<br/>(mirrors backend math)"]
+    SEED["seedData fallback<br/>(offline / API-less)"]
+    SPA --- CORE
+    SPA --- SEED
+  end
 
-### API layer
-| File | Role |
-|------|------|
-| `main.py` | FastAPI app. Routes: `/api/companies`, `/api/companies/{ticker}`, `/valuation`, `/onepager`, `/api/health`. Registers `history_router`, `news_router`, `bse_router`. |
-| `history_routes.py` | `GET /{ticker}/history` (price history), `GET /{ticker}/financials` (sector-aware P&L). |
-| `news_routes.py` | `GET /{ticker}/news`. **LLM source currently paused** via `NEWS_LLM_ENABLED` flag (cost control). Falls back to marketaux + yfinance. |
-| `bse_routes.py` | `GET /api/bse/announcements/{ticker}`, `POST /api/bse/fetch/{ticker}`. Pulls IP + transcript from BSE → R2. |
+  subgraph Railway["Railway"]
+    WEB["web: FastAPI<br/>rate-limit + security headers + CORS<br/>26 routers"]
+    SCH["scheduler.py<br/>UTC job loop"]
+  end
 
-### Computation
-| File | Role |
-|------|------|
-| `engines.py` | Valuation engines. Ported 1:1 from frontend so both agree exactly. |
-| `metrics.py` | Ratio / metric calculations. |
-| `financials.py` | Template-aware P&L formatter. NBFC → NII shape; manufacturer → revenue/EBITDA shape. |
-| `assemble.py` | `build_company`, `assumptions_dict` — assembles the company payload the API returns. |
+  PG[("Postgres<br/>companies · facts · statements<br/>prices · valuations · kv_store<br/>insights · users · portfolio")]
+  R2[("Cloudflare R2<br/>IP / transcript PDFs")]
 
-### Normalization
-| File | Role |
-|------|------|
-| `templates.py` | Sector classifier. 8 template codes: BANK, NBFC, INSURANCE, IT_SERVICES, MANUFACTURING, CONSUMER, PHARMA, ENERGY. Drives P&L shape + which ratios appear. |
-| `concepts.py` | Financial concept definitions (imported as `K`). |
+  subgraph External["External sources"]
+    IA["IndianAPI<br/>fundamentals · insights · news · docs"]
+    DH["Dhan<br/>live LTP · EOD OHLCV · holdings"]
+    NSE["NSE<br/>FII/DII · insider · pledge · bulk/block"]
+    MAC["RBI DBIE seed · OGD WPI<br/>MoSPI eSankhyiki (env-gated)"]
+    PDF["Issuer transcript PDFs<br/>(SSRF-guarded fetch)"]
+  end
 
-### Intelligence (LLM)
-| File | Role |
-|------|------|
-| `thesis.py` | Buy/hold/avoid thesis generator. Uses Claude Sonnet. |
-| `onepager.py` | Current one-pager (`build_onepager`). The basic version — being replaced by the premium sector-template flow. |
-
-### Storage
-| File | Role |
-|------|------|
-| `models.py` | SQLAlchemy models. `Company` (+ `template_code`, `bse_scrip_code`), `FinancialFact`, `HistoricalFinancial`, `HistoricalPrice`, `Assumptions`, `MarketSnapshot`, `PricePoint`, `QuarterlyDocument` (BSE docs). |
-| `database.py` | Engine, `Base`, `get_db`, `SessionLocal`. |
-| `schemas.py` | Pydantic request/response models. |
-| `seed.py` | DB seeding. |
-| `r2/` | Cloudflare R2 client (boto3). Stores IP + transcript PDFs. Key pattern: `companies/{ticker}/{quarter}/{doc_type}.pdf`. |
-
-### Ingestion
-| File | Role |
-|------|------|
-| `ingest/xbrl_ingester.py` | Pulls XBRL financial filings (authoritative numbers). |
-| `ingest/price_ingester.py` | Price/OHLCV data. |
-| `ingest/fundamentals_ingester.py` | Fundamentals. |
-| `ingest/bse_results_ingester.py` | BSE results data. |
-| `ingest/bulk_ingester.py` | Bulk company onboarding. |
-| `ingest/run_all.py` | Orchestrates the ingesters. |
-| `bse/` | Document fetcher (client, classifier, scrip_codes, fetcher) — pulls IP + transcript PDFs from BSE corporate announcements. |
-
-### ⚠ Known tech debt
-- **Duplicate ingesters**: `app/bse_results_ingester.py`, `app/fundamentals_ingester.py`, `app/price_ingester.py`, `app/run_all.py` appear to be stale copies of the `app/ingest/` versions. Confirm which are imported, delete the dead ones.
-- **`QuarterlyDocument.bse_filing_date` is NULL**: BSE's `DT_TM` format with fractional seconds (`2026-05-20T16:29:09.75`) isn't parsed. Fix in `bse/client.py:parse_filing_date`.
-- **yfinance reliability**: convenient for a live tick, unreliable for the financials a valuation depends on. Treat as last-resort tier, never authoritative.
-
----
-
-## 4. Target architecture by layer
-
-### Ingestion (the foundation, and the hardest)
-Source trust hierarchy:
-1. **Company XBRL filings (BSE/NSE)** — authoritative. Messy: taxonomies shift, companies file inconsistently. This is where accuracy is won or lost.
-2. **Investor presentations + concall transcripts** — now flowing via `bse/`. Narrative + management guidance + segment detail.
-3. **Price / market data** — yfinance convenient but unreliable for Indian tickers (stale prices, wrong splits). Needs a better tier eventually.
-
-The job isn't just to *pull* — it's pull → **validate** → **normalize** → **store with provenance**.
-
-### Storage
-- **Postgres**: structured numbers (companies, financials, prices, snapshots, doc metadata).
-- **R2**: source PDFs (IP, transcript). Every computed number should point back to its source filing.
-
-### Normalization
-The `template_code` system. More load-bearing than it looks — it routes every company to the right P&L shape, the right ratios, and (critically) the right valuation model.
-
-### Computation — the sector-correct valuation rule
-**You cannot DCF a bank or NBFC the way you DCF a manufacturer.** For a lender, debt is raw
-material, not financing — free-cash-flow DCF is meaningless. Financials need:
-- Residual income / excess-return-on-equity models, OR
-- P/B-vs-ROE regression, OR
-- Dividend discount / Gordon growth on sustainable ROE.
-
-Manufacturers/consumer/pharma/energy use FCFF DCF + EV/EBITDA + P/E multiples. The template
-system routes each company to the correct engine. **This is where amateur terminals get it
-embarrassingly wrong** — and where your NBFC expertise is the edge.
-
-### Intelligence
-LLM sits **on top of** verified data. It narrates and synthesizes; the numbers it uses come
-from the validated store, not from the model's own reading of a PDF. That separation is what
-keeps it trustworthy. Three jobs: extract structured data from IP/transcript → render the
-one-pager → write the thesis.
-
----
-
-## 5. The data-accuracy spine
-
-Four principles, baked in — not bolted on:
-
-1. **Authoritative source, always.** Numbers from XBRL filings, not scraped aggregators.
-   yfinance is fine for a price tick; not for financials you value a company on.
-
-2. **Provenance on every number.** Each stored figure carries where it came from — which
-   filing, which line item, what date. When a number looks wrong, trace it in one click.
-   *This is literally what separates an institutional tool from a hobby project.*
-
-3. **Validation, not blind trust.** Compute the same thing multiple ways and flag mismatches:
-   - Does the balance sheet balance?
-   - Does PAT reconcile P&L → cash-flow opening line?
-   - Does AUM × yield ≈ interest income?
-   When these don't tie out, the terminal **says so** rather than silently showing a wrong
-   number. (You already do this manually on one-pagers — we systematize it.)
-
-4. **Human override with audit.** When automated parsing gets something wrong (it will), you
-   correct it, and the correction is logged. The system gets more accurate over time instead
-   of repeating the same error.
-
-Get this layer right and "accurate enough for serious research" is achievable on free sources.
-Skip it and no amount of UI polish saves it.
-
----
-
-## 6. Build philosophy — vertical slices, NBFC-first
-
-Do **not** build each horizontal layer fully before connecting anything. Build thin vertical
-slices that exercise every layer end-to-end, get them correct for NBFCs, then widen.
-
-The one-pager work is exactly this: the first vertical slice through the Intelligence layer.
-It forced real chunks of Ingestion (BSE fetcher) and Storage (R2 + QuarterlyDocument) into
-existence along the way. That's the right pattern.
-
-**Scope discipline > ambition.** The fastest way to kill this project is to chase breadth.
-NBFCs end-to-end and excellent, then expand to banks, then the rest.
-
----
-
-## 7. Roadmap
-
-### Done ✓
-- FastAPI + Postgres + Vercel skeleton
-- Sector templates (`template_code`) + classifier
-- Sector-aware financials endpoint
-- Valuation engines (ported from frontend)
-- XBRL / price / fundamentals ingesters
-- News (paused for cost via `NEWS_LLM_ENABLED`)
-- Thesis generator
-- **B2: BSE document fetcher → R2** (IP + transcript, idempotent, verified on Muthoot Q4FY26)
-
-### In progress — the premium one-pager vertical slice
-- **B3** — Backfill: all NBFCs × last N quarters of IP + transcript into R2.
-- **B4** — Extraction: IP + transcript PDFs → structured JSON via Claude (numbers verified against the financials store, not taken from the model's reading).
-- **B5** — Render: sector-specific HTML templates (NBFC first) → Playwright → A4 PDF. Brand-color matched to the deck.
-- **B6** — Frontend: "Generate Premium One-Pager" button with quarter dropdown (auto-detect latest).
-
-### Next slices (sequenced, not parallel)
-- **Accuracy spine v1**: provenance columns + validation checks (balance-sheet tie-out, PAT reconciliation, AUM×yield sanity) with a "numbers don't tie" flag in the UI.
-- **Sector-correct valuation v1**: route NBFC/BANK to residual-income / P-B-vs-ROE; keep FCFF for non-financials. Surface the model choice in the UI so it's never a black box.
-- **Peer comparison**: NBFC vs NBFC on the metrics that matter (NIM, ROA, ROE, GNPA, C/I, AUM growth, CRAR).
-- **Screener**: filter the NBFC universe on those same metrics.
-- **Human override + audit**: editable numbers with a change log.
-- **Tech-debt cleanup**: delete duplicate ingesters; fix `bse_filing_date` parsing.
-
-### Later (deliberately deferred)
-- Bank template end-to-end (after NBFC is excellent)
-- Remaining sectors (IT, pharma, consumer, energy)
-- Better price-data tier than yfinance
-- Alerting on new filings (auto-generate one-pager when a result drops)
-
----
-
-## 8. Operating constraints
-
-- **Build/deploy loop**: code is written and sandbox-tested, then applied through your terminal.
-  You own all credentials and dashboards (Railway, Cloudflare, GitHub). This is correct for
-  something handling production financial data — secrets never pass through chat.
-- **Data accuracy is continuous**, not a milestone. Indian filings are messy; we'll be fixing
-  parsing edge cases for as long as this project lives. Budget for it.
-- **Cost discipline**: LLM calls cost money (the reason news is paused). Every LLM feature gets
-  a flag and a cost estimate before it ships.
-
----
-
-## 9. Environment / infra reference
-
-| Thing | Where |
-|-------|-------|
-| Backend | Railway — `equity-terminal-backend` service |
-| Database | Railway Postgres (`DATABASE_URL`, `DATABASE_PUBLIC_URL`) |
-| Doc storage | Cloudflare R2 — bucket `equity-terminal-docs` |
-| Frontend | Vercel (React/Vite) |
-| Repo (backend) | `github.com/Manan-Jagtap/equity-terminal-backend` |
-| Repo (frontend) | `github.com/Manan-Jagtap/equity-terminal` |
-| LLM | Anthropic API (`ANTHROPIC_API_KEY`) — thesis + (paused) news + (coming) one-pager |
-
-### Env vars (Railway backend)
-```
-DATABASE_URL              # Postgres (internal)
-ANTHROPIC_API_KEY         # Claude
-MARKETAUX_API_KEY         # news fallback
-NEWS_LLM_ENABLED          # false = news LLM paused (cost control)
-R2_ACCOUNT_ID             # 32-char hex ONLY (not the full endpoint URL)
-R2_ACCESS_KEY_ID
-R2_SECRET_ACCESS_KEY
-R2_BUCKET                 # equity-terminal-docs
+  SPA -- "REST · Bearer" --> WEB
+  WEB --> PG
+  WEB --> R2
+  WEB -. "on-demand: news · live · transcripts" .-> IA
+  WEB -.-> DH
+  WEB -.-> PDF
+  SCH --> PG
+  SCH --> IA
+  SCH --> DH
+  SCH --> NSE
+  SCH --> MAC
 ```
 
+**Process rule:** web and scheduler are separate OS processes that share state **only via
+Postgres** (including the `kv_store` key→JSON table). Module-level caches are per-process;
+anything the web path must see fresh is re-read from the DB or schema-stamped
+(`ENGINE_SCHEMA` on the FM evidence blob forces a boot rebuild when stale).
+
 ---
 
-*Keep this file honest. If the code and this document disagree, one of them is a bug.*
+## 3. The valuation pipeline (the product's spine)
+
+One deterministic path from a company's own filed statements to a verdict. No vendor
+target anchoring; every assumption is derived, clamped, and disclosed (`_drivers`
+provenance strings on each number).
+
+```mermaid
+graph TB
+  ST["historical_financials<br/>5–7y PL / BS / CF"] --> ASM
+  FF["financial_facts<br/>latest snapshot"] --> ASM
+  ASM["assemble.build_company<br/>+ statement-integrity gate"] --> DRV
+  SP["sector_params — 25 sectors<br/>live 10Y G-sec refresh"] --> DRV
+  BETA["beta.py<br/>regression β shrunk to sector"] --> DRV
+  DRV["derive.derive_assumptions<br/>growth · through-cycle margins · tax<br/>ROIC → reinvest (g/ROIC) · CAP fade years<br/>ROE grounded near latest realized"] --> ENG
+  ENG{"engines.valuate"}
+  ENG -->|financial| RI["Residual Income<br/>NPA book haircut · N1 = 0.6N"]
+  ENG -->|non-financial| FCFF["3-stage FCFF DCF<br/>WACC floor g+3% · margin glide"]
+  RI --> XC
+  FCFF --> XC
+  XC["cross-checks<br/>Gordon P/B · fwd exit EV/EBITDA<br/>fwd sector P/E · DDM"] --> BL
+  ALT["alt_models override<br/>verified segment SOTP (Ind-AS 108 store)<br/>→ illustrative presets → insurer P/EV"] --> BL
+  BL["blended<br/>cross-checks capped to 0.5–2.2× primary"] --> GATES
+  GATES["recommend gates<br/>data confidence · suspect MoS<br/>loss-maker guard · lender MoS ≥ 80% → LOW CONF"] --> OUT
+  OUT["verdict + MoS + confidence<br/>valuations table · screener · company page"]
+```
+
+**Conglomerates & insurers:** `alt_models.alternative_intrinsic` overrides the blend for
+names a single-engine model mis-prices. Precedence: **verified segment store**
+(`segment_sotp.py`, entered in-app from the filing's Ind-AS 108 table, segment EBIT ×
+sector multiple + listed stakes at market value) → illustrative SOTP presets → insurer
+P/EV appraisal. Always capped at MEDIUM confidence.
+
+### One math core, two parity contracts
+
+The SPA carries bit-faithful ports so every client-computed number reconciles with the
+backend (fallback screener, DCF sliders, Monte Carlo, reverse DCF):
+
+| Contract | Files | Harness | Must print |
+|---|---|---|---|
+| Engine | `src/lib/engine.js` ↔ `app/engines.py` + `sector_params` | `python tests/gen_parity_cases.py <fe>/tests/parityCases.json` → `node tests/engineParity.mjs` | **60/60** |
+| Derive | `src/lib/derive.js` ↔ `app/derive.py` | `python tests/gen_derive_cases.py <fe>/tests/deriveCases.json` → `node tests/deriveParity.mjs` | **48/48** |
+
+Re-run **both** after touching `engines.py`, `derive.py`, or `sector_params.py`.
+`valuation.js` is a thin adapter over this core (the old second client engine was
+collapsed 17 Jul 2026); `recommend.js` is the client trust layer and mirrors the
+backend's lender-divergence gate.
+
+---
+
+## 4. Fund Manager v4 (evidence layer)
+
+Triangulates evidence instead of trusting any one model: model FV × analyst consensus ×
+the name's own 5-yr P/E–P/B bands, forensic quality, ownership flow, results momentum,
+technicals, catalysts, news red-flags, macro regime. Suspect models are **set aside and
+disclosed**, never silently reweighted.
+
+- `manager_engine.py` — nightly evidence blob (`kv: fm_evidence_v1`, versioned by
+  `ENGINE_SCHEMA`), conviction scoring, macro regime.
+- `manager_calibration.py` — monthly Spearman-IC weight calibration on 5-yr history,
+  walk-forward out-of-sample (`fm_calibration_v1`).
+- `hidden_gems.py` — small/mid quality screen with hard honesty gates (symmetric
+  extreme-MoS guard: a huge model gap on an under-covered name is treated as model
+  error, not opportunity).
+- `engine_calls` — the engine's own gradeable nightly ledger (public track record).
+- Concall intelligence is **rules-based**: `transcript_ingester.py` fetches the PDF,
+  extracts guidance/margins/capex/demand/risks + a lexicon tone score (boilerplate
+  filtered), feeding sentiment (one of 4 legs) and FM conviction. No LLM.
+- Leverage policy (deliberate): the manager never recommends pledging/borrowing to
+  invest — capital rotation instead.
+
+## 5. Scheduler (all times UTC; IST = UTC+5:30)
+
+| Time (UTC) | Job |
+|---|---|
+| Mon–Fri 10:15 | EOD price refresh (full visible set) + Dhan top-up + verdict snapshots |
+| Mon–Fri 10:45 | Missing-history backfill |
+| Mon–Fri 11:15 | FM evidence rebuild (`fm_evidence_v1`) |
+| Daily 01:00 | Transcript ingest (bounded slice; book cycles ~weekly) |
+| Daily 02:00 | Regulatory RSS (RBI + SEBI) |
+| Daily 02:30 | NSE flows (FII/DII, insider, pledge, bulk/block) |
+| Every 90 min, 03:45–10:05 | Intraday spot prices (market hours; 1 request) |
+| Fri 21:00 | FM calibration (monthly, first Friday) |
+| Fri 21:30 | Universe refresh (monthly, first Friday) |
+| Fri 22:30 | Results calendar (board meetings) |
+| Sun 00:30 | Weekly full refresh (rolling fundamentals cohort) |
+| Sun 23:30 | Macro refresh (DBIE / OGD / MoSPI, env-gated) |
+
+## 6. Data model (Postgres; `app/models.py`)
+
+| Group | Tables |
+|---|---|
+| Identity & audit | `users`, `auth_events` |
+| Universe & fundamentals | `companies`, `financial_facts`, `historical_financials`, `company_insights` (JSON blob: analyst, forecasts, peers, ratios, docs, ownership, results) |
+| Prices | `market_snapshots` (latest), `historical_prices` (5-yr OHLCV, unique `(company_id, date)`), `price_points` |
+| Model outputs | `valuations` (precomputed screener), `verdict_snapshots` + `engine_calls` (track record), `alpha_snapshots`, `consensus_snapshots`, `transcript_insights` |
+| User state | `portfolio_holdings`, `watchlist_items`, `saved_scenarios` (HMAC share links), `saved_screens` |
+| Shared KV (`kv_store`) | FM evidence/calibration · verified segment SOTP (`segment_financials_v1`) · news sentiment · NSE feeds (insider/pledge/bulk-block) · regulatory feed · macro overlay · digest snapshots · investable cash · shared Dhan token |
+| Documents & ops | `quarterly_documents` (R2 keys), `corporate_actions`, `api_usage` |
+
+## 7. API surface (26 routers, `app/main.py`)
+
+- **Public research:** companies list/detail, financials, history, market, profile,
+  news, documents (+ rules-based transcript summary), ownership, results, operations,
+  compare, IPO, MF, intraday, macro/economy, backtest (read), quality, logo.
+- **Authenticated (Bearer):** auth, portfolio (+ digest / analysis / xray / cash),
+  watchlist, scenarios, screens, Dhan sync, exports (Excel / one-pager PDF).
+- **Admin (`ADMIN_EMAILS`, every route `require_admin`, fails closed):** users &
+  auth events, ingestion triggers (backfill, transcripts, NSE flows, macro upload),
+  segment financials (GET/POST/DELETE), BSE fetch, backtest snapshot, engine rebuild.
+- Retired stubs kept for contract stability: `/thesis` and the LLM-era
+  transcript-summary shape both return an honest "retired/unavailable".
+
+## 8. Security posture (post-audit, 17 Jul 2026)
+
+- **Auth:** HMAC-SHA256 tokens (constant-time compare, enforced expiry), Bearer header,
+  PBKDF2-260k passwords. `AUTH_SECRET` **fails fast in prod** if unset.
+- **Rate limiting:** per-IP sliding window (240/min general, 10/min auth). Client IP is
+  taken `TRUSTED_PROXY_HOPS` (default 1) from the **right** of `X-Forwarded-For`
+  (the leftmost hop is client-spoofable); buckets are swept and capped.
+- **Object authorization:** every user-scoped query filters by `user_key` — no IDOR.
+- **SSRF guard:** outbound transcript fetches allow http/https to **public IPs only**
+  (loopback / RFC-1918 / link-local / metadata blocked), every redirect re-validated.
+- **Headers/CORS:** nosniff, X-Frame-Options DENY, strict referrer. CORS wildcard is
+  safe here: `allow_credentials=False` and auth is Bearer-only (no cookies).
+- **No SQL outside the ORM.** No LLM/external-AI calls anywhere.
+
+## 9. Environment variables
+
+| Var | Service | Notes |
+|---|---|---|
+| `AUTH_SECRET` | web | **mandatory in prod** — boot fails without it |
+| `ADMIN_EMAILS` | web | comma-separated admin allowlist (gate fails closed) |
+| `DATABASE_URL` | both | Postgres in prod; SQLite default locally |
+| `INDIANAPI_KEY` | both | sole fundamentals/news vendor (quota-budgeted) |
+| `DHAN_*` + TOTP vars | both | live prices, EOD, holdings; token self-renews via KV |
+| `TRUSTED_PROXY_HOPS` | web | default 1 (Railway edge); tune if real users hit 429s |
+| `RATE_LIMIT_GENERAL` / `RATE_LIMIT_AUTH` | web | defaults 240 / 10 per minute |
+| `FRONTEND_ORIGIN` | web | CORS pin (default `*`, safe — no credentials) |
+| `UNIVERSE_TIER` | both | `nifty100` (default) / `nifty250` / `nifty500` |
+| `OGD_KEY`, `OGD_WPI_URL`, `MOSPI_KEY`, `MOSPI_CPI_URL`, `MOSPI_IIP_URL` | scheduler | macro fetchers (owner-registered keys) |
+| `R2_*` | both | document store credentials |
+| `VITE_API_URL` | frontend | backend base URL (Vercel env) |
+
+## 10. Verification runbook
+
+```bash
+# backend (~/Downloads/backend; system python3 lacks deps — use venv313)
+venv313/bin/python -m pytest tests/ -q                       # must: 191+ pass
+venv313/bin/python tests/gen_parity_cases.py <fe>/tests/parityCases.json
+venv313/bin/python tests/gen_derive_cases.py <fe>/tests/deriveCases.json
+
+# frontend (~/equity-terminal)
+node tests/engineParity.mjs                                  # must: 60/60
+node tests/deriveParity.mjs                                  # must: 48/48
+npm run build
+
+# after EVERY backend push — before any feature-specific polling
+curl https://<railway-domain>/api/health                     # must: {"status":"ok"}
+```
+
+Conventions: never `git add -A` in the backend repo (untracked scratch files) — stage
+explicit paths. Keep this document synchronized when the system changes.
