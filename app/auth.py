@@ -30,11 +30,23 @@ _env_secret = os.getenv("AUTH_SECRET")
 if _env_secret:
     SECRET = _env_secret.encode("utf-8")
 else:
+    # In PRODUCTION (Postgres) an ephemeral secret is unsafe: every redeploy
+    # silently invalidates all sessions, and the instant anyone runs multiple
+    # workers each worker gets a DIFFERENT secret → tokens minted by one worker
+    # 401 at random on another. Fail fast so it can't ship that way (audit D6).
+    # Locally (SQLite/dev) a random per-process key is fine for convenience.
+    _db_url = os.getenv("DATABASE_URL", "")
+    _is_prod = _db_url.startswith("postgres") or os.getenv("RAILWAY_ENVIRONMENT")
+    if _is_prod:
+        raise RuntimeError(
+            "AUTH_SECRET must be set in production — refusing to start with an "
+            "ephemeral per-process secret (sessions would break across restarts "
+            "and workers). Set AUTH_SECRET in the environment."
+        )
     SECRET = os.urandom(32)
     logger.warning(
-        "AUTH_SECRET is not set — using a random per-process secret. "
-        "All sessions/tokens will be invalidated whenever the server restarts. "
-        "Set AUTH_SECRET in the environment for stable sessions."
+        "AUTH_SECRET is not set — using a random per-process secret (dev only). "
+        "All sessions/tokens will be invalidated whenever the server restarts."
     )
 
 

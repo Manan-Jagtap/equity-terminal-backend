@@ -10,10 +10,15 @@ from app.cross_check import check_row, DIVERGE_WARN
 TODAY = dt.date(2026, 7, 3)          # a Friday
 
 
+# The divergence compare only fires on SAME-TRADING-DAY prices: intraday the
+# snapshot leads the Dhan EOD history by a day, and comparing across days just
+# measures the day's move (a false-positive class the checker deliberately
+# removed). Divergence rows therefore use hist_date == snapshot_date; the
+# different-day quietness is locked by its own test below.
 def row(**kw):
     base = {"ticker": "TEST",
             "snapshot_price": 100.0, "snapshot_date": TODAY,
-            "hist_close": 100.0, "hist_date": TODAY - dt.timedelta(days=1)}
+            "hist_close": 100.0, "hist_date": TODAY}
     base.update(kw)
     return base
 
@@ -45,6 +50,16 @@ def test_split_shaped_divergence_alerts():
     r = check_row(row(snapshot_price=50.0), TODAY)    # -50% = 1:1 bonus shape
     assert r["status"] == "alert" and "DIVERGENT" in codes(r)
     print("  ok split-shaped alerts")
+
+
+def test_different_day_prices_never_compared():
+    # Intraday state: snapshot is today, Dhan history still holds yesterday's
+    # close. A big gap here is just today's move — must NOT flag DIVERGENT.
+    r = check_row(row(hist_date=TODAY - dt.timedelta(days=1),
+                      snapshot_price=110.0), TODAY)
+    assert "DIVERGENT" not in codes(r)
+    assert r["gap_pct"] is None
+    print("  ok cross-day compare suppressed")
 
 
 def test_stale_history_warns_and_skips_divergence():

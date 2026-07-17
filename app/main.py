@@ -117,12 +117,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """In-memory sliding 60s window per client IP.
 
     General routes: 240 req/min. Auth routes (/api/auth/...): 10 req/min so
-    credential stuffing / signup spam is throttled hard. Client identity is the
-    first X-Forwarded-For hop when present (we sit behind a proxy in prod),
-    else the socket peer."""
+    credential stuffing / signup spam is throttled hard.
+
+    Client identity: X-Forwarded-For is a client-SETTABLE header, so trusting its
+    leftmost hop let an attacker mint a fresh bucket per request (rotate the
+    header → the 10/min auth cap never trips → unlimited password guessing). We
+    trust only `TRUSTED_PROXY_HOPS` (default 1 — Railway's single edge proxy) hops
+    from the RIGHT of the chain; the hop just before our infra is the real client.
+    Fewer hops than expected → fall back to the socket peer."""
     WINDOW = 60.0
     GENERAL_LIMIT = int(os.getenv("RATE_LIMIT_GENERAL", "240"))
     AUTH_LIMIT = int(os.getenv("RATE_LIMIT_AUTH", "10"))
+    TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "1"))
+    MAX_KEYS = 50_000            # hard cap so spoofed keys can't OOM the process
 
     def __init__(self, app):
         super().__init__(app)
@@ -130,14 +137,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._general: dict[str, deque] = defaultdict(deque)
         self._auth: dict[str, deque] = defaultdict(deque)
 
-    @staticmethod
-    def _client_ip(request: Request) -> str:
+    @classmethod
+    def _client_ip(cls, request: Request) -> str:
+        peer = request.client.host if request.client else "unknown"
         fwd = request.headers.get("x-forwarded-for")
         if fwd:
-            first = fwd.split(",")[0].strip()
-            if first:
-                return first
-        return request.client.host if request.client else "unknown"
+            hops = [h.strip() for h in fwd.split(",") if h.strip()]
+            # Take the hop `TRUSTED_PROXY_HOPS` from the right — the address our
+            # trusted proxy actually observed, not the client-supplied leftmost.
+            idx = len(hops) - cls.TRUSTED_PROXY_HOPS
+            if 0 <= idx < len(hops):
+                return hops[idx]
+        return peer
 
     def _allow(self, bucket: dict, ip: str, limit: int, now: float) -> bool:
         q = bucket[ip]
@@ -149,11 +160,23 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         q.append(now)
         return True
 
+    def _sweep(self, bucket: dict, cutoff: float) -> None:
+        """Evict IP keys whose window has fully drained, so the dicts can't grow
+        without bound (spoofed or churning IPs otherwise leak one entry each)."""
+        for k in [k for k, q in bucket.items() if not q or q[-1] <= cutoff]:
+            del bucket[k]
+
     async def dispatch(self, request: Request, call_next):
         ip = self._client_ip(request)
         now = time.time()
         is_auth = request.url.path.startswith("/api/auth")
         with self._lock:
+            # Opportunistic GC when a bucket gets large — bounded work, keeps the
+            # maps from growing unbounded under a spoofed-IP flood.
+            if len(self._general) > self.MAX_KEYS or len(self._auth) > self.MAX_KEYS:
+                cutoff = now - self.WINDOW
+                self._sweep(self._general, cutoff)
+                self._sweep(self._auth, cutoff)
             ok = self._allow(self._general, ip, self.GENERAL_LIMIT, now)
             if ok and is_auth:
                 ok = self._allow(self._auth, ip, self.AUTH_LIMIT, now)
@@ -233,17 +256,20 @@ def _live_recommend(db, co):
         data = build_company(db, co)
         a = effective_assumptions(db, co, data)
         rec = engines.recommend(data, a)
+        # Extract inside the try: a missing 'fundamentals'/'confidence' key would
+        # otherwise raise a KeyError that escapes and 500s the WHOLE screener,
+        # not just this one row (audit D7).
+        f = rec.get("fundamentals") or {}
+        return {
+            "intrinsic": rec.get("intrinsic"), "mos": rec.get("mos"),
+            "verdict": rec.get("verdict"), "composite": rec.get("composite"),
+            "reliable": bool(rec.get("reliable")),
+            "confidence": (rec.get("confidence") or {}).get("level"),
+            "roe": f.get("roe"), "pb": f.get("pb"), "pe": f.get("pe"),
+            "valuation_sector": rec.get("valuation_sector"),
+        }
     except Exception:
         return None
-    f = rec["fundamentals"]
-    return {
-        "intrinsic": rec.get("intrinsic"), "mos": rec.get("mos"),
-        "verdict": rec.get("verdict"), "composite": rec.get("composite"),
-        "reliable": bool(rec.get("reliable")),
-        "confidence": rec["confidence"]["level"],
-        "roe": f["roe"], "pb": f["pb"], "pe": f["pe"],
-        "valuation_sector": rec.get("valuation_sector"),
-    }
 
 
 @app.get("/api/universe")

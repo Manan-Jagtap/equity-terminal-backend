@@ -38,7 +38,10 @@ def test_core_universe_is_the_quota_priced_set():
 
 
 def test_excluded_never_visible():
-    assert "INDIGO" in EXCLUDED_TICKERS
+    # The exclusion list is EMPTY by design since the full-universe expansion
+    # (INDIGO's data-quality hold was lifted); this locks the STRUCTURAL
+    # invariant — whatever is ever placed in EXCLUDED_TICKERS must be stripped
+    # from every tier and from the visible set — without pinning any name.
     for tier_set in _TIERS.values():
         assert not (tier_set - EXCLUDED_TICKERS) & EXCLUDED_TICKERS
     assert not VISIBLE_UNIVERSE & EXCLUDED_TICKERS
@@ -46,13 +49,12 @@ def test_excluded_never_visible():
 
 
 def test_default_tier_is_nifty100():
-    # This test runs without UNIVERSE_TIER set, so the safe default must hold.
-    # INDIGO is officially IN the Nifty 50 now, so the exclusion actively strips
-    # it: visible = core minus held-back names, and never equals bare core.
+    # This test runs without UNIVERSE_TIER set, so the safe default must hold:
+    # visible = core minus held-back names (exclusion set may be empty).
     if not os.getenv("UNIVERSE_TIER"):
         assert UNIVERSE_TIER == "nifty100"
         assert VISIBLE_UNIVERSE == CORE_UNIVERSE - EXCLUDED_TICKERS
-        assert "INDIGO" in CORE_UNIVERSE and "INDIGO" not in VISIBLE_UNIVERSE
+        assert "INDIGO" in CORE_UNIVERSE
     print("  ok default tier")
 
 

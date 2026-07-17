@@ -13,6 +13,9 @@ None and degrade to 'unavailable' — nothing is ever invented.
 from __future__ import annotations
 import re
 import io
+import ipaddress
+import socket
+from urllib.parse import urlparse
 
 import httpx
 
@@ -20,6 +23,40 @@ MAX_CHARS = 32000          # cap the extracted text handed to the rule extractor
 MAX_BYTES = 25 * 1024 * 1024   # skip absurdly large downloads
 MAX_PAGES = 60             # hard page cap so pdfplumber can't run away
 MIN_TEXT = 500             # below this we treat extraction as failed
+
+
+def _is_public_host(host: str) -> bool:
+    """True only if EVERY resolved IP for `host` is a routable public address.
+    Blocks SSRF to loopback / RFC-1918 / link-local (169.254.169.254 metadata) /
+    ULA / reserved ranges — the transcript URL comes from stored/vendor data and
+    could point (or redirect) at internal services (audit D3)."""
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return False
+    for info in infos:
+        ip = info[4][0]
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        if (addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
+            return False
+    return bool(infos)
+
+
+def _safe_url(url: str) -> bool:
+    """http/https scheme + a public, resolvable host."""
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.scheme not in ("http", "https") or not p.hostname:
+        return False
+    return _is_public_host(p.hostname)
 
 # Browser-like headers — BSE (AnnPdfOpen.aspx) STALLS header-less requests, which
 # is what hung the first version. UA + Referer make it serve the PDF normally.
@@ -37,10 +74,13 @@ def fetch_transcript_text(url: str) -> str | None:
     """Download a transcript (PDF or HTML) and extract text, capped at MAX_CHARS /
     MAX_PAGES. Bounded by _TIMEOUT. Returns None on any failure or if too little
     text is recovered (so the caller degrades to 'unavailable', never noise)."""
-    if not url or not str(url).lower().startswith("http"):
+    if not url or not _safe_url(str(url)):
         return None
     try:
-        with httpx.Client(timeout=_TIMEOUT, follow_redirects=True, headers=_HEADERS) as client:
+        # follow_redirects=False + manual, SSRF-revalidated redirect handling:
+        # an allowed public URL could 30x to an internal host, so every hop's
+        # target must pass _safe_url before we fetch it.
+        with httpx.Client(timeout=_TIMEOUT, follow_redirects=False, headers=_HEADERS) as client:
             # BSE's AnnPdfOpen.aspx only serves the PDF WITHIN a browser session —
             # prime cookies by hitting the site root first (best-effort, short).
             if "bseindia.com" in url.lower():
@@ -48,7 +88,19 @@ def fetch_transcript_text(url: str) -> str | None:
                     client.get("https://www.bseindia.com/", timeout=httpx.Timeout(8.0))
                 except Exception:
                     pass
-            r = client.get(url)
+            cur = str(url)
+            r = None
+            for _hop in range(5):
+                r = client.get(cur)
+                if r.is_redirect and r.headers.get("location"):
+                    nxt = str(r.next_request.url) if r.next_request else r.headers["location"]
+                    if not _safe_url(nxt):
+                        return None
+                    cur = nxt
+                    continue
+                break
+            if r is None:
+                return None
             r.raise_for_status()
             raw = r.content
         if not raw or len(raw) > MAX_BYTES:

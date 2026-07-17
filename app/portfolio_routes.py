@@ -325,14 +325,25 @@ def _build_items(db: Session, uk: str) -> list[dict]:
     holdings = (db.query(models.PortfolioHolding)
                   .filter_by(user_key=uk)
                   .join(models.Company).order_by(models.Company.ticker).all())
-    price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    # Scope every lookup to THIS user's holdings — a 3-name book must not load
+    # the entire MarketSnapshot / Valuation / CorporateAction tables (audit D8:
+    # latency & memory scaled with the universe, not the portfolio).
+    cids = [h.company_id for h in holdings]
+    if not cids:
+        return []
+    price_by = {m.company_id: m.price for m in
+                db.query(models.MarketSnapshot)
+                  .filter(models.MarketSnapshot.company_id.in_(cids)).all()}
     val_by = {}
     try:
-        val_by = {v.company_id: v for v in db.query(models.Valuation).all()}
+        val_by = {v.company_id: v for v in
+                  db.query(models.Valuation)
+                    .filter(models.Valuation.company_id.in_(cids)).all()}
     except Exception:
         db.rollback()
     actions_by: dict[int, list[dict]] = {}
-    for a in db.query(models.CorporateAction).all():
+    for a in (db.query(models.CorporateAction)
+                .filter(models.CorporateAction.company_id.in_(cids)).all()):
         actions_by.setdefault(a.company_id, []).append(
             {"action_type": a.action_type, "ex_date": a.ex_date,
              "value": a.value, "ratio": a.ratio})
@@ -764,11 +775,22 @@ def _get_cash(db, user_key: str):
     return (row.value or {}).get("amount") if row else None
 
 
+# The results calendar is UNIVERSE-GLOBAL (same for every user) but scanning all
+# Company + CompanyInsight rows is expensive — TTL-cache it so a portfolio page
+# view doesn't re-scan the whole insight blob table per request (audit D8).
+_RESULTS_DUE_CACHE: dict[int, tuple[float, dict]] = {}
+_RESULTS_DUE_TTL = 1800.0
+
+
 def _results_due(db, within_days: int = 12) -> dict:
     """{ticker: {date, days_away}} for names with a RESULTS board-meeting within
     `within_days` (or reported in the last 2), from the results calendar."""
     import datetime as _dt2
     import re as _re2
+    import time as _t
+    cached = _RESULTS_DUE_CACHE.get(within_days)
+    if cached and _t.time() - cached[0] < _RESULTS_DUE_TTL:
+        return cached[1]
     today = _dt2.date.today()
     out: dict[str, dict] = {}
     try:
@@ -792,6 +814,8 @@ def _results_due(db, within_days: int = 12) -> dict:
                         out[tk] = {"date": d.isoformat(), "days_away": days}
     except Exception:
         db.rollback()
+        return out          # don't cache a partial result from a failed scan
+    _RESULTS_DUE_CACHE[within_days] = (_t.time(), out)
     return out
 
 
@@ -961,9 +985,17 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     def _tax_notes(reasons):
         return [x for x in reasons if "LTCG" in x or "long-term" in x.lower()]
 
+    def _mom_reason(tk):
+        m = mom_by.get(tk)
+        return [f"trades {m} its 50-DMA"] if m in ("above", "below") else []
+
     def _score(action_name: str, tk: str, base_reasons: list[str]):
         """v4 conviction from evidence; falls back to a v3-style score for a
-        name the nightly evidence build hasn't covered."""
+        name the nightly evidence build hasn't covered. The fallback attaches
+        the LIVE intel (ownership flow, results momentum, 50-DMA) that the v4
+        evidence reasons would otherwise carry — the v4 rework had orphaned
+        _intel_reasons/mom_by entirely, so evidence-pending names silently lost
+        all flow/momentum context (and the 50-DMA query ran for nothing)."""
         ev = ev_names.get(tk)
         i = by_ticker.get(tk)
         w_in_book = (i["value"] / total) if (i and total) else None
@@ -973,12 +1005,14 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
             else:
                 cv, rs = conviction_add(ev, weights, macro)
             return cv, rs + _tax_notes(base_reasons), ev
-        # fallback (thin): old MoS-based path, marked as such
+        # fallback (thin): old MoS-based path, marked as such + live intel
         cv = 40
         mos = (i or {}).get("mos")
         if mos is not None:
             cv += min(20, int(abs(mos) * 30))
-        return max(10, min(70, cv)), base_reasons + ["evidence pending for this name"], None
+        reasons = (base_reasons + _intel_reasons(tk) + _mom_reason(tk)
+                   + ["evidence pending for this name"])
+        return max(10, min(70, cv)), reasons, None
 
     actions = []
     for r in analysis.get("recommendations", []):

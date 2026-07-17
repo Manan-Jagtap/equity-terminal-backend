@@ -38,10 +38,16 @@ def list_users(user: models.User = Depends(require_admin),
     last_seen = dict(db.query(models.AuthEvent.user_id, func.max(models.AuthEvent.created_at))
                        .filter(models.AuthEvent.event.in_(("login", "signup")))
                        .group_by(models.AuthEvent.user_id).all())
+    # Last-seen IP per user WITHOUT loading the whole auth_events table (audit
+    # D9): the row with the max created_at per user, via a correlated subquery.
+    _sub = (db.query(models.AuthEvent.user_id.label("uid"),
+                     func.max(models.AuthEvent.created_at).label("mx"))
+              .filter(models.AuthEvent.user_id.isnot(None))
+              .group_by(models.AuthEvent.user_id).subquery())
     last_ip = {}
     for ev in (db.query(models.AuthEvent)
-                 .filter(models.AuthEvent.user_id.isnot(None))
-                 .order_by(models.AuthEvent.created_at).all()):
+                 .join(_sub, (models.AuthEvent.user_id == _sub.c.uid)
+                       & (models.AuthEvent.created_at == _sub.c.mx)).all()):
         if ev.ip:
             last_ip[ev.user_id] = ev.ip
     users = db.query(models.User).order_by(models.User.created_at.desc()).all()

@@ -22,6 +22,8 @@ from app.bse.fetcher import fetch_quarterly_documents, quarter_window
 from app.bse.client import fetch_announcements
 from app.bse.classifier import classify_announcement
 from app.bse.scrip_codes import get_scrip_code
+from app.admin_routes import require_admin
+from app import models
 
 router = APIRouter(prefix="/api/bse", tags=["bse"])
 
@@ -79,8 +81,11 @@ def fetch(
     quarter: str = Query(..., description="e.g. Q4FY26"),
     force: bool = Query(False, description="Re-download even if cached in R2"),
     db: Session = Depends(get_db),
+    _admin: models.User = Depends(require_admin),
 ):
-    """Fetch + store IP + TRANSCRIPT for one ticker × quarter."""
+    """Fetch + store IP + TRANSCRIPT for one ticker × quarter. ADMIN-ONLY: it
+    triggers outbound BSE fetches, PDF downloads, R2 uploads and DB writes, so it
+    must not be anonymously abusable for cost/DoS (audit D4)."""
     result = fetch_quarterly_documents(db, ticker.upper(), quarter.upper(), force=force)
     return {
         "ticker": result.ticker,

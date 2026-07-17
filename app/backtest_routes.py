@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.backtest import compute_backtest, take_snapshots
+from app.admin_routes import require_admin
+from app import models
 
 router = APIRouter(prefix="/api", tags=["backtest"])
 
@@ -31,10 +33,11 @@ def backtest(db: Session = Depends(get_db)):
 
 
 @router.post("/backtest/snapshot")
-def snapshot_now(db: Session = Depends(get_db)):
+def snapshot_now(db: Session = Depends(get_db),
+                 _admin: models.User = Depends(require_admin)):
     """Manual snapshot trigger (idempotent per day). The scheduler does this
-    automatically after every EOD price refresh and boot recompute."""
-    from app import models
+    automatically after every EOD price refresh and boot recompute. ADMIN-ONLY
+    (it runs DDL + writes rows) — audit D5."""
     from app.database import engine
     models.VerdictSnapshot.__table__.create(bind=engine, checkfirst=True)
     n = take_snapshots(db)
