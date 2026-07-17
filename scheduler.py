@@ -671,6 +671,9 @@ log.info("Intraday prices: every 90 min during NSE market hours (IndianAPI, ~50 
 #                                tickers from IndianAPI, then recompute. Use this
 #                                to fix a single bad row (e.g. KOTAKBANK's split-
 #                                scaled price/shares) without touching the rest.
+#   RUN_BACKUP_NOW=true        → take an encrypted backup to R2 immediately
+#                                (verifies BACKUP_KEY end-to-end; used before the
+#                                AWS migration instead of waiting for Sunday).
 #
 _flag = lambda k: os.getenv(k, "").strip().lower() in ("1", "true", "yes")
 
@@ -686,6 +689,11 @@ if _reingest:
             log.error(f"  re-ingest {t} failed: {e}")
     run_compute(nifty50=True)
     log.info("Re-ingest + recompute done. Remove RUN_REINGEST_TICKERS from Variables now.")
+elif _flag("RUN_BACKUP_NOW"):
+    log.info("RUN_BACKUP_NOW set — taking an encrypted backup now…")
+    run_encrypted_backup()
+    log.info("Backup attempt finished (see the 'encrypted backup:' line above "
+             "for ok/skipped/error). Remove RUN_BACKUP_NOW from Variables now.")
 elif _flag("RUN_PROBE_ENDPOINTS"):
     # One-off shape probe for the not-yet-leveraged IndianAPI endpoints. Prints
     # compact response shapes to the logs; writes nothing. Remove the flag after.
