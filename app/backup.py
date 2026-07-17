@@ -112,6 +112,20 @@ def restore_tables(dumps: dict[str, bytes], truncate: bool = True) -> dict[str, 
             for i in range(0, len(rows), 1000):
                 conn.execute(table.insert(), rows[i:i + 1000])
             counts[table.name] = len(rows)
+        # Rows were inserted WITH their original ids, which leaves Postgres
+        # sequences behind max(id) — every later INSERT would collide. Resync.
+        if conn.dialect.name == "postgresql":
+            from sqlalchemy import text
+            for table in Base.metadata.sorted_tables:
+                if table.name not in dumps or "id" not in table.c:
+                    continue
+                seq = conn.execute(
+                    text(f"select pg_get_serial_sequence('{table.name}','id')")
+                ).scalar()
+                if seq:
+                    conn.execute(text(
+                        f"select setval('{seq}', (select coalesce(max(id),1) from {table.name}))"
+                    ))
     return counts
 
 
