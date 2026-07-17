@@ -299,3 +299,45 @@ NO CALL in the fallback screener; zero console errors.
   math exact, badge, revert note). Owner can now upgrade RELIANCE/LT/GRASIM/
   VEDL/… from illustrative presets to reported numbers in ~5 rows each,
   in-app, no curl.
+
+## Addendum 7 — 17 July 2026 (ENTERPRISE AUDIT — findings + fixes)
+A full-platform audit: baseline test/build/parity, two parallel code-review
+agents (backend security + frontend), independent re-derivation of every
+financial formula, a scripted 1001-name data sweep, and a browser/mobile pass.
+**Backend security/perf (all deployed + smoke-verified):**
+- Rate limiter no longer trusts the client-settable `X-Forwarded-For` leftmost
+  hop (auth throttle was bypassable) — trusts `TRUSTED_PROXY_HOPS` from the
+  right; buckets are now swept/capped (was unbounded → memory DoS).
+- SSRF guard on `fetch_transcript_text`: scheme + public-IP allowlist (blocks
+  loopback/RFC-1918/link-local/metadata), every redirect hop re-validated.
+- `POST /api/bse/fetch/{ticker}` and `POST /api/backtest/snapshot` now
+  `require_admin` (were anonymous state-changers).
+- `AUTH_SECRET` ephemeral fallback FAILS FAST in prod (was silently breaking
+  sessions across restarts/workers).
+- `_live_recommend` key extraction moved inside its try (a KeyError could 500 the
+  whole screener); portfolio scans scoped to the holding company_ids +
+  `_results_due` TTL-cached (was loading whole tables per request); admin
+  last-IP via a correlated subquery (was loading all auth_events).
+- `manager_report` fallback reattached orphaned ownership-flow / results /
+  50-DMA reasons (the v4 rework had dropped them).
+**Frontend (all deployed):**
+- **P1 refetch loops killed:** Screener and ScenarioBar called `getUser()` in
+  render and keyed an effect on the fresh object → `/api/screens` and
+  `/api/scenarios` refetched on EVERY commit for every signed-in user. Keyed on
+  a stable identity string.
+- **52W range + ADV fixed:** the header's price series dropped high/low/volume,
+  so 52W High/Low silently used min/max of closes (disagreeing with the Chart
+  tab) and the ADV chip never rendered. OHLCV now carried through.
+- Dead code removed (`buildDCF`), DCFModel perf traps fixed (memoized base
+  derivation, single `aKey`), shared live poller now tears down on last
+  unsubscribe, NewsTab stale-response guard.
+**Financial math (AUDIT B):** every formula independently re-derived — RI, FCFF,
+Gordon P/B, exit EV/EBITDA, sector P/E (fin+nonfin), blend + [0.5,2.2]× caps,
+XIRR, max-drawdown, VaR, options payoff/breakevens, tax STCG/LTCG + set-off. All
+match to 1e-6. **No math bugs.** (Parity 60/60 + 48/48 proves client==server.)
+**Data (AUDIT C, 1001 names):** verdict/MoS coherent on ALL 1001 (0 incoherent);
+every absurd-intrinsic name is correctly LOW-CONF gated; 145 un-ingested stubs
+return NO DATA with no per-share number (coverage gap = owner backfill, not a
+bug). Cosmetic fix: `/api/companies` emits `shares:null` (not 0) for stubs.
+Baseline: backend pytest 191 pass (was 182/8-fail — stale tests updated to
+shipped behavior), frontend build clean, both parity harnesses green.

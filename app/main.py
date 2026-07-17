@@ -503,7 +503,11 @@ def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
 
         rows.append({
             "ticker": co.ticker, "name": co.name, "sector": co.sector, "type": co.type,
-            "shares": co.shares_outstanding,
+            # Emit shares as null (not 0) when unknown — 0 is false precision for
+            # the ~145 un-ingested stubs and would divide-to-zero any client that
+            # forgot to guard it (audit C data-hygiene). The engine already gates
+            # shares>0 and returns NO DATA for these.
+            "shares": co.shares_outstanding if (co.shares_outstanding or 0) > 0 else None,
             "equity": facts.get(K.NET_WORTH), "net_profit": facts.get(K.NET_PROFIT),
             "revenue": facts.get(K.REVENUE), "net_debt": facts.get(K.NET_DEBT),
             "aum": facts.get(K.AUM), "gnpa": facts.get(K.GNPA), "nnpa": facts.get(K.NNPA),
