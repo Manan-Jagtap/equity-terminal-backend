@@ -3,7 +3,7 @@ on a synthetic bad row and stay quiet on a clean one."""
 import os, sys
 import datetime as dt
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+os.environ["DATABASE_URL"] = "sqlite:////tmp/_pytest_integrity.db"
 
 import pytest
 from app.database import Base, engine, SessionLocal

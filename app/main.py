@@ -23,18 +23,6 @@ from .consensus import analyst_consensus
 from .schemas import AssumptionOverride
 from . import concepts as K
 
-# Error telemetry — armed only when SENTRY_DSN is set (free tier is enough).
-# Unhandled exceptions in any route then reach a human instead of dying in logs;
-# without the env var this is a no-op and adds nothing to the request path.
-if os.getenv("SENTRY_DSN"):
-    try:
-        import sentry_sdk
-        sentry_sdk.init(dsn=os.getenv("SENTRY_DSN"),
-                        traces_sample_rate=0.0,        # errors only, no perf spans
-                        send_default_pii=False)
-    except Exception:
-        pass
-
 Base.metadata.create_all(bind=engine)
 
 # create_all never ALTERs existing tables — additive columns need a nudge.
@@ -206,6 +194,30 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class ErrorCaptureMiddleware(BaseHTTPMiddleware):
+    """SELF-OWNED error telemetry (app/error_log.py) — records unhandled
+    exceptions to our own DB ring buffer, then re-raises unchanged. Chosen over
+    a third-party APM for the DPDP data-residency posture: nothing leaves the
+    stack. /api/health surfaces the trailing-hour count; the uptime workflow
+    thresholds it so an error storm emails the owner like downtime does."""
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception as exc:
+            try:
+                from app.database import SessionLocal
+                from app.error_log import record_error
+                _db = SessionLocal()
+                try:
+                    record_error(_db, request.url.path, exc)
+                finally:
+                    _db.close()
+            except Exception:
+                pass
+            raise
+
+
+app.add_middleware(ErrorCaptureMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
@@ -220,8 +232,15 @@ app.add_middleware(
 
 
 @app.get("/api/health")
-def health():
-    return {"status": "ok"}
+def health(db: Session = Depends(get_db)):
+    """Liveness + the trailing-hour unhandled-error count (a bare number — safe
+    to expose; the uptime workflow alerts when it spikes)."""
+    from app.error_log import errors_last_hour
+    try:
+        errs = errors_last_hour(db)
+    except Exception:
+        errs = None
+    return {"status": "ok", "errors_1h": errs}
 
 
 def _latest_facts(db, company_id):

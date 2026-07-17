@@ -15,4 +15,3 @@ openpyxl==3.1.5
 python-multipart==0.0.20
 httpx
 dnspython
-sentry-sdk[fastapi]==2.35.0

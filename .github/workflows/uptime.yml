@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Probe /api/health (3 attempts, 30s apart)
+      - name: Probe /api/health (3 attempts, 30s apart) + error-storm threshold
         run: |
           URL="https://equity-terminal-backend-production.up.railway.app/api/health"
           for i in 1 2 3; do
@@ -23,6 +23,15 @@ jobs:
             body=$(cat /tmp/h.json 2>/dev/null)
             echo "attempt $i: HTTP $code $body"
             if [ "$code" = "200" ] && echo "$body" | grep -q '"ok"'; then
+              # Self-owned error telemetry: errors_1h is the trailing-hour count
+              # of unhandled exceptions (app/error_log.py — data stays in OUR
+              # DB; no third-party APM by DPDP posture). A storm alerts like
+              # downtime does.
+              errs=$(echo "$body" | jq -r '.errors_1h // 0' 2>/dev/null || echo 0)
+              if [ "$errs" != "null" ] && [ "$errs" -gt 25 ] 2>/dev/null; then
+                echo "::error::Health is 200 but errors_1h=$errs exceeds threshold 25 — error storm"
+                exit 1
+              fi
               exit 0
             fi
             sleep 30

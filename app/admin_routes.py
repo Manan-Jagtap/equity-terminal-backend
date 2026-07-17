@@ -242,6 +242,16 @@ def segment_refresh(body: SegmentRefresh,
             "sotp": compute_sotp(segs, nd, sh)}
 
 
+@router.get("/errors")
+def recent_error_log(_admin: models.User = Depends(require_admin),
+                     db: Session = Depends(get_db)):
+    """Self-owned error telemetry: the most recent unhandled exceptions (newest
+    first) from the DB ring buffer — timestamp, path (no query string),
+    exception class, truncated message. Never IPs/users/bodies."""
+    from app.error_log import recent_errors, errors_last_hour
+    return {"errors_1h": errors_last_hour(db), "recent": recent_errors(db)}
+
+
 @router.get("/data-integrity")
 def data_integrity(_admin: models.User = Depends(require_admin),
                    db: Session = Depends(get_db)):
