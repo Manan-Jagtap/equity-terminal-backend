@@ -247,8 +247,21 @@ curl https://<railway-domain>/api/health                     # must: {"status":"
 GitHub Actions on every push/PR run the backend suite + parity generators
 (backend repo) and both parity harnesses + build + a Playwright runtime smoke in
 seed mode (frontend repo). A separate 30-min cron workflow probes prod
-`/api/health` and fails (→ GitHub email) when it isn't 200. Backend error
-telemetry arms itself when `SENTRY_DSN` is set (no-op otherwise).
+`/api/health` and fails (→ GitHub email) when it isn't 200 **or** when
+`errors_1h` exceeds 25 (error storm).
+
+**Error telemetry is SELF-OWNED (DPDP posture — no external processor):**
+`app/error_log.py` records unhandled exceptions into a capped ring buffer in
+`kv_store` (timestamp, query-stripped path, exception class, truncated message
+— never IPs/users/bodies); `/api/health` exposes the trailing-hour count and
+`GET /api/admin/errors` the recent entries.
+
+**Parity-fixture sync is AUTOMATED:** a pre-push hook
+(`scripts/hooks/pre-push`, installed at `.git/hooks/pre-push`; reinstall after
+a fresh clone) detects outgoing changes to `engines.py` / `derive.py` /
+`sector_params.py` and runs `scripts/sync_parity_fixtures.sh` — regenerate →
+verify 60/60 + 48/48 → auto-commit + push the frontend fixtures. A harness
+mismatch blocks the backend push.
 
 Conventions: never `git add -A` in the backend repo (untracked scratch files) — stage
 explicit paths. Keep this document synchronized when the system changes.
