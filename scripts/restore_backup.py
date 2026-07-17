@@ -36,15 +36,24 @@ def main():
         print("BACKUP_KEY is not set — cannot decrypt.")
         sys.exit(2)
 
-    objs = [o["Key"] for o in list_objects(f"{PREFIX}{date}/", max_keys=1000)
-            if o.get("Key", "").endswith(".jsonl.gz.enc")]
+    objs = [o["key"] for o in list_objects(f"{PREFIX}{date}/", max_keys=1000)
+            if o.get("key", "").endswith(".jsonl.gz.enc")]
     if not objs:
         print(f"No backup objects found under {PREFIX}{date}/ — check the date and R2_* env.")
         sys.exit(1)
 
+    # Populate Base.metadata (restore_tables iterates sorted_tables) and make
+    # sure the target schema exists — for a fresh DB (AWS cutover) the tables
+    # won't be there yet. create_all is idempotent: it only adds missing tables.
+    from app import models  # noqa: F401  (registers ORM tables on Base.metadata)
+    from app.database import Base, engine
+    Base.metadata.create_all(engine)
+
+    target = os.getenv("DATABASE_URL", "sqlite default")
+    if "@" in target:  # never print DB credentials
+        target = target.split("@", 1)[1]
     print(f"Restoring {len(objs)} tables from {date} "
-          f"({'TRUNCATE then insert' if truncate else 'append'}) into "
-          f"{os.getenv('DATABASE_URL', 'sqlite default')}")
+          f"({'TRUNCATE then insert' if truncate else 'append'}) into {target}")
     dumps = {}
     for key in objs:
         name = key.split("/")[-1].replace(".jsonl.gz.enc", "")

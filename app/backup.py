@@ -139,11 +139,11 @@ def run_backup() -> dict:
                      f.encrypt(json.dumps(manifest).encode()),
                      content_type="application/octet-stream")
         # Retention: keep the newest KEEP date-prefixes.
-        dates = sorted({o["Key"].split("/")[1] for o in list_objects(PREFIX, max_keys=1000)
-                        if o.get("Key", "").count("/") >= 2})
+        dates = sorted({o["key"].split("/")[1] for o in list_objects(PREFIX, max_keys=1000)
+                        if o.get("key", "").count("/") >= 2})
         for old in dates[:-KEEP]:
             for o in list_objects(f"{PREFIX}{old}/", max_keys=1000):
-                delete_object(o["Key"])
+                delete_object(o["key"])
             log.info(f"backup: pruned {old}")
         log.info(f"backup: {date} complete — {len(dumps)} tables, {total//1024//1024} MB encrypted")
         return {"status": "ok", "date": date, "tables": len(dumps), "bytes_enc": total}
