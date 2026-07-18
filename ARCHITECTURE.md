@@ -1,6 +1,6 @@
-# Equity Terminal — System Architecture
+# EquityVerdict — System Architecture
 
-> Living document. Reflects the codebase as of **17 Jul 2026** (post enterprise-audit).
+> Living document. Reflects the codebase as of **18 Jul 2026** (post AWS-Mumbai migration + EquityVerdict rebrand).
 > Anyone — you, a collaborator, or an assistant in a fresh session — should be able to read
 > this and understand what exists, why, and how it fits, without re-deriving it from code.
 > Companions: [HANDOFF.md](HANDOFF.md) (operating guide) · [CHANGES_2026-07.md](CHANGES_2026-07.md)
@@ -26,15 +26,24 @@ Two rules govern everything:
 
 ## 2. System context
 
-Two repos, three services, one Postgres:
+Two repos, one EC2 box (three containers), one RDS Postgres — all AWS
+resources in **ap-south-1 (Mumbai)** for DPDP data residency. Production
+domain: **equityverdict.com** (GoDaddy DNS; apex+www → Vercel, `api` →
+EC2 Elastic IP `3.6.183.42`).
 
 | Piece | Repo | Host | Deploy |
 |---|---|---|---|
-| Frontend SPA | `~/equity-terminal` (React 18 + Vite) | Vercel | `git push main` → auto |
-| Backend API (`web`) | `~/Downloads/backend` (FastAPI, 1× uvicorn) | Railway | `git push main` → auto; smoke `/api/health` after every push |
-| Scheduler | same backend repo, `scheduler.py` | Railway (separate service) | same push |
-| Database | Postgres (Railway) / SQLite locally | Railway | — |
-| Documents | Cloudflare R2 (quarterly PDFs) | Cloudflare | — |
+| Frontend SPA | `~/equity-terminal` (React 18 + Vite) | Vercel (`equityverdict.com`) | `git push main` → auto |
+| TLS edge (`caddy`) | container on EC2 `i-0f60f2dd6fc5fabd5` | AWS EC2 t3.micro | `/opt/Caddyfile`: auto Let's Encrypt, HSTS, `encode zstd gzip`, proxy → `web:8080` |
+| Backend API (`web`) | `~/Downloads/backend` (FastAPI, 1× uvicorn) | container on same EC2 | build `deploy/aws/Dockerfile` → push ECR `equity-terminal:latest` → recreate container; smoke `/api/health` after |
+| Scheduler | same backend repo, `scheduler.py` | container on same EC2 | same image, command `python scheduler.py`, `--restart always` |
+| Database | **AWS RDS Postgres 16** `equity-terminal-db` (encrypted) / SQLite locally | AWS RDS | app connects via pg8000+TLS (auto for `*.rds.amazonaws.com`) |
+| Documents + backups | Cloudflare R2 (quarterly PDFs; weekly Fernet-encrypted DB dumps) | Cloudflare | — |
+
+Containers share a docker network `edge`; env comes from `/opt/app.env`
+(pulled at boot from the private S3 bucket `equity-terminal-config-…`;
+web container overrides `FRONTEND_ORIGIN` with the comma-separated
+origin list). Railway was fully retired on 18 Jul 2026.
 
 ```mermaid
 graph LR
@@ -46,7 +55,7 @@ graph LR
     SPA --- SEED
   end
 
-  subgraph Railway["Railway"]
+  subgraph AWS["AWS EC2 Mumbai (docker: caddy → web · scheduler)"]
     WEB["web: FastAPI<br/>rate-limit + security headers + CORS<br/>26 routers"]
     SCH["scheduler.py<br/>UTC job loop"]
   end
@@ -231,7 +240,7 @@ encrypted backup + `restore_backup.py` are the data-cutover vehicle.
 | `DATABASE_URL` | both | Postgres in prod; SQLite default locally |
 | `INDIANAPI_KEY` | both | sole fundamentals/news vendor (quota-budgeted) |
 | `DHAN_*` + TOTP vars | both | live prices, EOD, holdings; token self-renews via KV |
-| `TRUSTED_PROXY_HOPS` | web | default 1 (Railway edge); tune if real users hit 429s |
+| `TRUSTED_PROXY_HOPS` | web | 1 (Caddy edge on the same box); tune if real users hit 429s |
 | `RATE_LIMIT_GENERAL` / `RATE_LIMIT_AUTH` | web | defaults 240 / 10 per minute |
 | `FRONTEND_ORIGIN` | web | CORS pin (default `*`, safe — no credentials) |
 | `UNIVERSE_TIER` | both | `nifty100` (default) / `nifty250` / `nifty500` |
@@ -253,7 +262,7 @@ node tests/deriveParity.mjs                                  # must: 48/48
 npm run build
 
 # after EVERY backend push — before any feature-specific polling
-curl https://<railway-domain>/api/health                     # must: {"status":"ok"}
+curl https://api.equityverdict.com/api/health                     # must: {"status":"ok"}
 ```
 
 **CI enforcement (added 17 Jul 2026):** these checks now run automatically —

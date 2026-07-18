@@ -138,3 +138,35 @@ in S3 — old PDFs re-fetch on demand.
 
 **Rollback at any phase:** Railway/Vercel are untouched until Phase 6 step 4 —
 closing the AWS tab is a full rollback.
+
+---
+
+## ✅ EXECUTED — 18 Jul 2026 (final production topology)
+
+The migration ran Phases 0–7 on 17–18 Jul 2026. The as-built topology
+**differs from the plan above** (App Runner was unavailable on the AWS Free
+plan; owner chose EC2):
+
+- **One EC2 t3.micro** `i-0f60f2dd6fc5fabd5` (ap-south-1a, AL2023, 16GB gp3,
+  2G swap, Elastic IP **3.6.183.42**) runs three docker containers on a
+  shared network `edge`:
+  - `caddy` (ports 80/443): auto Let's Encrypt for `api.equityverdict.com`,
+    HSTS, `encode zstd gzip`, reverse_proxy → web:8080. Config `/opt/Caddyfile`.
+  - `web`: ECR image `equity-terminal:latest`, `--env-file /opt/app.env`,
+    `-e FRONTEND_ORIGIN=<comma list>` override, `--restart always`.
+  - `scheduler`: same image, `python scheduler.py`, `--restart always`.
+- Env: `/opt/app.env` pulled at boot from s3://equity-terminal-config-…/ec2.env
+  (instance role has GetObject on exactly that key). ⚠️ The user-data in this
+  repo predates the Caddy topology — update it before replacing the instance.
+- **RDS** `equity-terminal-db` (Postgres 16.14, encrypted, publicly reachable
+  "Option B" by owner decision — revisit private VPC + NAT later).
+- **DNS (GoDaddy):** apex + www → Vercel (76.76.21.21 / cname.vercel-dns.com),
+  `api` → 3.6.183.42. Frontend env `VITE_API_URL=https://api.equityverdict.com`.
+- **Data cutover** via `scripts/restore_backup.py` (fresh 18-Jul encrypted
+  R2 backup). Three latent DR bugs found+fixed in the process: R2 key casing
+  (12496bf), pg8000 TLS for RDS (b06e64c), Postgres sequence resync (0a5ec41).
+- **Railway retired** 18 Jul (web+scheduler deleted; Postgres kept ~1 week as
+  a safety net, then cancel the subscription).
+- Deploys are now: build `deploy/aws/Dockerfile` → push ECR → recreate
+  containers (owner runs `~/.equity-terminal/cutover-cmd.json` via SSM, or
+  adapt it). Uptime alarm: `.github/workflows/uptime.yml` → api domain.
