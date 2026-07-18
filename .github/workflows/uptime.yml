@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: Probe /api/health (3 attempts, 30s apart) + error-storm threshold
         run: |
-          URL="https://equity-terminal-backend-production.up.railway.app/api/health"
+          URL="https://api.equityverdict.com/api/health"
           for i in 1 2 3; do
             code=$(curl -s -m 20 -o /tmp/h.json -w "%{http_code}" "$URL" || echo 000)
             body=$(cat /tmp/h.json 2>/dev/null)

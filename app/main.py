@@ -226,10 +226,13 @@ app.add_middleware(ErrorCaptureMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
+# FRONTEND_ORIGIN accepts a comma-separated list so the branded domain and the
+# legacy *.vercel.app URL can coexist through the cutover window.
 origins = os.getenv("FRONTEND_ORIGIN", "*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origins] if origins != "*" else ["*"],
+    allow_origins=(["*"] if origins == "*"
+                   else [o.strip() for o in origins.split(",") if o.strip()]),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
