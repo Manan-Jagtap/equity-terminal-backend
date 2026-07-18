@@ -422,7 +422,7 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
     def footer(page):
         c.setStrokeColor(LINE); c.setLineWidth(0.5); c.line(M, 26, W - M, 26)
         c.setFillColor(FAINT); c.setFont("Helvetica", 6.3)
-        c.drawString(M, 18, "Equity Terminal — independent, evidence-based research. Educational use only; not SEBI-registered investment advice.")
+        c.drawString(M, 18, "EquityVerdict — independent, evidence-based research. Educational use only; not SEBI-registered investment advice.")
         c.drawRightString(W - M, 18, f"{datetime.today().strftime('%d %b %Y')}  ·  {page}")
     footer("1 / 2")
 

@@ -284,7 +284,7 @@ def build_onepager(co, market: dict, financials: dict, metrics: dict,
     c.setStrokeColor(LINE); c.setLineWidth(0.3)
     c.line(10, 12, W - 10, 12)
     c.setFont("Helvetica", 6); c.setFillColor(DIM)
-    c.drawString(15, 6, f"Equity Terminal v0.3  ·  {datetime.today().strftime('%d %b %Y')}  ·  Educational purposes only  ·  Not SEBI-registered advice")
+    c.drawString(15, 6, f"EquityVerdict v0.3  ·  {datetime.today().strftime('%d %b %Y')}  ·  Educational purposes only  ·  Not SEBI-registered advice")
 
     c.showPage()
     c.save()
