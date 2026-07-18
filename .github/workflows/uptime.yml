@@ -20,7 +20,10 @@ jobs:
           URL="https://api.equityverdict.com/api/health"
           for i in 1 2 3; do
             code=$(curl -s -m 20 -o /tmp/h.json -w "%{http_code}" "$URL" || echo 000)
-            body=$(cat /tmp/h.json 2>/dev/null)
+            # `|| true` matters: Actions runs bash -e, and when curl timed out
+            # /tmp/h.json doesn't exist — a bare failing cat killed the script
+            # on attempt 1 instead of retrying (18 Jul incident).
+            body=$(cat /tmp/h.json 2>/dev/null || true)
             echo "attempt $i: HTTP $code $body"
             if [ "$code" = "200" ] && echo "$body" | grep -q '"ok"'; then
               # Self-owned error telemetry: errors_1h is the trailing-hour count
