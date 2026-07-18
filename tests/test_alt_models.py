@@ -6,7 +6,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/_pytest_terminal.db")
 
-from app.alt_models import sotp_value, pev_value, alternative_intrinsic
+from app.alt_models import sotp_value, pev_value, alternative_intrinsic, INSURER_EV
 
 
 def test_sotp_reliance_sums_segments_less_net_debt():
@@ -22,13 +22,18 @@ def test_sotp_unknown_is_none():
     assert sotp_value("") is None
 
 
-def test_pev_uses_gordon_justified_multiple():
+def test_pev_uses_gordon_justified_multiple_without_vnb_seed():
+    # Gordon justified-P/EV is the FALLBACK when no VNB is seeded.
     a = {"risk_free": 0.069, "beta": 0.90, "erp": 0.05, "terminal_growth": 0.055}
-    r = pev_value("SBILIFE", a)
-    ke = 0.069 + 0.90 * 0.05          # 0.114
-    just = max(1.0, min(3.0, (0.197 - 0.055) / (ke - 0.055)))
-    assert r["method"] == "P/EV Appraisal"
-    assert abs(r["intrinsic"] - 805.40 * just) < 1e-6
+    saved = INSURER_EV["SBILIFE"].pop("vnb_per_share")
+    try:
+        r = pev_value("SBILIFE", a)
+        ke = 0.069 + 0.90 * 0.05          # 0.114
+        just = max(1.0, min(3.0, (0.197 - 0.055) / (ke - 0.055)))
+        assert r["method"] == "P/EV Appraisal"
+        assert abs(r["intrinsic"] - 805.40 * just) < 1e-6
+    finally:
+        INSURER_EV["SBILIFE"]["vnb_per_share"] = saved
 
 
 def test_pev_multiple_is_clamped():
@@ -56,6 +61,39 @@ def test_pev_unknown_is_none():
 def test_alternative_intrinsic_routes_by_sector():
     ins_a = {"_valuation_sector": "INSURANCE", "risk_free": 0.069, "beta": 0.9,
              "erp": 0.05, "terminal_growth": 0.055}
-    assert alternative_intrinsic({"ticker": "HDFCLIFE"}, ins_a)["method"] == "P/EV Appraisal"
+    assert alternative_intrinsic({"ticker": "HDFCLIFE"}, ins_a)["method"] == "EV + VNB Appraisal"
     assert alternative_intrinsic({"ticker": "ADANIENT"}, {"_valuation_sector": "MANUFACTURING"})["method"] == "Sum-of-the-Parts"
     assert alternative_intrinsic({"ticker": "TCS"}, {"_valuation_sector": "IT_SERVICES"}) is None
+
+
+def test_appraisal_value_two_pieces_and_band():
+    # SBILIFE model convention (institutional): AV = EV + VNB x multiple, and the
+    # implied P/EV must stay inside the listed band (1.0-3.0x EV).
+    a = {"risk_free": 0.069, "beta": 0.90, "erp": 0.05, "terminal_growth": 0.05}
+    r = pev_value("SBILIFE", a)
+    assert r["method"] == "EV + VNB Appraisal"
+    ev = INSURER_EV["SBILIFE"]["ev_per_share"]
+    assert r["intrinsic"] > ev                      # franchise adds value on top of the book
+    assert 1.0 <= r["intrinsic"] / ev <= 3.0        # ...but stays anchored to it
+    labels = [c["label"] for c in r["components"]]
+    assert any("Embedded value" in l for l in labels)
+    assert any("Structural value" in l for l in labels)
+
+
+def test_appraisal_orders_by_franchise_quality():
+    # Higher RoEV + VNB growth must earn a higher implied P/EV (SBILIFE > ICICIPRULI).
+    a = {"risk_free": 0.069, "beta": 0.90, "erp": 0.05, "terminal_growth": 0.05}
+    sbi = pev_value("SBILIFE", a); ipru = pev_value("ICICIPRULI", a)
+    assert sbi["intrinsic"] / INSURER_EV["SBILIFE"]["ev_per_share"] > \
+           ipru["intrinsic"] / INSURER_EV["ICICIPRULI"]["ev_per_share"]
+
+
+def test_ongc_sotp_core_plus_stakes():
+    # Upstream convention: core E&P at a through-cycle multiple + listed stakes
+    # net of holdco discount. The core must dominate the stake sleeve.
+    r = sotp_value("ONGC")
+    assert r is not None and r["intrinsic"] > 0
+    comps = {c["label"]: c["value"] for c in r["components"]}
+    core = next(v for l, v in comps.items() if "Core E&P" in l)
+    stakes = sum(v for l, v in comps.items() if "stake" in l or "investments" in l)
+    assert core > stakes > 0

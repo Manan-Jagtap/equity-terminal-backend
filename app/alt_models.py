@@ -116,6 +116,22 @@ SOTP_PRESETS: dict[str, dict] = {
         ("ABSL AMC stake (~46%, net of disc.)", 9000),
         ("Life insurance (ABSLI)", 12000),
         ("Health insurance + broking / other", 6000)]},
+
+    # ONGC — upstream E&P: a growth-DCF mis-prices a depleting-reserve cyclical.
+    # Sell-side convention (institutional upstream models): core business =
+    # through-cycle standalone + OVL (overseas E&P arm) earnings × a LOW ~7x
+    # multiple (commodity earnings deserve no growth premium; realization is
+    # capped by windfall levies on the upside and floored by APM gas on the
+    # downside), PLUS the listed downstream/gas stakes (HPCL ~54.9%, MRPL ~71.6%,
+    # IOC ~14.2%, GAIL + Petronet LNG) at market value NET of a ~30% holding-
+    # company discount. ILLUSTRATIVE values in ₹ cr — verify against latest
+    # stake market values and through-cycle PAT.
+    "ONGC": {"net_debt": 30000, "shares": 1258.0, "segments": [
+        ("Core E&P (standalone + OVL, ~7x through-cycle PAT)", 280000),
+        ("HPCL stake (~54.9%, net of 30% disc.)", 40000),
+        ("IOC stake (~14.2%, net of disc.)", 19000),
+        ("MRPL stake (~71.6%, net of disc.)", 11000),
+        ("GAIL + Petronet LNG + other investments (net of disc.)", 9000)]},
 }
 
 
@@ -145,9 +161,12 @@ def sotp_value(ticker: str) -> dict | None:
 # for sources. Re-check each year when the insurers report; EV is a point-in-time
 # actuarial number sensitive to market moves.
 INSURER_EV: dict[str, dict] = {
-    "SBILIFE":    {"ev_per_share": 805.40, "roev": 0.197},   # IEV ₹80,790cr; IEV/sh disclosed; RoEV 19.7%
-    "HDFCLIFE":   {"ev_per_share": 288.8,  "roev": 0.150},   # IEV ₹62,139cr ÷ ~215.2cr sh; operating RoEV 15%
-    "ICICIPRULI": {"ev_per_share": 366.7,  "roev": 0.119},   # IEV ₹52,989cr ÷ ~144.5cr sh; RoEV 11.9%
+    # vnb_per_share = latest-year Value of New Business ÷ shares; vnb_growth =
+    # expected medium-term VNB CAGR (APE growth × margin drift — institutional
+    # models run ~8–12% for the listed trio). Powers the appraisal-value leg.
+    "SBILIFE":    {"ev_per_share": 805.40, "roev": 0.197, "vnb_per_share": 59.5, "vnb_growth": 0.11},   # IEV ₹80,790cr; VNB ~₹5,954cr ÷ ~100.1cr sh
+    "HDFCLIFE":   {"ev_per_share": 288.8,  "roev": 0.150, "vnb_per_share": 18.4, "vnb_growth": 0.10},   # IEV ₹62,139cr; VNB ~₹3,960cr ÷ ~215.2cr sh
+    "ICICIPRULI": {"ev_per_share": 366.7,  "roev": 0.119, "vnb_per_share": 16.5, "vnb_growth": 0.08},   # IEV ₹52,989cr; VNB ~₹2,390cr ÷ ~144.5cr sh
     # LICI intentionally OMITTED → stays LOW CONF. Its reported IEV (~₹7.9L cr)
     # materially overstates distributable shareholder value (90:10 participating-
     # surplus structure — most surplus accrues to policyholders), and a FY26 bonus
@@ -161,28 +180,72 @@ INSURER_EV: dict[str, dict] = {
 _PEV_MIN, _PEV_MAX = 1.0, 3.0
 
 
+def _vnb_multiple(ke: float, g1: float, years: int = 10, g_term: float = 0.05) -> float:
+    """Structural-value multiple: PV of a VNB stream growing at g1 for `years`,
+    then at g_term forever, per ₹1 of current VNB. This is the 'VNB multiple'
+    institutional life-insurance models apply (typically lands ~10–15x for the
+    listed Indian franchises). Clamped to [6, 15] so a stray Ke/g pairing can't
+    run the appraisal to absurdity."""
+    m, v, df = 0.0, 1.0, 1.0
+    for _ in range(years):
+        v *= (1 + g1)
+        df /= (1 + ke)
+        m += v * df
+    if ke > g_term:
+        m += v * (1 + g_term) / (ke - g_term) * df
+    return max(6.0, min(15.0, m))
+
+
 def pev_value(ticker: str, a: dict) -> dict | None:
-    """Appraisal fair value for a life insurer: embedded value per share × a
-    justified P/EV, where justified P/EV = (RoEV − g)/(Ke − g) (Gordon growth on
-    embedded value), clamped to a sane band. Returns None without seeded EV."""
+    """Appraisal fair value for a life insurer (the institutional two-piece):
+
+        AV/share = Embedded Value/share  +  VNB/share × VNB multiple
+
+    The first piece is the in-force book (what the actuary already counted);
+    the second is the franchise — the discounted stream of future new-business
+    value. Without a VNB seed, falls back to the justified-P/EV Gordon form
+    ((RoEV − g)/(Ke − g) × EV). Either way the implied P/EV is clamped to the
+    historical listed band. Returns None without seeded EV."""
     d = INSURER_EV.get((ticker or "").upper())
     if not d:
         return None
     ke = (a.get("risk_free") or 0.069) + (a.get("beta") or 0.90) * (a.get("erp") or 0.05)
     g = a.get("terminal_growth") or 0.05
-    roev = d["roev"]
+    ev_ps, roev = d["ev_per_share"], d["roev"]
+
+    vnb_ps = d.get("vnb_per_share")
+    if vnb_ps:
+        mult = _vnb_multiple(ke, d.get("vnb_growth", 0.10), g_term=g)
+        structural = vnb_ps * mult
+        intrinsic = ev_ps + structural
+        # Keep the appraisal inside the observed P/EV band — the franchise leg
+        # must augment the actuarial book, not detach from it.
+        intrinsic = max(_PEV_MIN * ev_ps, min(_PEV_MAX * ev_ps, intrinsic))
+        implied = intrinsic / ev_ps
+        return {
+            "intrinsic": intrinsic,
+            "method": "EV + VNB Appraisal",
+            "components": [
+                {"label": "Embedded value / share (₹)", "value": ev_ps},
+                {"label": f"Structural value: VNB ₹{vnb_ps:.0f} × {mult:.1f}x", "value": structural},
+            ],
+            "note": (f"Appraisal value: EV ₹{ev_ps:.0f} + VNB ₹{vnb_ps:.0f}/sh × {mult:.1f}x "
+                     f"(VNB growth {d.get('vnb_growth', 0.10)*100:.0f}%, Ke {ke*100:.1f}%) → implied "
+                     f"P/EV {implied:.2f}x (RoEV {roev*100:.0f}%). ILLUSTRATIVE EV/VNB — verify."),
+        }
+
     denom = ke - g
     justified = (roev - g) / denom if denom > 0 else _PEV_MIN
     justified = max(_PEV_MIN, min(_PEV_MAX, justified))
-    intrinsic = d["ev_per_share"] * justified
+    intrinsic = ev_ps * justified
     return {
         "intrinsic": intrinsic,
         "method": "P/EV Appraisal",
         "components": [
-            {"label": "Embedded value / share (₹)", "value": d["ev_per_share"]},
+            {"label": "Embedded value / share (₹)", "value": ev_ps},
             {"label": f"Justified P/EV ({justified:.2f}x)", "value": intrinsic},
         ],
-        "note": (f"P/EV appraisal: EV/share ₹{d['ev_per_share']:.0f} × justified {justified:.2f}x "
+        "note": (f"P/EV appraisal: EV/share ₹{ev_ps:.0f} × justified {justified:.2f}x "
                  f"(RoEV {roev*100:.0f}%, Ke {ke*100:.1f}%). ILLUSTRATIVE embedded value — verify."),
     }
 
