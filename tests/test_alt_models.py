@@ -22,6 +22,33 @@ def test_sotp_unknown_is_none():
     assert sotp_value("") is None
 
 
+def test_sotp_uses_live_share_count_not_preset(monkeypatch):
+    # DAT-01 regression: the per-share intrinsic MUST divide by the live share
+    # count passed in, not the hand-seeded preset. A live count 2x the preset
+    # must halve the per-share fair value; an unchanged live count reproduces it.
+    from app.alt_models import SOTP_PRESETS
+    preset = SOTP_PRESETS["ONGC"]
+    equity = sum(ev for _, ev in preset["segments"]) - preset["net_debt"]
+    live_shares = preset["shares"] * 2
+    r = sotp_value("ONGC", live_shares)
+    assert abs(r["intrinsic"] - equity / live_shares) < 1e-6
+    # exactly half the value it would print if it (wrongly) used the preset count
+    assert abs(r["intrinsic"] - sotp_value("ONGC")["intrinsic"] / 2) < 1e-6
+
+
+def test_alternative_intrinsic_sotp_divides_by_live_shares():
+    # End-to-end through the router: a conglomerate whose live share count differs
+    # from the preset must be valued on the live basis (the VEDL/BAJAJFINSV bug).
+    from app.alt_models import SOTP_PRESETS
+    tk = next(iter(SOTP_PRESETS))
+    preset_sh = SOTP_PRESETS[tk]["shares"]
+    live = alternative_intrinsic({"ticker": tk, "shares": preset_sh * 3},
+                                 {"_valuation_sector": "MANUFACTURING"})
+    stale = alternative_intrinsic({"ticker": tk},  # no live shares → preset fallback
+                                  {"_valuation_sector": "MANUFACTURING"})
+    assert abs(live["intrinsic"] - stale["intrinsic"] / 3) < 1e-4
+
+
 def test_pev_uses_gordon_justified_multiple_without_vnb_seed():
     # Gordon justified-P/EV is the FALLBACK when no VNB is seeded.
     a = {"risk_free": 0.069, "beta": 0.90, "erp": 0.05, "terminal_growth": 0.055}

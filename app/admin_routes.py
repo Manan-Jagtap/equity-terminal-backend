@@ -316,12 +316,13 @@ async def macro_upload(file: UploadFile = File(...),
 
 
 @router.post("/ingest/transcripts")
-def ingest_transcripts(limit: int = 40, llm: bool = False,
+def ingest_transcripts(limit: int = 40,
                        _admin: models.User = Depends(require_admin),
                        db: Session = Depends(get_db)):
-    """On-demand concall-transcript ingestion (the nightly job otherwise)."""
+    """On-demand concall-transcript ingestion (the nightly job otherwise).
+    Rule-based extractor only — the AI-free platform exposes no LLM toggle (SEC-09)."""
     from app.transcript_ingester import ingest_universe
-    return ingest_universe(db, limit=limit, with_llm=llm)
+    return ingest_universe(db, limit=limit)
 
 
 @router.post("/ingest/nse-flows")

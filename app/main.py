@@ -5,10 +5,13 @@ Key fix: /api/companies now returns shares_outstanding, equity, net_profit,
 revenue, net_debt so the frontend can build accurate DCF models instead
 of back-calculating from ratios.
 """
+import logging
 import os
 import threading
 import time
 from collections import defaultdict, deque
+
+log = logging.getLogger("equity.main")
 
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -136,11 +139,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     TRUSTED_PROXY_HOPS = int(os.getenv("TRUSTED_PROXY_HOPS", "1"))
     MAX_KEYS = 50_000            # hard cap so spoofed keys can't OOM the process
 
+    # SEC-02: expensive, UNauthenticated endpoints (multi-page PDF build, live
+    # valuation recompute, strategy backtest) get a much tighter per-IP bucket so
+    # a few rotating IPs can't saturate the single worker / 2 GB box.
+    HEAVY_LIMIT = int(os.getenv("RATE_LIMIT_HEAVY", "12"))
+
+    @staticmethod
+    def _is_heavy(path: str) -> bool:
+        return (path.endswith("/onepager") or path.endswith("/valuation")
+                or path == "/api/strategy/backtest")
+
     def __init__(self, app):
         super().__init__(app)
         self._lock = threading.Lock()
         self._general: dict[str, deque] = defaultdict(deque)
         self._auth: dict[str, deque] = defaultdict(deque)
+        self._heavy: dict[str, deque] = defaultdict(deque)
 
     @classmethod
     def _client_ip(cls, request: Request) -> str:
@@ -174,7 +188,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         ip = self._client_ip(request)
         now = time.time()
-        is_auth = request.url.path.startswith("/api/auth")
+        path = request.url.path
+        is_auth = path.startswith("/api/auth")
+        is_heavy = self._is_heavy(path)
         with self._lock:
             # Opportunistic GC when a bucket gets large — bounded work, keeps the
             # maps from growing unbounded under a spoofed-IP flood.
@@ -182,9 +198,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 cutoff = now - self.WINDOW
                 self._sweep(self._general, cutoff)
                 self._sweep(self._auth, cutoff)
+                self._sweep(self._heavy, cutoff)
             ok = self._allow(self._general, ip, self.GENERAL_LIMIT, now)
             if ok and is_auth:
                 ok = self._allow(self._auth, ip, self.AUTH_LIMIT, now)
+            if ok and is_heavy:
+                ok = self._allow(self._heavy, ip, self.HEAVY_LIMIT, now)
         if not ok:
             return JSONResponse({"error": "rate_limited"}, status_code=429)
         return await call_next(request)
@@ -228,7 +247,19 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # FRONTEND_ORIGIN accepts a comma-separated list so the branded domain and the
 # legacy *.vercel.app URL can coexist through the cutover window.
-origins = os.getenv("FRONTEND_ORIGIN", "*")
+# SEC-04: fail CLOSED — when the env var is unset in a production-shaped process
+# (Postgres/RDS DB), default to the branded origin instead of a wildcard so a
+# missing config can never silently open CORS to every site. A wildcard is only
+# used in local/dev (sqlite) where cross-origin risk is nil and DX matters.
+_origins_env = os.getenv("FRONTEND_ORIGIN")
+if _origins_env:
+    origins = _origins_env
+elif os.getenv("DATABASE_URL", "").startswith("postgres"):
+    origins = "https://equityverdict.com,https://www.equityverdict.com"
+    log.warning("FRONTEND_ORIGIN unset in a prod-shaped env — defaulting CORS to "
+                "the branded origin (fail-closed). Set FRONTEND_ORIGIN explicitly.")
+else:
+    origins = "*"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=(["*"] if origins == "*"
@@ -686,8 +717,13 @@ def company_detail(ticker: str, db: Session = Depends(get_db)):
                 "recommendation": rec, "sensitivity": sens, "analyst": analyst,
                 "sentiment": _safe_sentiment(db, ticker)}
     except Exception as e:
-        body = {"error": str(e)}
+        # SEC-10: never surface the raw exception string to clients (it can leak
+        # DB/driver internals). The real detail goes to the self-owned error log;
+        # only a debug-gated request sees the trace.
+        log.exception("company_detail failed for %s", ticker)
+        body = {"error": "internal error"}
         if _debug_enabled():
+            body["error"] = str(e)
             body["trace"] = traceback.format_exc()[-1200:]
         return JSONResponse(body, status_code=500)
 
@@ -830,8 +866,11 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
                         headers={"Content-Disposition": f'attachment; filename="{co.ticker}_onepager.pdf"',
                                  "Content-Length": str(len(pdf_bytes))})
     except Exception as e:
-        body = {"error": str(e)}
+        # SEC-10: generic client message; real detail to the log, trace only in debug.
+        log.exception("onepager failed")
+        body = {"error": "internal error"}
         if _debug_enabled():
+            body["error"] = str(e)
             body["trace"] = traceback.format_exc()[-800:]
         return JSONResponse(body, status_code=500)
 

@@ -91,3 +91,16 @@ def test_without_smtp_config_signup_is_immediate(client):
     assert not mailer.configured()
     r = client.post("/api/auth/signup", json=SIGNUP)
     assert r.status_code == 200 and "token" in r.json()
+
+
+def test_signup_does_not_email_bomb_within_cooldown(client, monkeypatch):
+    # SEC-03: a repeated signup for the same not-yet-registered address inside the
+    # 60s cooldown must NOT send a second email (else signup is an email-bombing
+    # lever against arbitrary third parties).
+    outbox = []
+    _smtp_on(monkeypatch, outbox)
+    r1 = client.post("/api/auth/signup", json=SIGNUP)
+    r2 = client.post("/api/auth/signup", json=SIGNUP)
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r2.json()["pending_verification"] is True
+    assert len(outbox) == 1          # second call acknowledged but sent nothing

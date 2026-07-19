@@ -135,17 +135,27 @@ SOTP_PRESETS: dict[str, dict] = {
 }
 
 
-def sotp_value(ticker: str) -> dict | None:
-    """Per-share Sum-of-the-Parts fair value: Σ segment EV − net debt, ÷ shares.
-    Returns None for names without a preset."""
+def sotp_value(ticker: str, shares: float | None = None) -> dict | None:
+    """Per-share Sum-of-the-Parts fair value: (Σ segment EV − net debt) ÷ shares.
+
+    `shares` MUST be the live share count (co["shares"], in crore) so the per-share
+    intrinsic is on the SAME basis as the market price it's compared against.
+    The preset's `shares` is only a stale as-of reference and is used as a last
+    resort when a live count isn't available — a hand-seeded constant must never
+    silently drive a published per-share number (it flipped VEDL/BAJAJFINSV
+    verdicts when a bonus/rights issue moved the real count). Returns None for
+    names without a preset, or when no usable share count is available."""
     p = SOTP_PRESETS.get((ticker or "").upper())
-    if not p or not p.get("shares"):
+    if not p:
+        return None
+    eff_shares = shares if (shares and shares > 0) else p.get("shares")
+    if not eff_shares or eff_shares <= 0:
         return None
     total_ev = sum(ev for _, ev in p["segments"])
     equity = total_ev - (p.get("net_debt") or 0)
     if equity <= 0:
         return None
-    per_share = equity / p["shares"]
+    per_share = equity / eff_shares
     return {
         "intrinsic": per_share,
         "method": "Sum-of-the-Parts",
@@ -265,5 +275,7 @@ def alternative_intrinsic(co: dict, a: dict) -> dict | None:
     if a.get("_valuation_sector") == "INSURANCE":
         return pev_value(ticker, a)
     if ticker in SOTP_PRESETS:
-        return sotp_value(ticker)
+        # Divide by the LIVE share count, never the preset constant — a stale
+        # hand-seeded count doubled the per-share fair value (DAT-01).
+        return sotp_value(ticker, co.get("shares"))
     return None

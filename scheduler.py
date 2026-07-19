@@ -528,17 +528,15 @@ schedule.every().day.at("02:30").do(run_nse_flows)
 
 def run_transcript_ingest():
     """Daily concall-transcript ingestion over a bounded slice of the book, so
-    the whole universe's key points refresh within a week. LLM narrative on
-    only when ANTHROPIC_API_KEY is set; the rule-based extractor always runs."""
+    the whole universe's key points refresh within a week. Rule-based extractor
+    only — the platform is AI-free (SEC-09: the old ANTHROPIC/TRANSCRIPT_LLM gate
+    was dead code and is removed so no untrusted filing text can ever reach an LLM)."""
     try:
-        import os
         from app.database import SessionLocal
         from app.transcript_ingester import ingest_universe
         s = SessionLocal()
         try:
-            with_llm = bool(os.getenv("ANTHROPIC_API_KEY", "").strip()) and \
-                os.getenv("TRANSCRIPT_LLM", "false").strip().lower() in ("1", "true", "yes")
-            log.info(f"Transcript ingest: {ingest_universe(s, limit=150, with_llm=with_llm)}")
+            log.info(f"Transcript ingest: {ingest_universe(s, limit=150)}")
         finally:
             s.close()
     except Exception as e:

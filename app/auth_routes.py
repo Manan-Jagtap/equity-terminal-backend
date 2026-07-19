@@ -32,9 +32,11 @@ def _record_event(db: Session, request: Request, event: str,
                   email: str, user_id: int | None):
     """Best-effort auth audit row — a logging failure must never block auth."""
     try:
-        fwd = request.headers.get("x-forwarded-for", "")
-        ip = (fwd.split(",")[0].strip() if fwd
-              else (request.client.host if request.client else None))
+        # SEC-08: take the IP from the trusted proxy hop (the same rightmost-hop
+        # logic the rate limiter uses), NOT the client-settable leftmost XFF —
+        # otherwise the admin "last IP" is attacker-forgeable (forensic poisoning).
+        from app.main import RateLimitMiddleware
+        ip = RateLimitMiddleware._client_ip(request)
         db.add(models.AuthEvent(
             user_id=user_id, email=(email or "")[:255], event=event,
             ip=(ip or "")[:64] or None,
@@ -94,6 +96,16 @@ def signup(body: SignupBody, request: Request, db: Session = Depends(get_db)):
     # or someone-else's address can never become a login. Without SMTP config
     # (dev/tests/CI) the flow falls through to immediate creation, unchanged.
     if mailer.configured():
+        # SEC-03: a signup POST must not become an email-bombing lever against an
+        # arbitrary third party. If a pending signup for this address was emailed
+        # within the last 60s, acknowledge without sending again (same cooldown
+        # the /resend-code path already enforces). The 30-min pending window plus
+        # this cooldown caps sends at ~1/min/address regardless of source IP.
+        existing = _get_pending(db, email)
+        if existing and time.time() - (existing.get("sent_at") or 0) < 60 \
+                and time.time() <= (existing.get("expires") or 0):
+            _record_event(db, request, "signup_pending", email, None)
+            return {"pending_verification": True, "email": email}
         code = f"{secrets.randbelow(1000000):06d}"
         _put_pending(db, email, {
             "name": name,
