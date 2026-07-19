@@ -25,6 +25,10 @@ class User(Base):
     name          = Column(String, nullable=True)
     password_hash = Column(String, nullable=False)
     created_at    = Column(DateTime, server_default=func.now())
+    # SEC-01: bumped by "sign out everywhere" (and any future password change) —
+    # a token carries the tv it was minted with; a mismatch is rejected, so a
+    # leaked/stale token can be revoked without rotating the global AUTH_SECRET.
+    token_version = Column(Integer, nullable=False, server_default="0", default=0)
 
 
 class AuthEvent(Base):

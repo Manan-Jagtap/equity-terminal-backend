@@ -68,7 +68,9 @@ def _user_payload(user: models.User) -> dict:
 
 
 def _auth_response(user: models.User) -> dict:
-    return {"token": create_token(user.id, user.email), "user": _user_payload(user)}
+    return {"token": create_token(user.id, user.email,
+                                  tv=getattr(user, "token_version", 0) or 0),
+            "user": _user_payload(user)}
 
 
 @router.post("/signup")
@@ -247,6 +249,20 @@ def login(body: LoginBody, request: Request, db: Session = Depends(get_db)):
 @router.get("/me")
 def me(user: models.User = Depends(get_current_user)):
     return {"user": _user_payload(user)}
+
+
+@router.post("/logout-all")
+def logout_all(request: Request,
+               user: models.User = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    """SEC-01 "sign out everywhere": bump the account's token_version so every
+    previously-issued token (including a leaked one) stops validating. Returns a
+    fresh token for THIS session so the caller stays signed in."""
+    user.token_version = (getattr(user, "token_version", 0) or 0) + 1
+    db.commit()
+    db.refresh(user)
+    _record_event(db, request, "logout_all", user.email, user.id)
+    return _auth_response(user)
 
 
 class DeleteAccountBody(BaseModel):

@@ -39,6 +39,7 @@ def _additive_migrations():
     from sqlalchemy import text
     stmts = [
         "ALTER TABLE portfolio_holdings ADD COLUMN buy_date DATE",
+        "ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0",  # SEC-01
     ]
     with engine.connect() as conn:
         for stmt in stmts:

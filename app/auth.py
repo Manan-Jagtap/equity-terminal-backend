@@ -36,6 +36,8 @@ else:
     # 401 at random on another. Fail fast so it can't ship that way (audit D6).
     # Locally (SQLite/dev) a random per-process key is fine for convenience.
     _db_url = os.getenv("DATABASE_URL", "")
+    # Prod = a Postgres DB (RDS on AWS, or the old Railway PG). RAILWAY_ENVIRONMENT
+    # kept only as a legacy belt-and-braces; it's unset on EC2 (ARC-06).
     _is_prod = _db_url.startswith("postgres") or os.getenv("RAILWAY_ENVIRONMENT")
     if _is_prod:
         raise RuntimeError(
@@ -83,10 +85,10 @@ def _b64url_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + pad)
 
 
-def create_token(user_id: int, email: str, days: int = 30) -> str:
-    """base64url(JSON payload incl. exp) + '.' + hex HMAC-SHA256(payload)."""
+def create_token(user_id: int, email: str, days: int = 30, tv: int = 0) -> str:
+    """base64url(JSON payload incl. exp + token-version) + '.' + HMAC-SHA256."""
     payload = json.dumps(
-        {"uid": user_id, "email": email,
+        {"uid": user_id, "email": email, "tv": int(tv or 0),
          "exp": int(time.time()) + days * 86400},
         separators=(",", ":"),
     ).encode("utf-8")
@@ -128,7 +130,15 @@ def _user_from_authorization(authorization: str | None, db: Session):
     uid = payload.get("uid")
     if uid is None:
         return None
-    return db.query(models.User).filter_by(id=uid).first()
+    user = db.query(models.User).filter_by(id=uid).first()
+    if user is None:
+        return None
+    # SEC-01: reject a token whose version is behind the account's current one
+    # (a "sign out everywhere" bumped it). Missing tv (pre-SEC-01 tokens) reads
+    # as 0 and matches a fresh account, so existing sessions aren't force-killed.
+    if int(payload.get("tv") or 0) != int(getattr(user, "token_version", 0) or 0):
+        return None
+    return user
 
 
 def get_current_user(authorization: str | None = Header(None),

@@ -1,6 +1,15 @@
 # EQUITY TERMINAL — HANDOFF DOCUMENT
-*Last updated 16 July 2026. Read top-to-bottom before touching anything.
-Detailed change history: CHANGES_2026-07.md (latest addendum 16 Jul). Compliance: COMPLIANCE.md.*
+
+> ⚠️ **INFRA SUPERSEDED (19 Jul 2026):** the "Railway" backend/scheduler/Postgres
+> described below was **retired**. Production now runs on **AWS Mumbai (ap-south-1)**:
+> EC2 + Docker (web + scheduler containers) behind Caddy at `api.equityverdict.com`,
+> RDS Postgres, ECR image, S3 config. **Authoritative as-built topology + the deploy
+> runbook: `ARCHITECTURE.md` and `deploy/aws/MIGRATION_AWS.md`.** Deploys = build the
+> amd64 image (`docker buildx build --platform linux/amd64 …`) → push ECR → SSM
+> re-pull. Ignore every "Railway"/"up.railway.app" reference in this file and in
+> `DEPLOY_NOTES.md` — they point at dead infrastructure.
+
+*Last updated 16 July 2026 (pre-migration). Detailed change history: CHANGES_2026-07.md. Compliance: COMPLIANCE.md.*
 
 > **Recent (16 Jul 2026):** Sentiment scoring, Baskets (`/api/baskets`), Strategy
 > backtester (`/api/strategy/*`), Options strategy builder, Portfolio NIFTY

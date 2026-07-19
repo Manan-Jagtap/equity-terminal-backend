@@ -1,5 +1,11 @@
 # Deploy notes — independent-DCF rebuild (June 2026)
 
+> ⚠️ **SUPERSEDED (19 Jul 2026).** This is the historical *Railway* runbook and no
+> longer describes production. The platform migrated to **AWS Mumbai** — the live
+> deploy procedure is in `deploy/aws/MIGRATION_AWS.md` (build amd64 image → push
+> ECR → `aws ssm send-command … cutover-cmd.json`). Do not follow the Railway steps
+> below; they target retired infrastructure. Kept for history only.
+
 All code is written, compiles, and passes the test suite (`python -m pytest tests/ -q`).
 Three things must run on YOUR side (the sandbox can't reach git or Railway):
 

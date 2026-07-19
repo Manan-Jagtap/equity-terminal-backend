@@ -214,3 +214,21 @@ def test_delete_account_erases_everything():
         assert s.query(models.AuthEvent).filter_by(email="todelete@example.com").count() == 0
     finally:
         s.close()
+
+
+def test_logout_all_revokes_prior_tokens():
+    # SEC-01: "sign out everywhere" bumps token_version so an OLD token dies
+    # while the caller gets a fresh working one.
+    r = _signup("revoke.me@example.com")
+    old = r.json()["token"]
+    assert client.get("/api/auth/me", headers=_auth_hdr(old)).status_code == 200
+    res = client.post("/api/auth/logout-all", headers=_auth_hdr(old))
+    assert res.status_code == 200
+    new = res.json()["token"]
+    # the old token no longer validates; the freshly-returned one does
+    assert client.get("/api/auth/me", headers=_auth_hdr(old)).status_code == 401
+    assert client.get("/api/auth/me", headers=_auth_hdr(new)).status_code == 200
+    # a subsequent login also issues a token at the new version (works)
+    lg = client.post("/api/auth/login", json={"email": "revoke.me@example.com", "password": PW})
+    assert lg.status_code == 200
+    assert client.get("/api/auth/me", headers=_auth_hdr(lg.json()["token"])).status_code == 200
