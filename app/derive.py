@@ -205,7 +205,10 @@ def _derive_nonfinancial(statements, vs):
     else:
         rev_growth = p["terminal_growth"] + 0.03
     # commodities: no secular high growth; semi-cyclicals: mid-cycle only
-    growth_hi = 0.08 if cyclical else 0.12 if semi_cyclical else 0.18
+    # DISTRIBUTION joins the 12% tier (DAT-02): pass-through toplines can grow
+    # fast, but capitalising that at full-franchise growth is how a thin-margin
+    # distributor gets valued like a compounder.
+    growth_hi = 0.08 if cyclical else 0.12 if (semi_cyclical or vs == "DISTRIBUTION") else 0.18
     rev_growth = _clamp(rev_growth, 0.02, growth_hi)
     drivers["rev_growth"] = (f"0.65·CAGR({_pct(cagr)})+0.35·YoY({_pct(yoy)}) "
                              f"capped{' (cyclical)' if cyclical else ' (mid-cycle)' if semi_cyclical else ''}")

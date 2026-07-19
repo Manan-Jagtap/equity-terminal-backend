@@ -135,9 +135,11 @@ def test_implausible_mos_forces_low_conf():
     # The AWL/REDINGTON class of failure: internally-consistent inputs, but the
     # sector model produces an intrinsic many times the price (thin-margin
     # business on premium multiples). Must read LOW CONF, never a confident BUY.
+    # DAT-02 tightened the gate 2.0 → 1.0: the old bound caught the +700% cohort
+    # but let REDINGTON +173% / SENCO +197% render as confident BUYs.
     co = _co(price=10.0)                     # tiny price vs healthy fundamentals
     r = engines.recommend(co, _a_nonfin())
-    assert r["mos"] is not None and r["mos"] > 2.0   # the setup must reach the guard
+    assert r["mos"] is not None and r["mos"] > 1.0   # the setup must reach the guard
     assert r["verdict"] == "LOW CONF"
     assert r["reliable"] is False
     assert any("Implausible margin of safety" in (x.get("note") or "")
@@ -145,10 +147,10 @@ def test_implausible_mos_forces_low_conf():
 
 
 def test_plausible_mos_untouched():
-    # A normal-gap name must NOT trip the implausibility guard.
+    # A normal-gap name must NOT trip the implausibility guard (gate is 1.0).
     r = engines.recommend(_co(), _a_nonfin())
-    assert r["mos"] is None or r["mos"] <= 2.0 or r["verdict"] == "LOW CONF"
-    if r["mos"] is not None and 0 < r["mos"] <= 2.0:
+    assert r["mos"] is None or r["mos"] <= 1.0 or r["verdict"] == "LOW CONF"
+    if r["mos"] is not None and 0 < r["mos"] <= 1.0:
         assert r["verdict"] != "LOW CONF" or r["confidence"]["score"] < 0.5
 
 

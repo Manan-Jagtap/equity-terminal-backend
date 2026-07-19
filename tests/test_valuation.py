@@ -112,6 +112,20 @@ def test_valuation_sector_splits_manufacturing():
     assert classify_valuation_sector("Financial Services", "BANK") == "BANK"
 
 
+def test_distribution_sector_and_precedence():
+    # DAT-02: thin-margin distribution/trading must NOT inherit MANUFACTURING's
+    # rich multiples — but the specialised earlier rules keep winning:
+    # city-gas ("gas distribut") stays ENERGY, power distribution stays UTILITIES.
+    assert classify_valuation_sector("Trading Companies & Distributors", None) == "DISTRIBUTION"
+    assert classify_valuation_sector("Consumer Electronics Distribution", None) == "DISTRIBUTION"
+    assert classify_valuation_sector("Gas Distribution", None) == "ENERGY"
+    assert classify_valuation_sector("Power Distribution", None) == "UTILITIES"
+    # REDINGTON's vendor string is the bare "Services" → ticker override carries it
+    from app.sector_params import TICKER_OVERRIDES, params
+    assert TICKER_OVERRIDES["REDINGTON"] == "DISTRIBUTION"
+    assert params("DISTRIBUTION")["exit_pe"] < params("MANUFACTURING")["exit_pe"]
+
+
 def test_cost_of_equity_in_sane_band():
     # Band floor 9.5%: the calibration deliberately runs ultra-defensive FMCG
     # (CONSUMER β 0.58) to Ke ≈ 9.8% — Rf 6.9% + ~290bps equity premium, which

@@ -66,5 +66,12 @@ def data_quality(co: dict) -> dict:
         penal(0.45, co["data_warning"])
 
     score = max(0.0, min(1.0, score))
+    # DAT-02(c): a name whose price series is synthetic can never be a HIGH-
+    # confidence call — momentum/52W and the margin-of-safety basis aren't from
+    # real OHLC (SENCO rendered "BUY +197%, high confidence" while carrying this
+    # very flag). Cap just under the high threshold; the 0.10 penalty above still
+    # stacks with other issues.
+    if co.get("synthetic_series"):
+        score = min(score, 0.79)
     level = "high" if score >= 0.8 else "medium" if score >= 0.5 else "low"
     return {"score": score, "level": level, "flags": flags}

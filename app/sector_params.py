@@ -123,6 +123,12 @@ SECTOR_PARAMS: dict[str, dict] = {
     # heavily regulated) are cheap, thin, cyclical → low multiples + through-cycle.
     "PAPER":         _P(beta=1.05, terminal_growth=0.045, mature_roic=0.11, mature_roe=0.12, exit_pe=12, exit_ev_ebitda=6,  exit_pb=None),
     "SUGAR":         _P(beta=1.00, terminal_growth=0.040, mature_roic=0.10, mature_roe=0.12, exit_pe=11, exit_ev_ebitda=6,  exit_pb=None),
+    # Distribution / trading (DAT-02): thin-margin pass-through businesses
+    # (IT-products distribution, commodity trading). Revenue is huge but value
+    # capture is 1-3% EBIT with structurally low pricing power — MANUFACTURING's
+    # 28x exit P/E on such a name fabricates +170% upside (REDINGTON). Listed
+    # Indian distributors trade ~10-16x through-cycle.
+    "DISTRIBUTION":  _P(beta=1.00, terminal_growth=0.045, mature_roic=0.12, mature_roe=0.14, exit_pe=14, exit_ev_ebitda=8,  exit_pb=None),
     # Cables & wires / electricals: copper is largely passed through, so margins
     # ride on the value-add — smooth them through-cycle. The organised players
     # (Polycab/KEI) are quality growth industrials, so multiples stay reasonable
@@ -159,6 +165,10 @@ DEFAULT_SECTOR = "MANUFACTURING"
 TICKER_OVERRIDES: dict[str, str] = {
     "FEDFINA": "NBFC",
     "INDIGO": "AVIATION",   # sector arrives blank from the vendor → override
+    # DAT-02: vendor sector is the bare string "Services" — no keyword can place
+    # it, and MANUFACTURING's 28x exit P/E fabricated a +173% BUY on a 2%-EBIT
+    # IT-products distributor.
+    "REDINGTON": "DISTRIBUTION",
 }
 
 
@@ -205,6 +215,11 @@ _RULES: list[tuple[str, str]] = [
     # Metals / mining
     ("steel", "METAL"), ("aluminium", "METAL"), ("aluminum", "METAL"),
     ("metal", "METAL"), ("mining", "METAL"), ("zinc", "METAL"),
+    # Distribution / trading — placed AFTER energy so "gas distribut" (city-gas)
+    # keeps winning ENERGY, and after utilities so "power distribution" stays
+    # UTILITIES. Thin-margin pass-through → DISTRIBUTION's low multiples.
+    ("distributor", "DISTRIBUTION"), ("distribution", "DISTRIBUTION"),
+    ("trading compan", "DISTRIBUTION"), ("commodity trading", "DISTRIBUTION"),
     # Cement / building materials
     ("cement", "CEMENT"), ("construction material", "CEMENT"), ("building material", "CEMENT"),
     # Commodity-cyclicals that must NOT get MANUFACTURING's rich multiples.

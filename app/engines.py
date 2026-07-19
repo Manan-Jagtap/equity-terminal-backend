@@ -629,14 +629,17 @@ def recommend(co: Dict, a: Dict) -> Dict:
                         "note": "Diversified conglomerate — needs sum-of-the-parts; a "
                                 "single-sector DCF understates it. Model unreliable here.",
                         "good": False, "bad": True})
-    elif mos is not None and mos > 2.0:
-        # An intrinsic more than 3x the market price out of a GENERIC sector model
-        # is far more likely a mis-modeled name than a hidden multi-bagger: thin-
-        # margin distributors/refiners/sugar on premium sector multiples, holding
-        # companies, demerger stubs with mismatched fundamentals. The market is
-        # sometimes wrong; a generic model claiming +200% on a liquid large/midcap
-        # is wrong more often. Honest state: LOW CONF, never a confident BUY.
-        # (Caught live: AWL/REDINGTON/EIDPARRY +700-850% "BUYs" on the tier flip.)
+    elif mos is not None and mos > 1.0:
+        # An intrinsic more than DOUBLE the market price out of a GENERIC sector
+        # model is far more likely a mis-modeled name than a hidden multi-bagger:
+        # thin-margin distributors/refiners/sugar on premium sector multiples,
+        # holding companies, demerger stubs, peak-cycle earnings capitalised as
+        # permanent. The market is sometimes wrong; a generic model claiming
+        # +100% on a liquid name is wrong more often. Honest state: LOW CONF,
+        # never a confident BUY. (History: the old 2.0 gate caught the +700-850%
+        # cohort but let REDINGTON +173% / SENCO +197% / CHENNPETRO +119% render
+        # as confident BUYs — DAT-02 tightened it to 1.0. Dedicated alt-models
+        # (SOTP/insurers) exit this chain earlier and are unaffected.)
         verdict = "LOW CONF"
         reliable = False
         reasons.append({"label": "Model", "score": 50,
