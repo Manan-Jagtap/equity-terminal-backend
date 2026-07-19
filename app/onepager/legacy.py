@@ -18,17 +18,22 @@ W, H = A4
 M = 34                      # page margin
 
 # ── light palette ────────────────────────────────────────────────────────────
+# Redesign Phase 5 — the print translation of the warm-obsidian design system
+# (screen tokens live in the frontend's src/design/tokens.css). Paper stays
+# white; the single amber accent becomes a deep amber-bronze that holds
+# contrast on white, neutrals go warm, and the verdict ladder is darkened for
+# print while keeping its hues. One accent, hairlines over fills — same thesis.
 PAPER = colors.white
-INK   = colors.HexColor("#141719")     # near-black text
-HEAD  = colors.HexColor("#0f766e")     # deep teal accent (section heads, name)
-MUTE  = colors.HexColor("#6b7280")     # grey labels
-FAINT = colors.HexColor("#9aa2ad")
-GREEN = colors.HexColor("#15803d")
-RED   = colors.HexColor("#b91c1c")
-AMBER = colors.HexColor("#b45309")
-PANEL = colors.HexColor("#f4f6f7")     # light strip fill
-PANEL2= colors.HexColor("#eef1f2")
-LINE  = colors.HexColor("#e3e7ea")
+INK   = colors.HexColor("#201c16")     # warm near-black text
+HEAD  = colors.HexColor("#8a6429")     # amber-bronze accent (section heads, name)
+MUTE  = colors.HexColor("#6f6758")     # warm grey labels
+FAINT = colors.HexColor("#9a9080")
+GREEN = colors.HexColor("#2e7d52")     # print BUY (screen #57c48a, darkened for paper)
+RED   = colors.HexColor("#a8493c")     # print AVOID (screen #d97b6c, darkened)
+AMBER = colors.HexColor("#9a6b2f")     # HOLD / caution — stays in the amber family
+PANEL = colors.HexColor("#f6f4ee")     # warm paper-tint strip fill
+PANEL2= colors.HexColor("#f0ece3")
+LINE  = colors.HexColor("#e6e1d6")     # warm hairline
 
 
 def _fc(n, d=0):
