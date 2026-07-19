@@ -51,7 +51,11 @@ aws configure          # paste an access key created in AWS Console → IAM → 
 aws ecr create-repository --repository-name equity-terminal --region ap-south-1
 aws ecr get-login-password --region ap-south-1 | docker login --username AWS \
   --password-stdin $(aws sts get-caller-identity --query Account --output text).dkr.ecr.ap-south-1.amazonaws.com
-docker build -f deploy/aws/Dockerfile -t equity-terminal .
+# MUST target linux/amd64 — the EC2 host is x86_64. On an Apple-Silicon (arm64)
+# Mac a plain `docker build` makes an arm64 image the box silently can't run:
+# `docker pull` finds no amd64 variant, keeps the OLD cached :latest, and health
+# stays green while the new code never ships. Always pin the platform:
+docker buildx build --platform linux/amd64 -f deploy/aws/Dockerfile -t equity-terminal:latest --load .
 docker tag equity-terminal:latest \
   $(aws sts get-caller-identity --query Account --output text).dkr.ecr.ap-south-1.amazonaws.com/equity-terminal:latest
 docker push $(aws sts get-caller-identity --query Account --output text).dkr.ecr.ap-south-1.amazonaws.com/equity-terminal:latest
