@@ -17,6 +17,8 @@ Run:
   python -m app.ingest.indianapi_ingester --limit 50       # first 50
   python -m app.ingest.indianapi_ingester --price-only     # just prices
 """
+import logging as _logging
+_log = _logging.getLogger("indianapi_ingester")
 import os, sys, time, re
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
@@ -724,22 +726,30 @@ def _build_insight(s, co, stock, debug=False):
     ticker = (co.ticker or "").upper()
     tid = _ticker_id(stock)
     data = {}
-    try: data["analyst"]  = _analyst(stock)
-    except Exception: pass
-    try: data["peers"]    = _peers(stock)
-    except Exception: pass
-    try: data["ratios"]   = _ratios(ticker)
-    except Exception: pass
-    try: data["growth"]   = _growth(ticker)
-    except Exception: pass
-    try: data["latest_q"] = _latest_quarter(ticker)
-    except Exception: pass
-    try: data["results"]  = _results_snapshot(ticker)
-    except Exception: pass
-    try:
+
+    # ARC-03: each of these parse steps used to swallow its exception to `pass`
+    # with no trace, so a persistently-failing vendor field became invisible
+    # data loss ("no data" not "broken parse"). `_field` runs the parser and
+    # logs a DEBUG line on failure — enough to diagnose an ingestion gap without
+    # crashing the per-company ingest (any one field is optional).
+    def _field(key, fn):
+        try:
+            data[key] = fn()
+        except Exception as e:  # noqa: BLE001 — one bad field must not fail the row
+            _log.debug("ingest %s: %s field failed: %s: %s", ticker, key,
+                       type(e).__name__, e)
+
+    _field("analyst",  lambda: _analyst(stock))
+    _field("peers",    lambda: _peers(stock))
+    _field("ratios",   lambda: _ratios(ticker))
+    _field("growth",   lambda: _growth(ticker))
+    _field("latest_q", lambda: _latest_quarter(ticker))
+    _field("results",  lambda: _results_snapshot(ticker))
+
+    def _own():
         from app.ownership_logic import ownership_snapshot
-        data["ownership"] = ownership_snapshot(stock)   # reuses the in-hand /stock payload
-    except Exception: pass
+        return ownership_snapshot(stock)   # reuses the in-hand /stock payload
+    _field("ownership", _own)
     # Segment probe: discover whether the /stock payload carries business-segment
     # revenue/EBIT (for a future data-driven SOTP). Off unless SEGMENT_DEBUG_KEYS set.
     if os.environ.get("SEGMENT_DEBUG_KEYS") and isinstance(stock, dict):
@@ -750,14 +760,10 @@ def _build_insight(s, co, stock, debug=False):
             print(f"  [segment-debug] {ticker} segment-like keys={seg_keys or 'NONE'} ; all top-level keys={top}")
         except Exception:
             pass
-    try: data["target"]   = _target(ticker)
-    except Exception: pass
-    try: data["forecasts"]= _forecasts(ticker)
-    except Exception: pass
-    try: data["pe_history"] = _pe_history(ticker, debug=debug)
-    except Exception: pass
-    try: data["documents"] = _documents(ticker)
-    except Exception: pass
+    _field("target",     lambda: _target(ticker))
+    _field("forecasts",  lambda: _forecasts(ticker))
+    _field("pe_history", lambda: _pe_history(ticker, debug=debug))
+    _field("documents",  lambda: _documents(ticker))
     data = {k: v for k, v in data.items() if v}
 
     if debug and data.get("forecasts"):

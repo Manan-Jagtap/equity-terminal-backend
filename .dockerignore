@@ -1,0 +1,29 @@
+# CLN-02: keep dev clutter out of the build context / image. The Dockerfile
+# already COPYs selective paths (app, alembic, scheduler.py), but .bak files
+# inside app/ would otherwise ship, and a lean context speeds every build.
+**/*.bak
+**/*.bak.*
+**/*.bak2
+**/__pycache__/
+**/*.pyc
+venv/
+venv313/
+.venv/
+*.db
+*.sqlite
+AUDIT_2026-07/
+AUDIT_2026-06.md
+SECURITY_AUDIT.md
+*_REVIEW*.md
+*_AUDIT*.md
+onepager_out/
+*.pdf
+.git/
+.github/
+.pytest_cache/
+pytest-cache-files-*/
+tests/
+scripts/
+.env
+.env.*
+*.log

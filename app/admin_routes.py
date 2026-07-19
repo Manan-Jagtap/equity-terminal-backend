@@ -8,9 +8,12 @@ including when the env var is unset (fail closed, never open).
                            login_count, last_ip}] newest signup first
   GET /api/admin/auth-events?limit=100 → recent raw events (incl. failures)
 """
+import logging
 import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+
+log = logging.getLogger("equity.admin")
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -382,6 +385,20 @@ def _recompute_job(scope: str):
                             started_at=_dt.datetime.utcnow().isoformat() + "Z",
                             finished_at=None)
     try:
+        # DAT-04: refresh the per-company regression betas before recomputing so
+        # the on-demand web path prices with calculated betas too, not just the
+        # scheduler batch (the web/scheduler process-state lesson). Failure
+        # degrades to the sector prior, never blocks the recompute.
+        try:
+            from app.database import SessionLocal
+            from app import beta as _beta
+            _s = SessionLocal()
+            try:
+                _beta.compute_all(_s)
+            finally:
+                _s.close()
+        except Exception as be:  # noqa: BLE001
+            log.warning("beta refresh failed (sector priors will be used): %s", be)
         from app.ingest.compute_valuations import run
         run(nifty50=(scope == "nifty50"), visible=(scope == "visible"))
     except Exception as e:  # noqa: BLE001 — record, never crash the worker

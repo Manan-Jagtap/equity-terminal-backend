@@ -8,6 +8,8 @@ app/ownership_routes.py — cross-company institutional & MF ownership trends.
 Reads stored insight data['ownership'] (populated by the ingester from the same
 /stock payload it already fetches) so the page is instant.
 """
+import time
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -15,9 +17,15 @@ from app import models
 
 router = APIRouter(prefix="/api", tags=["ownership"])
 
+# PERF-07: same 5-min in-process cache as /api/results (measured 1.1s/hit
+# uncached, 374KB; data changes only on the daily ingest).
+_OWNERSHIP_CACHE = {"ts": 0.0, "data": None}
+
 
 @router.get("/ownership")
 def ownership(db: Session = Depends(get_db)):
+    if _OWNERSHIP_CACHE["data"] is not None and time.time() - _OWNERSHIP_CACHE["ts"] < 300:
+        return _OWNERSHIP_CACHE["data"]
     insights = {r.company_id: r.data for r in db.query(models.CompanyInsight).all() if r.data}
 
     out = []
@@ -37,4 +45,6 @@ def ownership(db: Session = Depends(get_db)):
         d = (r.get("institutional") or {}).get("delta")
         return d if d is not None else -999
     out.sort(key=_key, reverse=True)
-    return {"count": len(out), "items": out}
+    payload = {"count": len(out), "items": out}
+    _OWNERSHIP_CACHE["data"], _OWNERSHIP_CACHE["ts"] = payload, time.time()
+    return payload

@@ -34,17 +34,28 @@ import os
 log = logging.getLogger("app.backup")
 
 PREFIX = "backups/"
-KEEP = 8
+KEEP = 30   # PERF-03: daily cadence keeps ~a month of history (was 8 weeklies)
+
+# SEC-06: fixed application salt. scrypt's memory-hard work factor (not the salt)
+# is what defeats a brute-force of a leaked ciphertext + low-entropy passphrase;
+# a fixed salt keeps the format simple (no salt to store alongside the token)
+# while still preventing cross-passphrase rainbow precomputation.
+_SCRYPT_SALT = b"equityverdict-backup-kdf-v2"
 
 
 def _fernet():
-    """Fernet keyed from the BACKUP_KEY passphrase (sha256 → urlsafe b64)."""
+    """MultiFernet for BACKUP_KEY: ENCRYPTS with a scrypt-derived key (SEC-06,
+    replacing the old single bare SHA-256), and DECRYPTS with scrypt OR the
+    legacy sha256 key so backups written before this change still restore."""
     passphrase = os.getenv("BACKUP_KEY", "")
     if not passphrase:
         return None
-    from cryptography.fernet import Fernet
-    key = base64.urlsafe_b64encode(hashlib.sha256(passphrase.encode()).digest())
-    return Fernet(key)
+    from cryptography.fernet import Fernet, MultiFernet
+    from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+    dk = Scrypt(salt=_SCRYPT_SALT, length=32, n=2 ** 14, r=8, p=1).derive(passphrase.encode())
+    new = Fernet(base64.urlsafe_b64encode(dk))
+    legacy = Fernet(base64.urlsafe_b64encode(hashlib.sha256(passphrase.encode()).digest()))
+    return MultiFernet([new, legacy])   # encrypt→new; decrypt tries new then legacy
 
 
 def _row_to_dict(row) -> dict:

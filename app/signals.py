@@ -10,6 +10,8 @@ history can be backfilled, so capture begins the day this ships.
 Backend-only; nothing here touches the parity-tested valuation engine.
 """
 from __future__ import annotations
+import threading as _threading
+import time as _time
 from datetime import date as _date
 
 from . import models
@@ -140,13 +142,36 @@ def assemble_factor_rows(db, tickers) -> list[dict]:
     return rows
 
 
+# PERF-01: ranked_visible is the single most expensive computation on the box
+# (~15s cold over ~1000 names) and is called by 7+ sites (/api/factors,
+# /api/baskets, portfolio x-ray, watchlist, manager engine…) which each kept
+# SEPARATE caches — opening the Ideas area cold ran the same 15s compute twice,
+# and N concurrent cold requests each rebuilt it (stampede → the memory-pressure
+# profile that swap-killed the t3.micro). One shared TTL cache + a rebuild lock:
+# the first caller computes, everyone else waits for (or reuses) that result.
+_RANKED_TTL = 300.0
+_ranked_cache: dict = {"at": 0.0, "rows": None}
+_ranked_lock = _threading.Lock()
+
+
 def ranked_visible(db) -> list[dict]:
-    """Alpha-ranked visible universe with the heavy price series stripped."""
-    from .ingest.indianapi_ingester import VISIBLE_UNIVERSE
-    ranked = score_universe(assemble_factor_rows(db, VISIBLE_UNIVERSE))
-    for r in ranked:
-        r.pop("closes", None)
-    return ranked
+    """Alpha-ranked visible universe with the heavy price series stripped.
+    Shared 5-min cache across ALL callers; double-checked lock so only one
+    thread ever rebuilds while others wait for its result."""
+    now = _time.time()
+    if _ranked_cache["rows"] is not None and now - _ranked_cache["at"] < _RANKED_TTL:
+        return _ranked_cache["rows"]
+    with _ranked_lock:
+        # Re-check under the lock — another thread may have just rebuilt.
+        now = _time.time()
+        if _ranked_cache["rows"] is not None and now - _ranked_cache["at"] < _RANKED_TTL:
+            return _ranked_cache["rows"]
+        from .ingest.indianapi_ingester import VISIBLE_UNIVERSE
+        ranked = score_universe(assemble_factor_rows(db, VISIBLE_UNIVERSE))
+        for r in ranked:
+            r.pop("closes", None)
+        _ranked_cache.update(at=_time.time(), rows=ranked)
+        return ranked
 
 
 def snapshot_alpha(db) -> int:

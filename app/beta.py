@@ -144,7 +144,14 @@ def compute_all(db) -> dict:
         stock_wk = _weekly_returns(m, [d for d in mkt_dates if d in m])
         common = [d for d in mkt_wk if d in stock_wk]
         r = regress([mkt_wk[d] for d in common], [stock_wk[d] for d in common])
-        prior = SP.params(co.sector).get("beta") or 1.0
+        # DAT-04: the shrinkage prior must be the CLASSIFIED valuation sector's
+        # beta — co.sector is the raw vendor string ("Information Technology"),
+        # which SECTOR_PARAMS doesn't key on, so it silently fell back to the
+        # MANUFACTURING default (1.0) for every name. Same derivation as
+        # assemble.py: ticker override, then keyword classification.
+        vsec = (SP.TICKER_OVERRIDES.get((co.ticker or "").upper())
+                or SP.classify_valuation_sector(co.sector, getattr(co, "template_code", None)))
+        prior = SP.params(vsec).get("beta") or 1.0
         if not r:
             continue
         raw, r2, n = r

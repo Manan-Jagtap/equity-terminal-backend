@@ -79,6 +79,21 @@ def run_compute(nifty50=False, visible=False):
     the screener's intrinsic/MoS/verdict always reflect fresh prices.
     nifty50=True → Nifty 50; visible=True → the Nifty 100 the terminal exposes."""
     scope = "Nifty 100" if visible else "Nifty 50" if nifty50 else "all"
+    # DAT-04: refresh the per-company regression betas FIRST so the recompute
+    # prices risk with each name's own calculated beta (shrunk to the sector
+    # prior), not a flat sector constant. compute_all was never wired into any
+    # job — the whole module was dead in production. One Dhan index fetch +
+    # DB-local regressions; failure degrades to the sector prior, never blocks.
+    try:
+        from app.database import SessionLocal
+        from app import beta as beta_mod
+        s = SessionLocal()
+        try:
+            beta_mod.compute_all(s)
+        finally:
+            s.close()
+    except Exception as e:
+        log.warning(f"Beta refresh failed (sector priors will be used): {e}")
     log.info(f"Recomputing valuations ({scope})…")
     try:
         compute_valuations(nifty50=nifty50, visible=visible)
@@ -621,16 +636,35 @@ schedule.every().day.at("20:30").do(run_coverage_backfill)
 
 
 def run_encrypted_backup():
-    """Owned weekly backup: every table → JSONL.gz → Fernet-encrypt (BACKUP_KEY
-    passphrase, held by the owner) → R2. Ciphertext-only off-stack (DPDP);
-    restore/cutover via scripts/restore_backup.py. Skips loudly without the key."""
+    """Owned DAILY backup (PERF-03): every table → JSONL.gz → Fernet-encrypt
+    (BACKUP_KEY passphrase, held by the owner) → R2. Ciphertext-only off-stack
+    (DPDP); restore/cutover via scripts/restore_backup.py. Skips loudly without
+    the key. run_backup() never raises — so we CHECK its return and record an
+    error (which surfaces in /api/health errors_1h → the uptime alert) when it
+    isn't ok, else a silently-stopped backup goes unnoticed for weeks."""
     from app.backup import run_backup
     out = run_backup()
     log.info(f"encrypted backup: {out}")
+    status = (out or {}).get("status") if isinstance(out, dict) else None
+    if status not in ("ok", "skipped"):
+        log.error(f"BACKUP FAILED: {out}")
+        try:
+            from app.database import SessionLocal
+            from app.error_log import record_error
+            s = SessionLocal()
+            try:
+                record_error(s, "scheduler/backup",
+                             RuntimeError(f"backup not ok: {out}"))
+            finally:
+                s.close()
+        except Exception:
+            pass
 
 
-# Sunday 04:00 UTC (9:30am IST), after the integrity sweep. Keeps 8 weeklies.
-schedule.every().sunday.at("04:00").do(run_encrypted_backup)
+# DAILY 04:00 UTC (9:30am IST), after the integrity sweep. RPO ≤ 1 day (was
+# weekly → up to 7 days of lost point-in-time snapshots). Retention widened to
+# 30 in app/backup.py so daily cadence keeps ~a month of history.
+schedule.every().day.at("04:00").do(run_encrypted_backup)
 
 # Results calendar (board-meeting dates) — Saturday 04:00 IST = Fri 22:30 UTC
 schedule.every().friday.at("22:30").do(run_results_calendar)
@@ -978,6 +1012,40 @@ else:
     # right after a deploy so they're live now, not at the next daily slot.
     run_regulatory_refresh()
 
+# PERF-02: liveness heartbeat. The scheduler is a separate process from the web
+# container — when it dies or crash-loops, prices/valuations silently freeze
+# while /api/health stays green (the "silent data rot" failure mode). Write a
+# kv_store heartbeat every loop so the WEB process can surface scheduler age in
+# /api/health and the uptime workflow can threshold it.
+_HEARTBEAT_EVERY = 300  # seconds
+_last_beat = 0.0
+
+
+def _heartbeat():
+    global _last_beat
+    if time.time() - _last_beat < _HEARTBEAT_EVERY:
+        return
+    try:
+        from app.database import SessionLocal
+        from app import models
+        import datetime as _dt
+        s = SessionLocal()
+        try:
+            row = s.query(models.KVStore).filter_by(key="scheduler_heartbeat").first()
+            payload = {"ts": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
+            if row:
+                row.value = payload
+            else:
+                s.add(models.KVStore(key="scheduler_heartbeat", value=payload))
+            s.commit()
+            _last_beat = time.time()
+        finally:
+            s.close()
+    except Exception as e:  # never let telemetry kill the worker
+        log.warning(f"heartbeat write failed: {type(e).__name__}: {e}")
+
+
 while True:
     schedule.run_pending()
+    _heartbeat()
     time.sleep(60)

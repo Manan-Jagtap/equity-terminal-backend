@@ -226,7 +226,7 @@ class ErrorCaptureMiddleware(BaseHTTPMiddleware):
     thresholds it so an error storm emails the owner like downtime does."""
     async def dispatch(self, request: Request, call_next):
         try:
-            return await call_next(request)
+            response = await call_next(request)
         except Exception as exc:
             try:
                 from app.database import SessionLocal
@@ -239,6 +239,23 @@ class ErrorCaptureMiddleware(BaseHTTPMiddleware):
             except Exception:
                 pass
             raise
+        # PERF-04: the codebase is defensive — several routes CATCH their errors
+        # and return a 500 JSONResponse instead of raising, which bypassed this
+        # middleware entirely. errors_1h (the sole uptime-alert signal) could
+        # read 0 while endpoints were broadly failing. Count returned 5xx too.
+        if response.status_code >= 500:
+            try:
+                from app.database import SessionLocal
+                from app.error_log import record_error
+                _db = SessionLocal()
+                try:
+                    record_error(_db, request.url.path,
+                                 RuntimeError(f"handled 5xx ({response.status_code})"))
+                finally:
+                    _db.close()
+            except Exception:
+                pass
+        return response
 
 
 app.add_middleware(ErrorCaptureMiddleware)
@@ -272,14 +289,40 @@ app.add_middleware(
 
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):
-    """Liveness + the trailing-hour unhandled-error count (a bare number — safe
-    to expose; the uptime workflow alerts when it spikes)."""
+    """Liveness + the trailing-hour error count + data-freshness signals (bare
+    numbers — safe to expose; the uptime workflow alerts when any spikes).
+
+    PERF-02: `scheduler_beat_min` is the age of the scheduler process's kv
+    heartbeat — the scheduler is a SEPARATE container, and before this field a
+    dead scheduler silently froze prices/valuations while health stayed green.
+    `price_age_days` is the age of the newest stored daily close (weekends and
+    holidays make 1-3 normal; sustained growth means the price pipeline died)."""
+    import datetime as _dt
     from app.error_log import errors_last_hour
     try:
         errs = errors_last_hour(db)
     except Exception:
         errs = None
-    return {"status": "ok", "errors_1h": errs}
+    beat_min = None
+    try:
+        row = db.query(models.KVStore).filter_by(key="scheduler_heartbeat").first()
+        ts = (row.value or {}).get("ts") if row else None
+        if ts:
+            beat = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            beat_min = round((_dt.datetime.now(_dt.timezone.utc) - beat).total_seconds() / 60)
+    except Exception:
+        pass
+    price_age_days = None
+    try:
+        from sqlalchemy import func
+        latest = db.query(func.max(models.HistoricalPrice.date)).scalar()
+        if latest:
+            d = _dt.date.fromisoformat(str(latest)[:10])
+            price_age_days = (_dt.date.today() - d).days
+    except Exception:
+        pass
+    return {"status": "ok", "errors_1h": errs,
+            "scheduler_beat_min": beat_min, "price_age_days": price_age_days}
 
 
 def _latest_facts(db, company_id):
@@ -639,10 +682,15 @@ def peer_universe(db: Session = Depends(get_db)):
         # Build from EVERY ingested company (has a MarketSnapshot). Multiples are
         # computed from the DB; we OVERLAY IndianAPI self-metrics when present so
         # the numbers match the rest of the terminal where coverage exists.
+        # PERF-06: batch the two per-company lookups — the lazy co.market access
+        # and the per-name _latest_facts query were ~1000 round-trips per cold
+        # build (measured 6.7s); two bulk loads replace them all.
+        price_by_cid = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+        facts_by_cid = _all_latest_facts(db)
         for co in db.query(models.Company).join(models.MarketSnapshot).all():
             try:
-                price = co.market.price if co.market else None
-                facts = _latest_facts(db, co.id)
+                price = price_by_cid.get(co.id)
+                facts = facts_by_cid.get(co.id) or {}
                 nw, npf, rev = facts.get(K.NET_WORTH), facts.get(K.NET_PROFIT), facts.get(K.REVENUE)
                 sh = co.shares_outstanding
                 eps  = (npf / sh) if (npf and sh) else None

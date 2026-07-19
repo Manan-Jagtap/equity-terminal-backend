@@ -8,6 +8,8 @@ app/results_routes.py — cross-company earnings scoreboard.
 Reads stored insight data (populated by the ingester's _results_snapshot +
 forecasts) so the page is instant — no live per-company fan-out.
 """
+import time
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -16,9 +18,16 @@ from app.results_logic import eps_surprise, eps_surprise_history
 
 router = APIRouter(prefix="/api", tags=["results"])
 
+# PERF-07: this builds ~500 rows from every CompanyInsight blob on EVERY request
+# (measured 1.5s/hit, 403KB). Underlying data changes on the daily ingest, so the
+# same 5-min in-process cache the screener uses is safe.
+_RESULTS_CACHE = {"ts": 0.0, "data": None}
+
 
 @router.get("/results")
 def results(db: Session = Depends(get_db)):
+    if _RESULTS_CACHE["data"] is not None and time.time() - _RESULTS_CACHE["ts"] < 300:
+        return _RESULTS_CACHE["data"]
     insights = {r.company_id: r.data for r in db.query(models.CompanyInsight).all() if r.data}
     price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
     val_by = {}
@@ -55,7 +64,9 @@ def results(db: Session = Depends(get_db)):
         s = r.get("surprise") or {}
         return (str(s.get("date") or ""), str(r.get("quarter") or ""))
     out.sort(key=_key, reverse=True)
-    return {"count": len(out), "items": out}
+    payload = {"count": len(out), "items": out}
+    _RESULTS_CACHE["data"], _RESULTS_CACHE["ts"] = payload, time.time()
+    return payload
 
 
 @router.get("/results/upcoming")
