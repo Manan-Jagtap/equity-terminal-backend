@@ -517,6 +517,29 @@ def run_backfill_status(_admin: models.User = Depends(require_admin)):
     return dict(_backfill_state)
 
 
+@router.get("/beta-state")
+def beta_state(recompute: bool = False,
+               _admin: models.User = Depends(require_admin),
+               db: Session = Depends(get_db)):
+    """DAT-04 diagnostic: the computed-beta cache summary — as-of, market used,
+    count, and a few samples so we can confirm the per-company regression actually
+    ran (vs the sector-prior fallback). `?recompute=true` forces one compute_all
+    first (blocking; ~seconds) so a single call both computes and reports."""
+    from app import beta as _beta
+    note = None
+    if recompute:
+        try:
+            _beta.compute_all(db)
+        except Exception as e:  # noqa: BLE001
+            note = f"compute_all raised: {type(e).__name__}: {e}"
+    betas = _beta.stored(db) or {}
+    row = db.query(models.KVStore).filter_by(key="computed_betas_v1").first()
+    meta = (row.value or {}) if row else {}
+    samples = {t: betas[t] for t in list(betas)[:8]}
+    return {"count": len(betas), "as_of": meta.get("as_of"),
+            "market": meta.get("market"), "samples": samples, "note": note}
+
+
 @router.get("/coverage-gaps")
 def coverage_gaps(_admin: models.User = Depends(require_admin),
                   db: Session = Depends(get_db)):
