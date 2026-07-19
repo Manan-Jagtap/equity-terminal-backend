@@ -947,12 +947,55 @@ def _resolve_onboarding(ticker, stock, cur_sector, cur_name):
     return name, sector, tmpl, typ, is_fallback
 
 
+# Task #123: the vendor /stock lookup is NAME-based; for these tickers the bare
+# symbol (or the junk auto-seeded name, e.g. "Tatamotors") resolves to nothing,
+# so the row stayed a NO-DATA stub forever. Aliases map ticker → the query
+# string the vendor actually recognises. Unknown-to-us names fall back to the
+# stored company name (cleaned) as a second attempt.
+VENDOR_QUERY_ALIAS: dict[str, str] = {
+    "TATAMOTORS": "Tata Motors",
+    "EQUITASBNK": "Equitas Small Finance Bank",
+    "GUJGASLTD":  "Gujarat Gas",
+    "AGARWALEYE": "Dr Agarwals Health Care",
+    "RAIN":       "Rain Industries",
+    "TI":         "Tilaknagar Industries",     # NSE symbol renamed to TI (2025)
+    "CCAVENUE":   "Infibeam Avenues",          # CCAvenue is Infibeam's brand/symbol
+    "SKFINDUS":   "SKF India Industrial",      # SKF demerger entity
+    "KISSHT":     "OnEMI Technology Solutions",
+    "KSHINTL":    "KSH International",
+    "VEDPOWER":   "Vedanta Power",
+    "AGL":        "Allcargo Global",
+}
+
+
+def _fetch_stock(ticker: str, co_name: str | None = None):
+    """/stock with alias + stored-name fallback: try the alias (or bare ticker),
+    then the cleaned company name when the first attempt fails/returns junk."""
+    queries = [VENDOR_QUERY_ALIAS.get(ticker, ticker)]
+    if co_name:
+        clean = re.sub(r"\b(ltd|limited)\.?$", "", co_name.strip(), flags=re.I).strip(" .,")
+        if clean and clean.upper() != ticker and clean not in queries:
+            queries.append(clean)
+    last_err = None
+    for q in queries:
+        try:
+            stock = _get("/stock", {"name": q})
+            if isinstance(stock, dict) and (stock.get("companyName") or stock.get("currentPrice")
+                                            or stock.get("stockDetailsReusableData")):
+                return stock
+        except Exception as e:  # noqa: BLE001 — try the next query form
+            last_err = e
+    if last_err:
+        raise last_err
+    raise RuntimeError(f"/stock returned no usable payload for {ticker} (tried {queries})")
+
+
 def ingest_company(s, co, dump=False, insights=True):
     import json
     ticker = (co.ticker or "").upper()
     print(f"  {ticker}:")
     try:
-        stock = _get("/stock", {"name": ticker})
+        stock = _fetch_stock(ticker, co.name)
     except Exception as e:
         print(f"    /stock FAILED — {e}")
         return False
@@ -1050,7 +1093,7 @@ def ingest_company(s, co, dump=False, insights=True):
 
 def refresh_price(s, co):
     try:
-        stock = _get("/stock", {"name": (co.ticker or '').upper()})
+        stock = _fetch_stock((co.ticker or '').upper(), co.name)
         p = _price_from_stock(s, co, stock)
         s.commit()
         if p:

@@ -186,6 +186,68 @@ def _universe_benchmark(by_co, price_by, actions_by) -> dict | None:
             "basis": "equal-weight tracked universe, first snapshot → today, incl. dividends"}
 
 
+# ── #120: backtest-calibrated confidence (sample-gated, advisory) ────────────
+# We DON'T wire this into the live confidence yet: the track record is weeks old
+# (DAT-05), so calibrating on it now would overfit to statistical noise (and, per
+# the audit, would currently penalise the BUY cohort for a 31-day blip). Instead
+# we compute the calibration table and gate it — each bucket reports whether it
+# has ENOUGH history to trust, and a `ready` flag flips only when the whole set
+# clears the thresholds. When it does, `suggested_multiplier` is what a future
+# release would apply to the shown confidence for that bucket.
+_CALIB_MIN_CALLS = 30      # per bucket
+_CALIB_MIN_DAYS = 90       # of tracking history
+
+
+def calibrate(scored: list[dict], snapshot_days: int) -> dict:
+    """Realized direction-accuracy by (verdict, MoS band), with a sufficiency
+    gate. Read-only/advisory until `ready`."""
+    def band(mos):
+        if mos is None: return "na"
+        if mos <= 0.10: return "0-10%"
+        if mos <= 0.25: return "10-25%"
+        if mos <= 0.50: return "25-50%"
+        return "50%+"
+
+    buckets: dict = {}
+    for c in scored:
+        if c.get("ret") is None:
+            continue
+        key = f'{c["verdict"]}|{band(c.get("mos"))}'
+        b = buckets.setdefault(key, {"n": 0, "wins": 0, "sum_ret": 0.0})
+        b["n"] += 1
+        b["sum_ret"] += c["ret"]
+        bullish = c["verdict"] in ("BUY", "ACCUMULATE")
+        if (bullish and c["ret"] > 0) or (not bullish and c["ret"] < 0):
+            b["wins"] += 1
+
+    rows = {}
+    all_ready = bool(buckets) and snapshot_days >= _CALIB_MIN_DAYS
+    for key, b in sorted(buckets.items()):
+        hit = b["wins"] / b["n"] if b["n"] else None
+        enough = b["n"] >= _CALIB_MIN_CALLS and snapshot_days >= _CALIB_MIN_DAYS
+        all_ready = all_ready and enough
+        rows[key] = {
+            "n": b["n"], "hit_rate": hit,
+            "avg_return": b["sum_ret"] / b["n"] if b["n"] else None,
+            "sufficient_sample": enough,
+            # A hit rate materially below chance (0.5) argues for de-rating that
+            # bucket's confidence; above, for keeping it. Only meaningful once
+            # `sufficient_sample`; surfaced always for transparency.
+            "suggested_multiplier": (round(0.6 + 0.8 * hit, 2)
+                                     if (enough and hit is not None) else None),
+        }
+    return {
+        "ready": all_ready,
+        "reason": (None if all_ready else
+                   f"insufficient history: need ≥{_CALIB_MIN_DAYS} tracking days "
+                   f"(have {snapshot_days}) and ≥{_CALIB_MIN_CALLS} calls/bucket "
+                   "before calibration is applied to live confidence"),
+        "min_calls_per_bucket": _CALIB_MIN_CALLS,
+        "min_days": _CALIB_MIN_DAYS,
+        "buckets": rows,
+    }
+
+
 def compute_backtest(db) -> dict:
     snaps = (db.query(models.VerdictSnapshot)
                .order_by(models.VerdictSnapshot.company_id,
@@ -216,6 +278,7 @@ def compute_backtest(db) -> dict:
         "total_calls": len(scored),
         "excluded_no_call": sum(1 for c in all_calls if c["verdict"] not in ACTIONABLE),
         "benchmark": _universe_benchmark(by_co, price_by, actions_by),
+        "calibration": calibrate(scored, len(set(dates))),   # #120 (advisory/gated)
         **agg,
         # Per-call ledger, newest first, worst-kept-in: full transparency.
         "calls": sorted(scored, key=lambda c: (c["start_date"], c["ticker"] or ""),

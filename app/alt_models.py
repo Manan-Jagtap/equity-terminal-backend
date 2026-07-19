@@ -16,6 +16,12 @@ transparent calculator, not a fabricated precision.
 """
 from __future__ import annotations
 
+# DAT-03: the hand-seeded segment EVs / embedded values below are a point-in-time
+# snapshot. This stamp is surfaced in every alt-model note so a reader (and the
+# owner) can see how stale the inputs are; bump it whenever the presets are
+# re-verified against fresh disclosures.
+PRESETS_AS_OF = "FY26 (seeded Jul 2026 — re-verify each results season)"
+
 
 # ── Conglomerate Sum-of-the-Parts ────────────────────────────────────────────
 # Segment EV and net debt in ₹ crore; shares in crore. Ported from the frontend
@@ -161,7 +167,8 @@ def sotp_value(ticker: str, shares: float | None = None) -> dict | None:
         "method": "Sum-of-the-Parts",
         "components": [{"label": n, "value": float(ev)} for n, ev in p["segments"]],
         "note": ("Sum-of-the-parts on ILLUSTRATIVE segment enterprise values "
-                 "(editable in the DCF tab) — not ingested from financials; verify each segment."),
+                 "(editable in the DCF tab) — not ingested from financials; verify each segment. "
+                 f"Inputs as of {PRESETS_AS_OF}."),
     }
 
 
@@ -241,7 +248,7 @@ def pev_value(ticker: str, a: dict) -> dict | None:
             ],
             "note": (f"Appraisal value: EV ₹{ev_ps:.0f} + VNB ₹{vnb_ps:.0f}/sh × {mult:.1f}x "
                      f"(VNB growth {d.get('vnb_growth', 0.10)*100:.0f}%, Ke {ke*100:.1f}%) → implied "
-                     f"P/EV {implied:.2f}x (RoEV {roev*100:.0f}%). ILLUSTRATIVE EV/VNB — verify."),
+                     f"P/EV {implied:.2f}x (RoEV {roev*100:.0f}%). ILLUSTRATIVE EV/VNB as of {PRESETS_AS_OF}."),
         }
 
     denom = ke - g
@@ -256,12 +263,63 @@ def pev_value(ticker: str, a: dict) -> dict | None:
             {"label": f"Justified P/EV ({justified:.2f}x)", "value": intrinsic},
         ],
         "note": (f"P/EV appraisal: EV/share ₹{ev_ps:.0f} × justified {justified:.2f}x "
-                 f"(RoEV {roev*100:.0f}%, Ke {ke*100:.1f}%). ILLUSTRATIVE embedded value — verify."),
+                 f"(RoEV {roev*100:.0f}%, Ke {ke*100:.1f}%). ILLUSTRATIVE embedded value as of {PRESETS_AS_OF}."),
+    }
+
+
+# ── General insurers (task #119) ─────────────────────────────────────────────
+# A GENERAL insurer (health / motor / reinsurance) has NO embedded value — that
+# is a LIFE-insurance concept. Its worth is book equity re-rated by how
+# profitably it underwrites (the COMBINED RATIO: claims + expenses ÷ premium; <1
+# = an underwriting profit, >1 = a loss the investment book must cover) plus the
+# investment return on float. We express that as a justified P/B off the
+# sustainable through-cycle ROE, applied to the LIVE book value (no seeded share
+# count → immune to the DAT-01 class of bug). MEDIUM confidence; the combined
+# ratio + sustainable ROE are the only hand inputs. Verify each cycle.
+GENERAL_INSURER: dict[str, dict] = {
+    "ICICIGI":    {"combined_ratio": 1.03, "roe": 0.175},   # multiline, strong motor+health
+    "STARHEALTH": {"combined_ratio": 0.98, "roe": 0.150},   # standalone health, underwriting-profitable
+    "GICRE":      {"combined_ratio": 1.08, "roe": 0.115},   # reinsurer — lower multiple
+    "NIACL":      {"combined_ratio": 1.18, "roe": 0.060},   # PSU multiline, high CR → trades below book
+}
+_GI_PB_MIN, _GI_PB_MAX = 0.8, 4.0
+
+
+def general_insurer_value(ticker: str, co: dict, a: dict) -> dict | None:
+    """Justified P/B on LIVE book value from the sustainable ROE, contextualised
+    by the combined ratio. Returns None without live book equity."""
+    d = GENERAL_INSURER.get((ticker or "").upper())
+    if not d:
+        return None
+    equity, shares = co.get("equity"), co.get("shares")
+    if not (equity and shares and equity > 0 and shares > 0):
+        return None
+    bvps = equity / shares
+    ke = (a.get("risk_free") or 0.069) + (a.get("beta") or 1.0) * (a.get("erp") or 0.05)
+    g = a.get("terminal_growth") or 0.05
+    roe = d["roe"]
+    denom = ke - g
+    pb = (roe - g) / denom if denom > 0 else _GI_PB_MIN
+    pb = max(_GI_PB_MIN, min(_GI_PB_MAX, pb))
+    intrinsic = bvps * pb
+    cr = d["combined_ratio"]
+    uw = "underwriting profit" if cr < 1 else "underwriting loss covered by investment income"
+    return {
+        "intrinsic": intrinsic,
+        "method": "Combined-ratio P/B",
+        "components": [
+            {"label": "Book value / share (₹)", "value": bvps},
+            {"label": f"Justified P/B ({pb:.2f}x)", "value": intrinsic},
+        ],
+        "note": (f"General-insurer justified P/B: BVPS ₹{bvps:.0f} × {pb:.2f}x "
+                 f"(sustainable ROE {roe*100:.0f}%, combined ratio {cr*100:.0f}% → {uw}, "
+                 f"Ke {ke*100:.1f}%). ILLUSTRATIVE combined ratio / ROE as of {PRESETS_AS_OF}."),
     }
 
 
 def alternative_intrinsic(co: dict, a: dict) -> dict | None:
     """Override intrinsic for names the single-engine blend can't value:
+      · GENERAL insurers (combined-ratio P/B)          → general_insurer_value
       · life insurers (_valuation_sector == INSURANCE) → P/EV appraisal
       · conglomerates with a SOTP preset               → Sum-of-the-Parts
     Returns None (leave the engine's blended value) for everything else. MEDIUM
@@ -272,6 +330,12 @@ def alternative_intrinsic(co: dict, a: dict) -> dict | None:
     if isinstance(seg, dict) and (seg.get("intrinsic") or 0) > 0:
         return seg
     ticker = (co.get("ticker") or "").upper()
+    # General insurers first — they may classify as INSURANCE/NBFC but must NOT
+    # route to the LIFE-insurer P/EV model (they have no embedded value).
+    if ticker in GENERAL_INSURER:
+        gi = general_insurer_value(ticker, co, a)
+        if gi:
+            return gi
     if a.get("_valuation_sector") == "INSURANCE":
         return pev_value(ticker, a)
     if ticker in SOTP_PRESETS:

@@ -150,3 +150,24 @@ def test_ongc_sotp_core_plus_stakes():
     core = next(v for l, v in comps.items() if "Core E&P" in l)
     stakes = sum(v for l, v in comps.items() if "stake" in l or "investments" in l)
     assert core > stakes > 0
+
+
+def test_general_insurer_combined_ratio_pb():
+    # #119: general insurers value on justified P/B off LIVE book (no seeded
+    # shares → immune to DAT-01), never the life-insurer P/EV model.
+    from app.alt_models import general_insurer_value, alternative_intrinsic
+    a = {"risk_free": 0.069, "beta": 1.05, "erp": 0.05, "terminal_growth": 0.05}
+    co = {"ticker": "STARHEALTH", "equity": 6490.0, "shares": 59.0}
+    r = general_insurer_value("STARHEALTH", co, a)
+    assert r and r["method"] == "Combined-ratio P/B"
+    bvps = 6490.0 / 59.0
+    assert 0.8 * bvps <= r["intrinsic"] <= 4.0 * bvps      # within the P/B band
+    assert "combined ratio" in r["note"].lower()
+    # routed through alternative_intrinsic by ticker (not via INSURANCE→P/EV)
+    r2 = alternative_intrinsic({"ticker": "STARHEALTH", "equity": 6490.0, "shares": 59.0},
+                               {**a, "_valuation_sector": "NBFC"})
+    assert r2 and r2["method"] == "Combined-ratio P/B"
+    # a non-insurer is untouched
+    assert general_insurer_value("TCS", {"equity": 1.0, "shares": 1.0}, a) is None
+    # missing live book → None (no fabricated number)
+    assert general_insurer_value("NIACL", {"ticker": "NIACL"}, a) is None
