@@ -36,6 +36,32 @@ def test_sotp_uses_live_share_count_not_preset(monkeypatch):
     assert abs(r["intrinsic"] - sotp_value("ONGC")["intrinsic"] / 2) < 1e-6
 
 
+def test_alt_model_divergence_gate_blocks_confident_buy():
+    # DAT-03 guard: an ILLUSTRATIVE alt-model (SOTP/insurer seeds) landing >60%
+    # above the market must read LOW CONF, never BUY (ITC printed BUY +113% off
+    # a stale cigarettes-segment EV bigger than its whole market cap).
+    from app import engines
+    from app.alt_models import SOTP_PRESETS
+    tk = "ITC"
+    preset = SOTP_PRESETS[tk]
+    shares = preset["shares"]
+    equity = sum(ev for _, ev in preset["segments"]) - (preset.get("net_debt") or 0)
+    per_share = equity / shares
+    lowball = per_share / 2.5          # price 60%+ below the SOTP output
+    co = {"ticker": tk, "price": lowball, "shares": shares, "equity": equity * 0.4,
+          "net_profit": equity * 0.06, "revenue": equity * 0.5, "net_debt": preset.get("net_debt") or 0,
+          "type": "nonfinancial", "series": [], "synthetic_series": False}
+    a = {"_valuation_sector": "MANUFACTURING", "risk_free": 0.069, "beta": 1.0,
+         "erp": 0.05, "terminal_growth": 0.05, "rev_growth": 0.10, "ebit_margin": 0.30,
+         "terminal_ebit_margin": 0.30, "tax_rate": 0.25, "sales_to_capital": 2.0,
+         "years": 10, "wacc_floor_spread": 0.03}
+    r = engines.recommend(co, a)
+    assert r["method"] == "Sum-of-the-Parts"
+    assert r["mos"] is not None and r["mos"] > 0.60
+    assert r["verdict"] == "LOW CONF"
+    assert any("Illustrative-input model" in (x.get("note") or "") for x in r["reasons"])
+
+
 def test_alternative_intrinsic_sotp_divides_by_live_shares():
     # End-to-end through the router: a conglomerate whose live share count differs
     # from the preset must be valued on the live basis (the VEDL/BAJAJFINSV bug).

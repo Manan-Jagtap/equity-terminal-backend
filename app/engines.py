@@ -583,6 +583,21 @@ def recommend(co: Dict, a: Dict) -> Dict:
                 conf = {**conf, "score": 0.79}
         reasons.append({"label": "Model", "score": 60, "note": alt["note"],
                         "good": False, "bad": False})
+        # DAT-03 divergence guard (mirror of the lender gate): these models run
+        # on ILLUSTRATIVE hand-seeded inputs (SOTP segment EVs, insurer EV/VNB).
+        # When such a model lands >60% above the market, the likeliest broken
+        # thing is the seed, not the market — caught live: ITC's preset
+        # cigarettes EV alone exceeded the company's entire market cap, printing
+        # "BUY +113%" off a stale constant. Honest state: LOW CONF, keep the
+        # method + components visible so the user can judge the inputs.
+        if mos is not None and mos > 0.60 and verdict in ("BUY", "ACCUMULATE"):
+            verdict = "LOW CONF"
+            reliable = False
+            reasons.append({"label": "Model", "score": 50,
+                            "note": f"Illustrative-input model {mos*100:.0f}% above market — "
+                                    "hand-seeded segment/EV values are the likeliest thing "
+                                    "to be stale at this divergence. Not a confident call.",
+                            "good": False, "bad": True})
     # Life insurers WITHOUT seeded EV can't be valued on book equity / reported
     # earnings — their worth is EMBEDDED VALUE (future profit on in-force policies),
     # which isn't on the balance sheet. RI / P-B / P-E all structurally understate
