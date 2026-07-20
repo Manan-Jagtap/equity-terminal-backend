@@ -970,6 +970,10 @@ VENDOR_QUERY_ALIAS: dict[str, str] = {
                                              # Apollo HOSPITALS is APOLLOHOSP.
                                              # Bare "APOLLO" fuzzy-resolved to
                                              # Apollo Hospitals (DATA-01).
+    "ANUP":       "Anup Engineering",      # DATA-01: bare ANUP fuzzy-hit Anupam Rasayan (ANURAS)
+    "CERA":       "Cera Sanitaryware",     # DATA-01: bare CERA fuzzy-hit Kajaria Ceramics (KAJARIACER)
+    "PTC":        "PTC India",             # DATA-01: bare PTC fuzzy-hit PTC Industries (PTCIL)
+    "TRIVENI":    "Triveni Engineering",   # DATA-01: bare TRIVENI fuzzy-hit Triveni Turbine (TRITURBINE)
 }
 
 
