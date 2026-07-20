@@ -14,3 +14,13 @@ from app.ingest.indianapi_ingester import VENDOR_QUERY_ALIAS
 def test_apollo_aliases_to_micro_systems_not_hospitals():
     assert VENDOR_QUERY_ALIAS["APOLLO"] == "Apollo Micro Systems"
     assert "hospital" not in VENDOR_QUERY_ALIAS["APOLLO"].lower()
+
+
+def test_misresolved_ticker_aliases_are_present():
+    # DATA-01 clone-audit fixes — vendor-verified query strings (exchangeCodeNse
+    # == ticker) so the FIX-03 identity guard accepts each.
+    for tk, want in {
+        "ANUP": "Anup Engineering", "CERA": "Cera Sanitaryware",
+        "PTC": "PTC India", "TRIVENI": "Triveni Engineering",
+    }.items():
+        assert VENDOR_QUERY_ALIAS[tk] == want
