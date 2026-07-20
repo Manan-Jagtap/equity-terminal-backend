@@ -1412,8 +1412,12 @@ AMFI_NEXT_250 = {
     "SJS", "SMSPHARMA", "SOTL", "SSWL", "STYLAMIND", "SUNCLAY", "SUNDRMFAST",
     "SUNFLAG", "SUPRAJIT", "SUVEN", "SWANDEF", "SWARAJENG", "SYMPHONY", "TATVA",
     "TCI", "TFCILTD", "TIIL", "TRUALT", "TTKPRESTIG", "TURTLEMINT", "TVSHLTD",
-    "TVSSRICHAK", "UEL", "UFLEX", "UNIMECH", "UNIVCABLES", "VADILALIND", "VAML",
-    "VEDPOWER", "VENTIVE", "VESUVIUS", "VINATIORGA", "VISHNU", "VISL", "VOGL",
+    "TVSSRICHAK", "UEL", "UFLEX", "UNIMECH", "UNIVCABLES", "VADILALIND",
+    "VEDPOWER", "VENTIVE", "VESUVIUS", "VINATIORGA", "VISHNU", "VOGL",
+    # VAML / VISL removed (DATA-01): not separately-listed NSE tickers — the
+    # vendor name-search resolved both to one micro Vedanta-segment entity and
+    # stored them as byte-identical clones. Dropped from the universe so the boot
+    # auto-create never re-seeds them; existing rows deleted as a one-off DB step.
     "VRLLOG", "VSTIND", "VSTTILLERS", "WHEELS", "WONDERLA", "WSTCSTPAPR", "ZOTA"
 }
 
