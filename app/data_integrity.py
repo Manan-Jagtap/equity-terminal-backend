@@ -105,7 +105,12 @@ def run_integrity_sweep(db) -> dict:
             rev, ebit = pl.get("revenue"), pl.get("ebit")
             if rev is not None and rev < 0:
                 _flag(findings, co.ticker, "revenue_negative", "P1", f"{yr}: {rev}")
-            if rev and ebit is not None and abs(ebit) > abs(rev) * 1.5:
+            # Misfiled-column detector: POSITIVE EBIT above revenue is impossible
+            # bookkeeping (LICHSGFIN-style shifted years). The old abs() variant
+            # also condemned legitimate R&D loss-makers whose burn exceeds their
+            # small revenue (SPARC: rev ₹72cr, EBIT −₹334cr) — a real business
+            # state, not a data defect — and held integrity red on it.
+            if rev and ebit is not None and ebit > abs(rev) * 1.5:
                 _flag(findings, co.ticker, "ebit_gt_revenue", "P1", f"{yr}: {ebit} vs {rev}")
             bs = blocks.get("BS") or {}
             ta, nw = bs.get("total_assets"), bs.get("net_worth")
