@@ -322,8 +322,21 @@ def health(db: Session = Depends(get_db)):
             price_age_days = (_dt.date.today() - d).days
     except Exception:
         pass
+    # FIX-05/OPS-06: surface the weekly data-integrity sweep's red/amber/green
+    # verdict as a bare status so the (token-less) uptime workflow can alert on a
+    # `red` sweep — previously the sweep only reached a token-gated admin page and
+    # a data-rot finding paged nobody. `None` until the first sweep is stored.
+    integrity = None
+    try:
+        from app.data_integrity import load_sweep
+        sweep = load_sweep(db)
+        if sweep:
+            integrity = sweep.get("status")
+    except Exception:
+        pass
     return {"status": "ok", "errors_1h": errs,
-            "scheduler_beat_min": beat_min, "price_age_days": price_age_days}
+            "scheduler_beat_min": beat_min, "price_age_days": price_age_days,
+            "integrity": integrity}
 
 
 def _latest_facts(db, company_id):
