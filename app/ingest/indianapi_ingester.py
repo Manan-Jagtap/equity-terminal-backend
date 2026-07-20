@@ -968,23 +968,78 @@ VENDOR_QUERY_ALIAS: dict[str, str] = {
 }
 
 
-def _fetch_stock(ticker: str, co_name: str | None = None):
+class VendorIdentityMismatch(Exception):
+    """DATA-01/FIX-03: /stock is a fuzzy NAME search and resolved to a company
+    whose exchange symbol is NOT the requested ticker (the vendor's closest hit,
+    not our security). Raised so the caller stores NOTHING rather than another
+    company's numbers — VAML and VISL both resolved to a single micro Vedanta-
+    segment entity and were stored as byte-identical clones before this guard."""
+
+    def __init__(self, ticker: str, vendor_symbol, vendor_name):
+        self.ticker = ticker
+        self.vendor_symbol = vendor_symbol
+        self.vendor_name = vendor_name
+        super().__init__(f"/stock for {ticker} resolved to {vendor_name!r} "
+                         f"(NSE {vendor_symbol!r}) — identity mismatch, not stored")
+
+
+def _norm_sym(x) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(x or "").upper())
+
+
+def _identity_ok(stock, ticker: str, co_bse: str | None = None) -> bool:
+    """True when the payload is provably the requested company, or when identity
+    cannot be DISPROVEN. False only on a positive contradiction.
+
+    Anchored on the immutable exchange symbol, never the name: a prior mis-onboard
+    may already have overwritten `co.name` with the wrong entity's name, so a
+    name comparison would rubber-stamp the very contamination we're catching.
+    The vendor exposes `companyProfile.exchangeCodeNse` (== our ticker for a
+    correct hit — verified: TCS→'TCS') and `exchangeCodeBse`. When the NSE code
+    is present it MUST equal the ticker; else fall back to the BSE code vs our
+    stored `bse_scrip_code`; when the payload exposes no exchange symbol at all
+    we cannot disprove identity and keep today's behaviour (no regression)."""
+    prof = (stock or {}).get("companyProfile") or {}
+    tk = _norm_sym(ticker)
+    if not tk:
+        return True
+    nse = _norm_sym(prof.get("exchangeCodeNse"))
+    if nse:
+        return nse == tk
+    bse_ret, bse_have = _norm_sym(prof.get("exchangeCodeBse")), _norm_sym(co_bse)
+    if bse_ret and bse_have:
+        return bse_ret == bse_have
+    return True
+
+
+def _fetch_stock(ticker: str, co_name: str | None = None, co_bse: str | None = None):
     """/stock with alias + stored-name fallback: try the alias (or bare ticker),
-    then the cleaned company name when the first attempt fails/returns junk."""
+    then the cleaned company name when the first attempt fails/returns junk.
+
+    FIX-03: PREFER a query form whose payload identity-matches the ticker; only
+    when every usable form resolves to the WRONG company do we raise
+    VendorIdentityMismatch (so the caller stores nothing instead of a clone)."""
     queries = [VENDOR_QUERY_ALIAS.get(ticker, ticker)]
     if co_name:
         clean = re.sub(r"\b(ltd|limited)\.?$", "", co_name.strip(), flags=re.I).strip(" .,")
         if clean and clean.upper() != ticker and clean not in queries:
             queries.append(clean)
     last_err = None
+    mismatch = None
     for q in queries:
         try:
             stock = _get("/stock", {"name": q})
             if isinstance(stock, dict) and (stock.get("companyName") or stock.get("currentPrice")
                                             or stock.get("stockDetailsReusableData")):
-                return stock
+                if _identity_ok(stock, ticker, co_bse):
+                    return stock
+                # usable but the WRONG company — remember it, try the next form
+                prof = stock.get("companyProfile") or {}
+                mismatch = (prof.get("exchangeCodeNse"), stock.get("companyName"))
         except Exception as e:  # noqa: BLE001 — try the next query form
             last_err = e
+    if mismatch is not None:
+        raise VendorIdentityMismatch(ticker, mismatch[0], mismatch[1])
     if last_err:
         raise last_err
     raise RuntimeError(f"/stock returned no usable payload for {ticker} (tried {queries})")
@@ -995,7 +1050,19 @@ def ingest_company(s, co, dump=False, insights=True):
     ticker = (co.ticker or "").upper()
     print(f"  {ticker}:")
     try:
-        stock = _fetch_stock(ticker, co.name)
+        stock = _fetch_stock(ticker, co.name, co.bse_scrip_code)
+    except VendorIdentityMismatch as e:
+        # DATA-01: the vendor gave us a DIFFERENT security. Store nothing (this
+        # returns BEFORE the pre-parse purge, so an existing good history is also
+        # never wiped by a bad re-resolution) and mark the name unresolved so the
+        # daily backfill stops retrying a query that will never converge.
+        print(f"    IDENTITY MISMATCH — {e}")
+        try:
+            from app.coverage import mark_vendor_unresolved
+            mark_vendor_unresolved(s, ticker, e.vendor_symbol)
+        except Exception as me:  # noqa: BLE001 — marking is best-effort
+            print(f"    (could not mark unresolved: {me})")
+        return False
     except Exception as e:
         print(f"    /stock FAILED — {e}")
         return False
@@ -1093,7 +1160,7 @@ def ingest_company(s, co, dump=False, insights=True):
 
 def refresh_price(s, co):
     try:
-        stock = _fetch_stock((co.ticker or '').upper(), co.name)
+        stock = _fetch_stock((co.ticker or '').upper(), co.name, co.bse_scrip_code)
         p = _price_from_stock(s, co, stock)
         s.commit()
         if p:
