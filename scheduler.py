@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger(__name__)
+from app.job_telemetry import record_job_error  # FIX-06: swallowed job failures -> errors_1h
 
 from app.ingest.indianapi_ingester import run as indianapi_run, run_intraday, KEY
 from app.ingest.compute_valuations import run as compute_valuations, refresh_mos
@@ -51,6 +52,7 @@ def snapshot_verdicts():
             s.close()
     except Exception as e:
         log.error(f"Verdict snapshot failed: {type(e).__name__}: {e}")
+        record_job_error(e)
 
 
 def snapshot_signals():
@@ -71,6 +73,7 @@ def snapshot_signals():
             s.close()
     except Exception as e:
         log.error(f"Signal snapshot failed: {type(e).__name__}: {e}")
+        record_job_error(e)
 
 
 def run_compute(nifty50=False, visible=False):
@@ -100,6 +103,7 @@ def run_compute(nifty50=False, visible=False):
         log.info("Valuation recompute complete.")
     except Exception as e:
         log.error(f"Valuation recompute failed: {e}")
+        record_job_error(e)
 
 
 def run_dhan_topup(days: int = 30):
@@ -136,6 +140,7 @@ def run_dhan_topup(days: int = 30):
                 indianapi_run(price_only=True, tickers=wider)
     except Exception as e:
         log.error(f"Dhan daily top-up failed: {e}")
+        record_job_error(e)
 
 
 def run_prices():
@@ -151,6 +156,7 @@ def run_prices():
         log.info("Price refresh complete.")
     except Exception as e:
         log.error(f"Price refresh failed: {e}")
+        record_job_error(e)
 
 
 def run_intraday_prices():
@@ -193,6 +199,7 @@ def run_intraday_prices():
         log.info(f"Intraday price refresh: {n} prices updated ({src}).")
     except Exception as e:
         log.error(f"Intraday price refresh failed: {e}")
+        record_job_error(e)
 
 
 def rolling_cohort(size: int | None = None) -> list:
@@ -234,6 +241,7 @@ def run_full():
         log.info("Weekly full refresh complete.")
     except Exception as e:
         log.error(f"Weekly full refresh failed: {e}")
+        record_job_error(e)
 
 
 def run_bootstrap():
@@ -307,6 +315,7 @@ def run_results_calendar():
         log.info(f"Results calendar: board meetings stored for {wrote} names.")
     except Exception as e:
         log.error(f"Results calendar failed: {type(e).__name__}: {e}")
+        record_job_error(e)
 
 
 
@@ -405,6 +414,7 @@ def run_manager_evidence():
             s.close()
     except Exception as e:
         log.error(f"FM evidence failed: {type(e).__name__}: {e}")
+        record_job_error(e)
 
 
 def run_manager_calibration():
@@ -421,6 +431,7 @@ def run_manager_calibration():
             s.close()
     except Exception as e:
         log.error(f"FM calibration failed: {type(e).__name__}: {e}")
+        record_job_error(e)
 
 
 # Daily EOD price refresh — 3:45pm IST = 10:15 UTC, Mon-Fri
@@ -470,6 +481,7 @@ def run_missing_history_backfill():
             s.close()
     except Exception as e:
         log.error(f"History self-heal failed: {type(e).__name__}: {e}")
+        record_job_error(e)
 
 
 # Self-heal check daily, after the EOD top-up settles (4:15pm IST = 10:45 UTC)
@@ -491,6 +503,7 @@ def run_macro_refresh():
             s.close()
     except Exception as e:
         log.error(f"Macro refresh failed: {type(e).__name__}: {e}")
+        record_job_error(e)
 
 # Macro sources — Mondays 05:00 IST (Sun 23:30 UTC), before the week opens
 schedule.every().sunday.at("23:30").do(run_macro_refresh)
@@ -511,6 +524,7 @@ def run_regulatory_refresh():
             s.close()
     except Exception as e:
         log.error(f"Regulatory refresh failed: {type(e).__name__}: {e}")
+        record_job_error(e)
 
 # Regulatory + free macro feeds — daily 07:30 IST (02:00 UTC), before market open
 schedule.every().day.at("02:00").do(run_regulatory_refresh)
@@ -536,6 +550,7 @@ def run_nse_flows():
             s.close()
     except Exception as e:
         log.error(f"NSE flows failed: {type(e).__name__}: {e}")
+        record_job_error(e)
 
 # NSE flows — daily 08:00 IST (02:30 UTC)
 schedule.every().day.at("02:30").do(run_nse_flows)
@@ -556,6 +571,7 @@ def run_transcript_ingest():
             s.close()
     except Exception as e:
         log.error(f"Transcript ingest failed: {type(e).__name__}: {e}")
+        record_job_error(e)
 
 # Transcript ingestion — daily 06:30 IST (01:00 UTC), off-peak
 schedule.every().day.at("01:00").do(run_transcript_ingest)
@@ -576,6 +592,7 @@ def run_data_integrity():
                  f"{out['n_findings']} findings over {out['n_companies']} names")
     except Exception as e:
         log.error(f"data-integrity sweep failed: {e}")
+        record_job_error(e)
     finally:
         db.close()
 
@@ -628,6 +645,7 @@ def run_coverage_backfill():
         log.info(f"coverage backfill: batch of {len(batch)} ingested + revalued")
     except Exception as e:
         log.error(f"coverage backfill failed: {e}")
+        record_job_error(e)
 
 
 # Daily 20:30 UTC (2:00am IST — quiet hours). ~4 days clears the 145 stubs at
