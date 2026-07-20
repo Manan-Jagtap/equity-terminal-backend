@@ -88,3 +88,24 @@ def test_store_and_load_roundtrip(db):
     loaded = load_sweep(db)
     assert loaded["as_of"] == stored["as_of"]
     assert loaded["n_companies"] == 1
+
+
+def test_ebit_check_spares_loss_makers_but_catches_misfiles(db):
+    """SPARC lesson: an R&D loss-maker whose burn exceeds its small revenue
+    (rev ₹72cr, EBIT −₹334cr) is a real business state, not misfiled columns —
+    it must NOT flag. POSITIVE EBIT far above revenue (the LICHSGFIN-style
+    shifted-column disease this check exists for) must still flag."""
+    burn = _co(db, "RNDCO", "Rnd Co")
+    misfile = _co(db, "MISFILE", "Misfile Co")
+    for cid, ebit in ((burn.id, -334.06), (misfile.id, 500.0)):
+        db.add(models.HistoricalFinancial(company_id=cid, fiscal_year=2025,
+                                          statement_type="PL", line_item="revenue",
+                                          value=71.77))
+        db.add(models.HistoricalFinancial(company_id=cid, fiscal_year=2025,
+                                          statement_type="PL", line_item="ebit",
+                                          value=ebit))
+    db.commit()
+    out = run_integrity_sweep(db)
+    hits = {f["ticker"] for f in out["findings"] if f["check"] == "ebit_gt_revenue"}
+    assert "RNDCO" not in hits          # honest loss-maker spared
+    assert "MISFILE" in hits            # misfiled positive EBIT still caught
