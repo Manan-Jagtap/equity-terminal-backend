@@ -1057,6 +1057,8 @@ def _heartbeat():
                 s.add(models.KVStore(key="scheduler_heartbeat", value=payload))
             s.commit()
             _last_beat = time.time()
+            from app import vendor_meter
+            vendor_meter.flush(s)               # FIX-07: persist this process's vendor-call tally
         finally:
             s.close()
     except Exception as e:  # never let telemetry kill the worker
