@@ -87,10 +87,19 @@ def _compute_one(company_id, retries=3):
     return "neterr"
 
 
-def _verdict_from(mos, composite, reliable, current):
+def _verdict_from(mos, composite, reliable, current, *,
+                  is_financial=False, is_alt=False, high_roe=False):
     """Recompute the verdict from a NEW margin of safety, preserving the model's
     special states (LOW CONF / NO DATA — insurers, conglomerates, early-stage)
-    that don't depend on price. Mirrors engines.recommend's verdict bands."""
+    that don't depend on price. Mirrors engines.recommend's verdict bands AND
+    (VAL-03) its price-dependent plausibility gates via the shared
+    engines.price_gates — previously a batch BUY whose price crashed intraday
+    could sit at +140% MoS and stay BUY, a state the batch engine forbids.
+
+    Sticky special states are deliberate: a gated LOW CONF never UPGRADES on a
+    price tick (the corroboration that could clear it is a batch-time
+    assessment); the next full recompute re-evaluates everything."""
+    from app.engines import price_gates
     if current in ("LOW CONF", "NO DATA"):
         return current
     if mos is None:
@@ -98,14 +107,17 @@ def _verdict_from(mos, composite, reliable, current):
     if not reliable:
         return "LOW CONF"
     if (composite or 0) >= 68 and mos > 0.15:
-        return "BUY"
-    if (composite or 0) >= 58 and mos > 0.05:
-        return "ACCUMULATE"
-    if mos >= -0.10:
-        return "HOLD"
-    if mos >= -0.25:
-        return "REDUCE"
-    return "AVOID"
+        v = "BUY"
+    elif (composite or 0) >= 58 and mos > 0.05:
+        v = "ACCUMULATE"
+    elif mos >= -0.10:
+        v = "HOLD"
+    elif mos >= -0.25:
+        v = "REDUCE"
+    else:
+        v = "AVOID"
+    return price_gates(v, mos, is_financial=is_financial, is_alt=is_alt,
+                       high_roe=high_roe)
 
 
 def refresh_mos():
@@ -114,16 +126,25 @@ def refresh_mos():
     recompute ONLY mos + verdict from the new price and the EXISTING precomputed
     intrinsic — no DCF re-run. Milliseconds, not the full ~minute recompute."""
     from app import models
+    from app.engines import ALT_METHODS
     db = SessionLocal()
     try:
         price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+        # Gate context (VAL-03): financial flag from the company row, alt flag
+        # from the stored method, high-ROE from the stored ROE (the batch's
+        # derived-franchise refinement re-applies at the next full recompute).
+        type_by = {c.id: c.type for c in db.query(models.Company).all()}
         n = 0
         for v in db.query(models.Valuation).all():
             price = price_by.get(v.company_id)
             if not price or v.intrinsic is None:
                 continue
             v.mos = v.intrinsic / price - 1
-            v.verdict = _verdict_from(v.mos, v.composite, bool(v.reliable), v.verdict)
+            v.verdict = _verdict_from(
+                v.mos, v.composite, bool(v.reliable), v.verdict,
+                is_financial=(type_by.get(v.company_id) == "financial"),
+                is_alt=((v.method or "") in ALT_METHODS),
+                high_roe=((v.roe or 0) >= 0.16))
             n += 1
         db.commit()
         return n

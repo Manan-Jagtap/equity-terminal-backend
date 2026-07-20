@@ -435,6 +435,46 @@ def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
 
+# Methods produced by alt_models — their divergence gate fires at +60% (the
+# hand-seeded inputs are the likeliest broken thing at that distance).
+ALT_METHODS = {"Sum-of-the-Parts", "EV + VNB Appraisal", "P/EV Appraisal",
+               "Combined-ratio P/B"}
+
+
+def price_gates(verdict: str, mos, *, is_financial: bool, is_alt: bool,
+                high_roe: bool) -> str:
+    """VAL-03: the PRICE-DEPENDENT plausibility gates in ONE place, applied by
+    BOTH the batch engine (recommend) and the intraday refresh (refresh_mos).
+    A price tick moves mos, and mos alone can carry a verdict across one of
+    these cliffs — the intraday mirror previously reproduced only the base
+    bands, so a batch BUY whose price crashed intraday could sit at +140% MoS
+    and stay BUY (the exact state the batch engine forbids).
+
+    Only the HARD cliffs live here (pure functions of mos + stable flags).
+    The +50% corroboration band (VAL-01) is deliberately batch-only: it needs
+    the per-method component values, which a price tick doesn't change."""
+    if mos is None:
+        return verdict
+    # Lender divergence: a bank/NBFC the model values 80%+ above market is a
+    # disagreement to be humble about, never a confident BUY.
+    if is_financial and mos >= 0.80 and verdict in ("BUY", "ACCUMULATE"):
+        return "LOW CONF"
+    # Alt-model divergence (illustrative hand-seeded inputs): stale seed is the
+    # likeliest explanation at +60%.
+    if is_alt and mos > 0.60 and verdict in ("BUY", "ACCUMULATE"):
+        return "LOW CONF"
+    # Generic implausible upside: a one-size sector model claiming a double is
+    # wrong more often than the market on a liquid name.
+    if not is_alt and mos > 1.0 and verdict in ("BUY", "ACCUMULATE", "HOLD",
+                                                "REDUCE", "AVOID"):
+        return "LOW CONF"
+    # Extreme downside on a high-return franchise: far more likely the model
+    # structurally understates a premium compounder than a real overvaluation.
+    if mos < -0.45 and high_roe and verdict == "AVOID":
+        return "LOW CONF"
+    return verdict
+
+
 def recommend(co: Dict, a: Dict) -> Dict:
     from .data_quality import data_quality
     # The headline is the BLENDED fair value (intrinsic model + relative cross-
@@ -678,6 +718,42 @@ def recommend(co: Dict, a: Dict) -> Dict:
                                 "price — a single-sector DCF often understates premium "
                                 "compounders. Model unreliable here.",
                         "good": False, "bad": True})
+
+    # VAL-01: corroboration band. A NON-financial, NON-alt name the generic
+    # sector model places 50–100% above market keeps a confident BUY/ACC only
+    # when the engine's own evidence corroborates it: the computed (weighted)
+    # methods must broadly agree (max/min ≤ 3×) AND the market-anchored sector-
+    # P/E cross-check must itself clear the price. Otherwise the honest state is
+    # LOW CONF. (The +60..+100% hole shipped 27 confident calls — AWL "BUY +91%"
+    # with its own methods disagreeing 15×, REDINGTON +79% — before this gate.
+    # Deep value CAN survive it: agreeing methods + a P/E leg above price.)
+    if (verdict in ("BUY", "ACCUMULATE") and not alt
+            and co.get("type") != "financial"
+            and mos is not None and mos > 0.50):
+        _comps = b.get("components") or []
+        _wvals = [c.get("value") for c in _comps
+                  if c.get("value") and c["value"] > 0 and (c.get("weight") or 0) > 0]
+        _disp = (max(_wvals) / min(_wvals)) if len(_wvals) >= 2 else None
+        # Tolerance 2.5×, calibrated on the audit's live sample: every name whose
+        # upside the other legs actually corroborated sat at ≤2.3× dispersion
+        # (COALINDIA 1.3, INFY 1.2, CESC 2.3), while the exit-multiple-inflated
+        # calls read 2.6×+ (REDINGTON 2.6, AWL 3.7, SAMHI 6.0).
+        _pe_leg = next((c.get("value") for c in _comps
+                        if c.get("method") == "P/E (sector)"), None)
+        _pe_ok = bool(_pe_leg and co.get("price") and _pe_leg >= co["price"])
+        if _disp is None or _disp > 2.5 or not _pe_ok:
+            verdict = "LOW CONF"
+            reliable = False
+            _why = []
+            if _disp is not None and _disp > 3.0:
+                _why.append(f"the engine's own methods disagree {_disp:.1f}×")
+            if not _pe_ok:
+                _why.append("the sector-P/E cross-check sits below the market price")
+            reasons.append({"label": "Model", "score": 50,
+                            "note": (f"Large upside ({mos*100:.0f}%) without corroboration — "
+                                     + ("; ".join(_why) or "insufficient method evidence")
+                                     + ". Not a confident call."),
+                            "good": False, "bad": True})
 
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
             "intrinsic": iv, "confidence": conf, "reliable": reliable,
