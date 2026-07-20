@@ -965,6 +965,11 @@ VENDOR_QUERY_ALIAS: dict[str, str] = {
     "KSHINTL":    "KSH International",
     "VEDPOWER":   "Vedanta Power",
     "AGL":        "Allcargo Global",
+    "APOLLO":     "Apollo Micro Systems",   # NSE symbol APOLLO = Apollo Micro
+                                             # Systems (defence electronics);
+                                             # Apollo HOSPITALS is APOLLOHOSP.
+                                             # Bare "APOLLO" fuzzy-resolved to
+                                             # Apollo Hospitals (DATA-01).
 }
 
 
