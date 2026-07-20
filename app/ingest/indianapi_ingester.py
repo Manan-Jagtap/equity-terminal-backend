@@ -827,75 +827,84 @@ _FIN_PL_KEYS = {
 }
 
 
-def _financial_pl_supplement(s, co, year):
-    """For BANK/NBFC/INSURANCE companies, enrich the given fiscal year's P&L with
-    the lender-specific lines (interest income/expense, NII, opex, provisions)
-    that /stock omits. STRICTLY ADDITIVE: only writes a line if it isn't already
-    present for that year, so it never collides with or clobbers /stock data.
-    Requires the caller to have flushed prior inserts (autoflush is off), so the
-    existence checks below actually see them."""
+# yoy_results (Screener annual P&L) line item → canonical lender line. For a
+# lender, Revenue is gross interest earned, Interest is interest expended,
+# Expenses is operating cost; NII is derived. Provisions are NOT a separate yoy
+# line (Screener folds them into Expenses for banks), so they stay unpopulated.
+_YOY_LENDER_MAP = {
+    "Revenue": "interest_income",
+    "Interest": "interest_expense",
+    "Other Income": "other_income",
+    "Expenses": "opex",
+}
+
+
+def _fy_from_period(period) -> int | None:
+    """'Mar 2026' → 2026 (March-end FY). None for TTM / unparseable periods."""
+    m = re.search(r"(19|20)\d\d", str(period or ""))
+    return int(m.group(0)) if m else None
+
+
+def _financial_pl_supplement(s, co, year=None):
+    """FIX-08/DATA-03: enrich EVERY stored fiscal year's P&L for BANK/NBFC lenders
+    with the interest-income/expense/NII/opex lines that /stock omits, read from
+    the vendor's annual `yoy_results` table (Screener-style multi-year columns).
+    STRICTLY ADDITIVE — only writes a line absent for that year.
+
+    Was broken since inception: it hit /statement with the INVALID stat
+    'profit_loss' (the vendor serves cashflow/yoy_results/quarter_results/… — no
+    'profit_loss'), so every lender errored, and when the annual-scale guard
+    tripped it `continue`d SILENTLY — HDFCBANK/ICICIBANK/SBIN carried nothing.
+    Insurers are handled by _insurer_statements, not here. `year` is ignored
+    (kept for call-site back-compat); all years are written."""
     ticker = (co.ticker or "").upper()
-    if not year:
-        import datetime
-        year = datetime.date.today().year
+    if co.template_code == "INSURANCE":
+        return 0
+    r = _get_safe("/historical_stats", {"stock_name": ticker, "stats": "yoy_results"})
+    if not isinstance(r, dict) or "error" in r:
+        detail = r.get("error") if isinstance(r, dict) else type(r).__name__
+        _log.warning("FIX-08 lender supplement: yoy_results unavailable for %s (%s)", ticker, detail)
+        return 0
+    by_year: dict[int, dict] = {}
+    for yoy_line, canon in _YOY_LENDER_MAP.items():
+        series = r.get(yoy_line)
+        if not isinstance(series, dict):
+            continue
+        for period, raw in series.items():
+            fy, v = _fy_from_period(period), _num(raw)
+            if fy is not None and v is not None:
+                by_year.setdefault(fy, {})[canon] = v
     wrote = 0
-    for stat in ("profit_loss", "quarter_results"):
-        r = _get_safe("/statement", {"stock_name": ticker, "stats": stat})
-        if not isinstance(r, dict):
-            continue
-        vals = {}
-        for canon, keys in _FIN_PL_KEYS.items():
-            for k in keys:
-                v = _num(r.get(k))
-                if v is not None:
-                    vals[canon] = v
-                    break
-        # ── Annual-scale guard ──────────────────────────────────────────────
-        # /statement sometimes returns the latest QUARTER, not the annual P&L.
-        # For a lender, ANNUAL interest income must exceed both annual interest
-        # expense AND annual PAT (it's the gross top line). If it doesn't, these
-        # are sub-annual figures — skip rather than mix quarterly lines into the
-        # annual statement.
-        ii = vals.get("interest_income")
-        ie = vals.get("interest_expense")
-
-        def _year_line(fy, line):
-            row = (s.query(models.HistoricalFinancial)
-                     .filter_by(company_id=co.id, fiscal_year=fy,
-                                statement_type="PL", line_item=line).first())
-            return row.value if row else None
-
-        pat_annual = _year_line(year, "pat")
-        pbt_annual = _year_line(year, "pbt")
-        ie_prev = _year_line(year - 1, "interest_expense")
-        # LICHSGFIN bug: /statement returned Q4 figures plus a misfiled ₹51cr
-        # interest expense, and the old pat-only check let them through as FY
-        # lines. Tightened: the top line must also exceed PBT, and the interest
-        # bill cannot collapse >80% vs the prior fiscal year.
-        if ii is None or (ie is not None and ii <= ie) or \
-           (pat_annual is not None and ii <= pat_annual) or \
-           (pbt_annual is not None and ii <= pbt_annual) or \
-           (ie is not None and ie_prev and ie < 0.2 * abs(ie_prev)):
-            continue   # not annual-scale (or no interest income) → try next stat
-
-        if "interest_income" in vals and "interest_expense" in vals:
-            vals["nii"] = vals["interest_income"] - vals["interest_expense"]
-        if "nii" in vals and "other_income" in vals:
-            vals["total_income"] = vals["nii"] + vals["other_income"]
-        # Post-derivation identity: annual total income must cover PBT.
-        ti = vals.get("total_income")
-        if ti is not None and pbt_annual is not None and ti < pbt_annual:
-            continue
+    for fy, vals in sorted(by_year.items()):
+        ii, ie = vals.get("interest_income"), vals.get("interest_expense")
+        # A lender's gross interest earned must exceed its interest bill; a year
+        # that fails is mis-scaled/mislabelled — skip it VISIBLY, never silently.
+        if ii is not None and ie is not None:
+            if ii <= ie:
+                _log.warning("FIX-08: %s FY%s interest_income %.0f <= expense %.0f — skipped", ticker, fy, ii, ie)
+                continue
+            vals["nii"] = ii - ie
         for canon, v in vals.items():
             existing = (s.query(models.HistoricalFinancial)
-                          .filter_by(company_id=co.id, fiscal_year=year,
+                          .filter_by(company_id=co.id, fiscal_year=fy,
                                      statement_type="PL", line_item=canon).first())
             if existing is None:
-                _upsert_hist(s, co.id, year, "PL", canon, v)
+                _upsert_hist(s, co.id, fy, "PL", canon, v)
                 wrote += 1
-        if wrote:
-            break
     return wrote
+
+
+def _should_refresh_identity(stock, ticker, stored_name) -> bool:
+    """Identity-refresh trigger (DATA-01 follow-up): the vendor CONFIRMS this
+    ticker (its NSE code == ticker) but the stored name no longer matches the
+    vendor's, and it isn't a mere Ltd/suffix variant (neither name contains the
+    other) — i.e. a curated row still carrying a PAST mis-resolution's label."""
+    prof = (stock or {}).get("companyProfile") or {}
+    nse = _norm_sym(prof.get("exchangeCodeNse"))
+    vn = _norm_sym((stock or {}).get("companyName"))
+    sn = _norm_sym(stored_name)
+    return bool(nse and nse == _norm_sym(ticker) and vn and sn
+                and vn not in sn and sn not in vn)
 
 
 def _insurer_statements(s, co):
@@ -1138,6 +1147,20 @@ def ingest_company(s, co, dump=False, insights=True):
         s.commit()
         note = " ⚠ unclassified sector → MANUFACTURING default (verify multiple)" if is_fallback else ""
         print(f"    onboarded: {co.name} · {sector} → {tmpl}/{typ}{note}")
+    elif _should_refresh_identity(stock, ticker, co.name):
+        # A curated row whose name was corrupted by a PAST mis-resolution keeps
+        # the wrong name/sector even once the alias makes /stock resolve right
+        # (the financials are already correct). Re-resolve the label — retires the
+        # manual sector-reset used for APOLLO/ANUP/CERA/PTC/TRIVENI.
+        name, sector, tmpl, typ, _fb = _resolve_onboarding(ticker, stock, None, co.name)
+        if name and _norm_sym(name) != _norm_sym(co.name):
+            _old = co.name
+            co.name = name
+            if sector:
+                co.sector = sector
+            co.template_code, co.type = tmpl, typ
+            s.commit()
+            print(f"    identity refresh: {_old!r} → {co.name} · {sector} → {tmpl}/{typ}")
 
     if dump:
         fin = stock.get("financials") or stock.get("stockFinancialData") or []
@@ -1178,10 +1201,10 @@ def ingest_company(s, co, dump=False, insights=True):
                              .order_by(models.HistoricalFinancial.fiscal_year.desc())
                              .first())
             latest_year = latest_year[0] if latest_year else None
-            w = _financial_pl_supplement(s, co, latest_year)
+            w = _financial_pl_supplement(s, co)   # FIX-08: writes ALL years now
             if w:
                 s.commit()
-                print(f"    financial P&L supplement → {w} lender line items (FY{latest_year})")
+                print(f"    financial P&L supplement → {w} lender line items (all years)")
             else:
                 s.rollback()
         except Exception as e:
