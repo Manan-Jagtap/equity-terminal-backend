@@ -35,6 +35,7 @@ def _get(path, params=None, ttl=_TTL, host=None):
     if not KEY:
         return None
     try:
+        from app import vendor_meter; vendor_meter.tick()  # FIX-07
         r = requests.get((host or BASE) + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                          params=params or {}, timeout=25)
         data = r.json() if r.status_code == 200 else None

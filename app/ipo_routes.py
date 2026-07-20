@@ -59,6 +59,7 @@ def ipo_board():
     data, v2 = None, {}
     if KEY:
         try:
+            from app import vendor_meter; vendor_meter.tick()  # FIX-07
             resp = requests.get(BASE + "/ipo",
                                 headers={"X-API-Key": KEY, "x-api-key": KEY},
                                 timeout=25)

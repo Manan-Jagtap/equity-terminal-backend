@@ -51,6 +51,7 @@ def logo(ticker: str, db: Session = Depends(get_db)):
     for url in (f"https://www.livemint.com/lm-img/markets/logo/{tid}.png",
                 f"{BASE}/logo/{tid}.png"):
         try:
+            from app import vendor_meter; vendor_meter.tick()  # FIX-07
             r = requests.get(url, headers={"X-API-Key": KEY, "x-api-key": KEY}, timeout=15)
             ct = r.headers.get("content-type", "")
             if r.status_code == 200 and "image" in ct and r.content:

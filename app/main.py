@@ -263,6 +263,26 @@ app.add_middleware(ErrorCaptureMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
+
+@app.middleware("http")
+async def _flush_vendor_meter(request: Request, call_next):
+    """FIX-07: persist this web request's IndianAPI calls to the monthly tally.
+    Cheap in-memory check first so a request that made no vendor call never
+    touches the DB; never lets a metering hiccup affect the response."""
+    response = await call_next(request)
+    try:
+        from app import vendor_meter
+        if vendor_meter.pending():
+            from app.database import SessionLocal
+            db = SessionLocal()
+            try:
+                vendor_meter.flush(db)
+            finally:
+                db.close()
+    except Exception:
+        pass
+    return response
+
 # FRONTEND_ORIGIN accepts a comma-separated list so the branded domain and the
 # legacy *.vercel.app URL can coexist through the cutover window.
 # SEC-04: fail CLOSED — when the env var is unset in a production-shaped process

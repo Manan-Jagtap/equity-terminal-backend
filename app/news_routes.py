@@ -102,6 +102,7 @@ def _indianapi_news(ticker: str, name: str = "") -> tuple[list[dict], str | None
     last_err = "no_results"
     for q in cands:
         try:
+            from app import vendor_meter; vendor_meter.tick()  # FIX-07
             r = requests.get(_INDIANAPI_BASE + "/stock",
                              headers={"X-API-Key": key, "x-api-key": key},
                              params={"name": q}, timeout=25)

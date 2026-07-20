@@ -205,6 +205,7 @@ def news_red_flags(ticker: str, budget_guard=None) -> list[str]:
         return []
     base = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
     try:
+        from app import vendor_meter; vendor_meter.tick()  # FIX-07
         r = _rq.get(base + "/company_news", headers={"X-API-Key": key},
                     params={"symbol": ticker}, timeout=10)
         if r.status_code != 200:

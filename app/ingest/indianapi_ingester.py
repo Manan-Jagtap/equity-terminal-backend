@@ -68,6 +68,7 @@ def _get(path, params, retries=4):
     last = "unknown error"
     for attempt in range(retries):
         _CALL_COUNT += 1                       # every attempt hits the API → counts
+        from app import vendor_meter; vendor_meter.tick()   # FIX-07 durable meter
         try:
             r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                              params=params, timeout=90)
@@ -287,6 +288,9 @@ def _get_safe(path, params):
     payload (HTTP 200 wrapping an internal error) as a failure too."""
     if not KEY:
         return None
+    global _CALL_COUNT
+    _CALL_COUNT += 1                            # FIX-07: insight calls count too
+    from app import vendor_meter; vendor_meter.tick()
     try:
         r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                          params=params, timeout=30)
@@ -1570,7 +1574,9 @@ def run(limit=None, ticker=None, price_only=False, nifty50=False, insights=True,
 
     spent = get_call_count() - start_calls
     try:
-        total = B.record_usage(s, spent)
+        from app import vendor_meter
+        vendor_meter.flush(s)                   # FIX-07: durable, drain-based (no double-count)
+        total = B.month_usage(s)
     except Exception:
         s.rollback(); total = None
     s.close()

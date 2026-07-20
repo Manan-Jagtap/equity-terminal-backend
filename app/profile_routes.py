@@ -38,6 +38,7 @@ def _get(path, params, ttl=TTL):
         return None
     try:
         _out_calls += 1
+        from app import vendor_meter; vendor_meter.tick()  # FIX-07
         r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                          params=params, timeout=25)
         data = r.json() if r.status_code == 200 else None
@@ -346,10 +347,9 @@ def company_profile(ticker: str, db: Session = Depends(get_db)):
             "credit_ratings": _credit_ratings(name),
             "announcements": _announcements(name),
         }
-        try:
-            api_budget.record_usage(db, _out_calls - before)
-        except Exception:
-            pass
+        # FIX-07: metering is now centralised in vendor_meter (ticked in _get,
+        # flushed by the request middleware) — the local per-endpoint tally that
+        # used to record_usage here would double-count, so it's removed.
 
         got_data = bool(prof) or any(
             payload.get(k) for k in ("leadership", "shareholding", "concalls",

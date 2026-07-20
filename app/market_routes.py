@@ -32,6 +32,7 @@ def _get(path, params=None, ttl=TTL):
     if hit and now - hit[0] < ttl:
         return hit[1]
     try:
+        from app import vendor_meter; vendor_meter.tick()  # FIX-07
         r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                          params=params or {}, timeout=20)
         data = r.json() if r.status_code == 200 else None
