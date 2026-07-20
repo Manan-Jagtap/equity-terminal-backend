@@ -18,6 +18,8 @@ def test_vaml_visl_gone_from_every_tier_and_visible_universe():
     everywhere |= set(ing.VISIBLE_UNIVERSE)
     assert "VAML" not in everywhere
     assert "VISL" not in everywhere
+    for junk in ("BOSCH-HCIL", "MARINE", "WHEELS"):
+        assert junk not in everywhere
 
 
 def _mk_db():
