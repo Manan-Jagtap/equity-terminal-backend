@@ -43,6 +43,18 @@ MACRO_KEY = "fm_macro_v1"
 CALIBRATION_KEY = "fm_calibration_v1"
 ENGINE_SCHEMA = 5   # bump when evidence blobs gain fields → boot rebuild fires
 
+# FIX-01 / ENG-01: the nightly ledger append silently failed 16–20 Jul 2026,
+# when macro_regime NameError'd on an un-imported macro_data and unwound before
+# the ledger block. The gap is PUBLISHED, never backfilled — the ledger's whole
+# doctrine is "recorded daily, never reconstructed after the fact", so hindsight
+# rows would poison the honesty artifact. Extend this list only if it recurs.
+LEDGER_GAPS = [
+    {"from": "2026-07-16", "to": "2026-07-20",
+     "reason": ("Nightly ledger append halted by a macro-refresh regression "
+                "(ENG-01); fixed 2026-07-20. Not backfilled — the ledger is "
+                "recorded daily and never reconstructed after the fact.")},
+]
+
 # Priors: used until (and blended with) measured ICs from the calibration job.
 # Grouped to sum loosely to 1 across the valuation trio + non-valuation set.
 PRIOR_WEIGHTS = {
@@ -876,6 +888,11 @@ def macro_regime(db) -> dict:
     series), sector relative strength (median 12-1 momentum by sector) and the
     live commodity tape. No third-party 'sentiment' — everything verifiable."""
     from app import models
+    from app import macro_data   # ENG-01/FIX-01: referenced below (flows,
+                                 # activity, forecast) but never imported — the
+                                 # unguarded `macro_data.macro_forecast` in the
+                                 # return NameError'd every run, freezing the
+                                 # macro blob and the public ledger since 15 Jul.
 
     dated = _closes_dated_by(db, days=420)
     above50 = above200 = n50 = n200 = 0
@@ -1126,8 +1143,27 @@ def snapshot_evidence(db) -> dict:
     track record). Returns a summary."""
     ev = build_evidence(db)
     _kv_put(db, EVIDENCE_KEY, ev)
-    mac = macro_regime(db)
-    _kv_put(db, MACRO_KEY, mac)
+
+    # Macro is a BEST-EFFORT leg. Its failure must NEVER abort the ledger append
+    # (an un-imported macro_data froze the public track record for 5 days exactly
+    # this way — ENG-01). On failure: keep the last-good macro for the conviction
+    # math, flag it stale, and record the error so /api/health errors_1h and the
+    # uptime alert see it. Partial completion of this job is now impossible.
+    macro_stale = False
+    try:
+        mac = macro_regime(db)
+        _kv_put(db, MACRO_KEY, mac)
+    except Exception as e:
+        db.rollback()
+        macro_stale = True
+        mac = load_macro(db) or {"regime": "neutral", "stale": True}
+        log.error(f"macro_regime failed; ledger continues on last-good macro: "
+                  f"{type(e).__name__}: {e}")
+        try:
+            from app.error_log import record_error
+            record_error(db, "job:fm_macro_regime", e)
+        except Exception:
+            pass
 
     # Ledger: same gates the desk uses, empty-book view, top 15 by conviction.
     n_ledger = 0
@@ -1163,10 +1199,16 @@ def snapshot_evidence(db) -> dict:
         db.commit()
     except Exception as e:
         db.rollback()
-        log.warning(f"engine ledger write failed: {type(e).__name__}: {e}")
+        log.error(f"engine ledger write failed: {type(e).__name__}: {e}")
+        try:
+            from app.error_log import record_error
+            record_error(db, "job:fm_ledger_write", e)
+        except Exception:
+            pass
 
     return {"names": len(ev.get("names") or {}), "regime": mac.get("regime"),
-            "as_of": ev.get("as_of"), "ledger_added": n_ledger}
+            "as_of": ev.get("as_of"), "ledger_added": n_ledger,
+            "macro_stale": macro_stale}
 
 
 def load_evidence(db) -> dict | None:
