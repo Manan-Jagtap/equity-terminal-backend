@@ -1045,6 +1045,47 @@ def _fetch_stock(ticker: str, co_name: str | None = None, co_bse: str | None = N
     raise RuntimeError(f"/stock returned no usable payload for {ticker} (tried {queries})")
 
 
+def _swap_statements(s, co, stock) -> int:
+    """DATA-02/FIX-04: replace a company's HistoricalFinancial rows atomically.
+
+    The old code purged ALL prior statements and only THEN parsed the fresh
+    payload — so a vendor response that carried a price but an empty/absent
+    financials block deleted a good 7-year history and left zero rows (SBILIFE
+    observed wiped live, has_data:false). Here the purge + parse + insurer
+    fallback run inside a SAVEPOINT; if the fresh payload yields nothing usable
+    and a prior history existed, the savepoint is rolled back and the old rows
+    stay intact. Returns the number of usable statement-years now stored.
+
+    Safe because neither _parse_financials nor _insurer_statements commits — they
+    only add/flush — so the savepoint fully owns their writes."""
+    prior = (s.query(models.HistoricalFinancial)
+              .filter_by(company_id=co.id).count())
+    sp = s.begin_nested()
+    try:
+        s.query(models.HistoricalFinancial).filter_by(
+            company_id=co.id).delete(synchronize_session=False)
+        s.flush()
+        n = _parse_financials(s, co.id, co, stock)
+        if n == 0:                       # insurer / 0-year fallback (SBILIFE, HDFCLIFE, …)
+            try:
+                w = _insurer_statements(s, co)
+                if w:
+                    n = w
+                    print(f"    insurer fallback → {w} line items via /statement")
+            except Exception as e:  # noqa: BLE001 — fallback is best-effort
+                print(f"    insurer fallback failed — {e}")
+        if n == 0 and prior > 0:
+            sp.rollback()                # keep the good history — never wipe to zero
+            print(f"    ⚠ fresh payload yielded 0 statements — kept {prior} prior "
+                  f"rows intact (DATA-02 guard); nothing overwritten")
+            return 0
+        sp.commit()
+        return n
+    except Exception:
+        sp.rollback()
+        raise
+
+
 def ingest_company(s, co, dump=False, insights=True):
     import json
     ticker = (co.ticker or "").upper()
@@ -1090,22 +1131,11 @@ def ingest_company(s, co, dump=False, insights=True):
         print(f"    ── financials: {len(fin)} entries; first sections="
               f"{list((fin[0].get('stockFinancialMap') or {}).keys()) if fin else []}")
 
-    # Purge any prior statements (old yfinance rows) so ONLY fresh IndianAPI
-    # data remains. Fixes mixed/stale years (some showed 7, 8, 10) and the
-    # stale numbers the Ratios/Peers tabs were computing from.
-    s.query(models.HistoricalFinancial).filter_by(company_id=co.id).delete(synchronize_session=False)
-    s.flush()
-
-    n = _parse_financials(s, co.id, co, stock)
-
-    # Insurer / 0-year fallback (SBILIFE, HDFCLIFE, …)
-    if n == 0:
-        try:
-            w = _insurer_statements(s, co)
-            if w:
-                print(f"    insurer fallback → {w} line items via /statement")
-        except Exception as e:
-            print(f"    insurer fallback failed — {e}")
+    # Replace the statements ATOMICALLY (DATA-02/FIX-04): the purge + fresh
+    # parse run in a SAVEPOINT and are kept ONLY if the payload actually yielded
+    # statements. An empty/partial vendor response no longer wipes a good
+    # multi-year history to zero (SBILIFE was destroyed exactly this way).
+    n = _swap_statements(s, co, stock)
 
     # Commit the CORE statements + facts + price FIRST, in their own transaction.
     # This way a later optional stage (lender supplement, insights) that errors
