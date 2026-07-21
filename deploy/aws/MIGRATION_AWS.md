@@ -174,3 +174,31 @@ plan; owner chose EC2):
 - Deploys are now: build `deploy/aws/Dockerfile` → push ECR → recreate
   containers (owner runs `~/.equity-terminal/cutover-cmd.json` via SSM, or
   adapt it). Uptime alarm: `.github/workflows/uptime.yml` → api domain.
+
+## Deploy gate — the checklist that stops "merged but not live" (learned 21 Jul)
+
+A merge is NOT a deploy. The image build is the step that fails silently; guard it:
+
+1. **Build with `-f deploy/aws/Dockerfile` from the repo ROOT.** The Dockerfile is
+   not at root. A plain `docker build .` prints `transferring dockerfile: 2B`,
+   FAILS — and if `docker push` runs anyway it re-pushes the STALE cached `:latest`
+   (every layer "Already exists"), so the box keeps running old code while health
+   stays green. This cost ~5 no-op "redeploys" once.
+2. **Chain `build && push`** so a failed build cannot push stale:
+   `docker build --no-cache --platform linux/amd64 -f deploy/aws/Dockerfile -t <ecr>/equity-terminal:latest . && docker push <ecr>/equity-terminal:latest`
+3. **Pre-push gate** — prove the new code is IN the image before pushing:
+   `docker run --rm <image> grep -c <a-symbol-you-just-added> app/<file>.py` must be
+   non-zero. And confirm ECR actually moved:
+   `aws ecr describe-images --repository-name equity-terminal --image-ids imageTag=latest --query 'imageDetails[0].imageDigest'`
+   is a NEW digest after the push.
+4. **Cutover = recreate on the box via SSM** (plain `docker run`, network `edge`,
+   `--env-file /opt/app.env`, `--restart always`; there is NO docker-compose):
+   ```
+   docker rm -f web       && docker run -d --name web       --network edge --env-file /opt/app.env -e FRONTEND_ORIGIN="<origins>" --restart always <ecr>/equity-terminal:latest
+   docker rm -f scheduler && docker run -d --name scheduler --network edge --env-file /opt/app.env --restart always <ecr>/equity-terminal:latest python scheduler.py
+   ```
+   web keeps the Dockerfile default CMD (uvicorn :8080); caddy reverse-proxies
+   `web:8080` on `edge` and reconnects after the few-second recreate blip.
+5. **The deploy gate is the CONTAINER check, never git** — e.g.
+   `docker exec web python -c "from app import <mod>; assert '<new>' in dir(<mod>)"` —
+   plus (schema changes) `docker exec web alembic current` at head.
