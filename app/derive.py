@@ -415,6 +415,51 @@ def _derive_financial(statements, vs):
                           0.08, 0.26)
     drivers["terminal_roe"] = "min(forecast, 0.70×realized + 0.30×sector mature)"
 
+    # FIX-17: evidence-earned compounder terminal ROE (VAL-02 / VAL-09). The
+    # terminal-at-forecast cap above (correctly) stops a WEAK lender inflating a
+    # fake terminal, but it also CLIPS a proven compounder whose forecast is
+    # temporarily depressed (HDFC Bank post-merger: 5y ROE 15-16% → recent ~13%).
+    # When the franchise has demonstrated a DURABLE excess return over its history
+    # — median ROE ≥ 1.2×Ke (excess return relative to ITS OWN risk, so a higher-
+    # beta HFC like LIC HF faces a higher bar and stays capped) — let the terminal
+    # fade toward the level the history PROVES (the upper-half median, so a single
+    # trough year doesn't define the durable state), capped 18%. Earned & ONE-
+    # SIDED: never lowers the terminal, and no ≥1.2×Ke proof → no lift at all.
+    _roe_hist = []
+    if pat and networth:
+        _nw = dict(networth)
+        for _yr, _pv in pat:
+            _nv = _nw.get(_yr)
+            if _nv and _nv > 0 and _pv is not None:
+                _roe_hist.append(_pv / _nv)
+    if len(_roe_hist) >= 4:
+        _ke = SP.RISK_FREE + p["beta"] * SP.ERP
+        _franchise0 = median(sorted(_roe_hist)[len(_roe_hist) // 2:])
+        # Lift ONLY a STABLE franchise in a mild dip — latest realized ROE within
+        # 20% of its proven level. HDFC Bank (latest 0.130 vs franchise 0.154,
+        # ratio 0.84) is a durable ~15% franchise temporarily depressed. A
+        # boom-bust name whose "franchise" is an unrepeatable PEAK (Motilal 0.145
+        # vs 0.231 → 0.63; SBI Card 0.138 vs 0.208 → 0.66) is EXCLUDED — its
+        # upper-half median is a peak, not a level it will revert to, and lifting
+        # it would wrongly push a banded call into the divergence gate.
+        _stable = (_latest_roe is not None and _franchise0 > 0
+                   and _latest_roe >= 0.80 * _franchise0)
+        if median(_roe_hist) >= 1.2 * _ke and _stable:
+            _franchise = _franchise0
+            # BOUNDED recovery: a TEMPORARILY depressed franchise reverts a modest
+            # step (≤ +3 pts) toward its proven level — never a windfall. This is
+            # what separates HDFC Bank (franchise 0.154 vs forecast 0.136, a small
+            # gap → near-full lift, lands in band) from a structurally-low name
+            # (Manappuram forecast 0.068 vs 0.159 → capped to +0.03, a modest
+            # 0.098, not an unearned 2.3× jump).
+            _earned = _clamp(min(_franchise, forecast_roe + 0.03, 0.18), 0.08, 0.26)
+            if _earned > terminal_roe:
+                terminal_roe = _earned
+                drivers["terminal_roe"] = (
+                    f"evidence-earned franchise ROE {_pct(terminal_roe)} — proven ≥1.2×Ke "
+                    "persistence; terminal reverts to the demonstrated franchise, not the "
+                    "depressed forecast (FIX-17)")
+
     # Payout from dividends/PAT (dividends stored negative in CF → abs).
     payout = 0.20
     if dividends and pat:
