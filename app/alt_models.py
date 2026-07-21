@@ -317,6 +317,157 @@ def general_insurer_value(ticker: str, co: dict, a: dict) -> dict | None:
     }
 
 
+# ── FIX-16: young/loss-maker (survival-adjusted) archetype (VAL-05) ───────────
+# Mature-state TARGET net margins a young business fades TO (deliberately
+# conservative — the value is what it earns AT MATURITY, not today).
+_YOUNG_TARGET_NPM = {
+    "IT_SERVICES": 0.16, "PHARMA": 0.15, "CONSUMER": 0.10, "CONSUMER_DISC": 0.07,
+    "CHEMICALS": 0.10, "CAPITAL_GOODS": 0.09, "MANUFACTURING": 0.07, "AUTO": 0.07,
+    "DISTRIBUTION": 0.03, "REALTY": 0.12, "TELECOM": 0.10, "CONSTRUCTION": 0.05,
+}
+_YOUNG_DEFAULT_NPM = 0.07
+
+
+def _rev_list(statements) -> list[float]:
+    out = []
+    for y in sorted((statements or {}), key=lambda x: int(x)):
+        r = ((statements[y] or {}).get("PL") or {}).get("revenue")
+        if r and r > 0:
+            out.append(r)
+    return out
+
+
+def young_company_value(co: dict, a: dict) -> dict | None:
+    """Survival-adjusted value for a young / loss-making / near-zero-ROE company
+    the DCF/RI can't touch. Project revenue to a mature TARGET margin, capitalise
+    those normalised earnings at the (deflated) sector exit P/E, PV it, then
+    HAIRCUT by a survival probability (deeper losses / smaller scale → lower).
+    EARNED path — returns None (stays abstained) unless: non-financial, ≥3 years
+    of real revenue, near-zero/negative ROE (the abstain trigger), and a VISIBLE
+    growth path (positive revenue CAGR). Names failing any of these keep abstaining."""
+    if co.get("type") == "financial":
+        return None
+    revs = _rev_list(co.get("statements"))
+    rev0, shares, eq = co.get("revenue"), co.get("shares"), co.get("equity")
+    npat = co.get("net_profit")
+    if len(revs) < 3 or not rev0 or rev0 <= 0 or not shares or shares <= 0:
+        return None
+    roe = (npat / eq) if (npat is not None and eq and eq > 0) else (npat and -1.0)
+    if roe is None or roe >= 0.04:                 # only the LC_low_or_negative_roe cohort
+        return None
+    cagr = (revs[-1] / revs[0]) ** (1 / (len(revs) - 1)) - 1 if revs[0] > 0 else -1
+    if cagr <= 0.02:                                # no visible growth path → stay abstained
+        return None
+    from app import sector_params as SP
+    vs = a.get("_valuation_sector") or "MANUFACTURING"
+    ke = (a.get("risk_free") or 0.069) + (a.get("beta") or 1.0) * (a.get("erp") or 0.05)
+    g, N = min(0.25, cagr), 7
+    rev_N = rev0 * (1 + g) ** N
+    tgt = _YOUNG_TARGET_NPM.get(vs, _YOUNG_DEFAULT_NPM)
+    exit_pe = (SP.SECTOR_PARAMS.get(vs) or {}).get("exit_pe") or 20
+    pv = (rev_N * tgt * exit_pe) / (1 + ke) ** N
+    # survival ∈ [0.30, 0.85]: near breakeven + real scale → high; deep loss + tiny → low
+    cur_npm = npat / rev0
+    survival = max(0.30, min(0.85, 0.35
+                             + 0.35 * max(0.0, min(1.0, (cur_npm + 0.25) / 0.31))
+                             + 0.15 * max(0.0, min(1.0, rev0 / 5000.0))))
+    equity_val = pv * survival - (co.get("net_debt") or 0.0)
+    if equity_val <= 0:
+        return None
+    intrinsic = equity_val / shares
+    return {
+        "intrinsic": intrinsic, "method": "Survival-adjusted (young)",
+        "components": [
+            {"label": f"Yr-{N} rev ₹{rev_N:,.0f}cr × {tgt*100:.0f}% target margin × {exit_pe:.0f}× P/E", "value": rev_N * tgt * exit_pe},
+            {"label": f"PV @ {ke*100:.1f}% × {survival*100:.0f}% survival, ÷ {shares:,.1f}cr sh", "value": intrinsic},
+        ],
+        "note": (f"Survival-adjusted young-company value: revenue grows {g*100:.0f}%/yr to a "
+                 f"{tgt*100:.0f}% mature net margin, capitalised at {exit_pe:.0f}× and PV'd, then "
+                 f"haircut {survival*100:.0f}% for survival risk (current margin {cur_npm*100:.0f}%). "
+                 "MEDIUM confidence — a modelled path, not a promise."),
+    }
+
+
+# ── FIX-16: fee-annuity archetype (VAL-05) ────────────────────────────────────
+# Fee-sub-type P/E priors, used ONLY when a real own-history anchor isn't
+# available (no 10y band exists — ~1y of daily prices — so we never fabricate one).
+_FEE_PE_PRIOR = {"exchange": 28.0, "amc": 26.0, "depository": 30.0, "registrar": 28.0,
+                 "rating": 30.0, "broking": 15.0, "wealth": 20.0, "default": 20.0}
+
+
+# Known fee franchises by sub-type — the IndianAPI sector string is often generic
+# ("Financial Services"/"Capital Markets"), so a ticker map ensures an exchange or
+# AMC gets its own P/E prior instead of the conservative default.
+_FEE_TICKER_SUBTYPE = {
+    "BSE": "exchange", "MCX": "exchange", "IEX": "exchange", "NSE": "exchange",
+    "CDSL": "depository", "KFINTECH": "registrar", "CAMS": "registrar",
+    "CRISIL": "rating", "ICRA": "rating", "CARERATNG": "rating",
+    "HDFCAMC": "amc", "ABSLAMC": "amc", "UTIAMC": "amc", "NAM-INDIA": "amc", "TATAMUTUAL": "amc",
+    "ANGELONE": "broking", "MOTILALOFS": "broking", "IIFLCAPS": "broking", "ANANDRATHI": "wealth",
+    "360ONE": "wealth", "NUVAMA": "wealth", "PRUDENT": "wealth", "IIFL": "wealth",
+    "POLICYBZR": "broking", "MFSL": "wealth",
+}
+
+
+def _fee_subtype(co: dict) -> str:
+    tk = (co.get("ticker") or "").upper()
+    if tk in _FEE_TICKER_SUBTYPE:
+        return _FEE_TICKER_SUBTYPE[tk]
+    sec = (co.get("sector") or "").lower()
+    for key in ("exchange", "depositor", "rating", "registrar", "broking",
+                "brokerage", "wealth", "asset management"):
+        if key in sec:
+            return {"depositor": "depository", "brokerage": "broking",
+                    "asset management": "amc"}.get(key, key)
+    return "default"
+
+
+def fee_annuity_value(co: dict, a: dict) -> dict | None:
+    """Earnings-power value for a capital-markets FEE financial (broker/AMC/
+    exchange/RTA) the book/DCF mis-values. intrinsic = normalised EPS × a P/E
+    anchor; anchor priority (STATED in the note): (1) the name's own trailing
+    price/earnings band from REAL prices; (2) a fee-sub-type P/E prior; else None.
+    EARNED — needs positive NORMALISED earnings and a valid anchor; a name lacking
+    either stays abstained. No 10y band is fabricated (only ~1y of prices exist)."""
+    from app import engines
+    if not engines._is_fee_financial(co):
+        return None
+    shares = co.get("shares")
+    if not shares or shares <= 0:
+        return None
+    pats = [((co.get("statements") or {}).get(y, {}).get("PL") or {}).get("pat")
+            for y in sorted((co.get("statements") or {}), key=lambda x: int(x))]
+    pats = [p for p in pats if p is not None]
+    import statistics
+    norm_pat = statistics.median(pats) if pats else co.get("net_profit")
+    if norm_pat is None or norm_pat <= 0:
+        return None                                # no positive earnings power → abstain
+    norm_eps = norm_pat / shares
+    anchor, how = None, None
+    cur_eps = (co.get("net_profit") / shares) if co.get("net_profit") is not None else None
+    series = [p.get("close") for p in (co.get("series") or []) if p.get("close")]
+    if cur_eps and cur_eps > 0 and len(series) >= 60 and not co.get("synthetic_series"):
+        band = statistics.median([c / cur_eps for c in series if c > 0])
+        if 8 <= band <= 45:
+            anchor, how = band, "own trailing-1y P/E band"
+    if anchor is None:
+        anchor, how = _FEE_PE_PRIOR.get(_fee_subtype(co), 20.0), f"fee-sector P/E prior ({_fee_subtype(co)})"
+    anchor = max(10.0, min(40.0, anchor))
+    intrinsic = norm_eps * anchor
+    if intrinsic <= 0:
+        return None
+    return {
+        "intrinsic": intrinsic, "method": "Fee earnings-power",
+        "components": [
+            {"label": f"Normalised EPS ₹{norm_eps:.1f} (median PAT ₹{norm_pat:,.0f}cr)", "value": norm_eps},
+            {"label": f"× P/E {anchor:.0f} — {how}", "value": intrinsic},
+        ],
+        "note": (f"Fee-annuity earnings-power: normalised EPS ₹{norm_eps:.1f} × {anchor:.0f}× "
+                 f"({how}). Fee businesses are valued on earnings power, not book/DCF. "
+                 "MEDIUM confidence."),
+    }
+
+
 def alternative_intrinsic(co: dict, a: dict) -> dict | None:
     """Override intrinsic for names the single-engine blend can't value:
       · GENERAL insurers (combined-ratio P/B)          → general_insurer_value
@@ -342,4 +493,13 @@ def alternative_intrinsic(co: dict, a: dict) -> dict | None:
         # Divide by the LIVE share count, never the preset constant — a stale
         # hand-seeded count doubled the per-share fair value (DAT-01).
         return sotp_value(ticker, co.get("shares"))
+    # FIX-16: earned archetype models for the permanent-abstention cohort. Each
+    # returns None unless the name meets its input requirements, so abstention
+    # remains for genuinely un-valuable names (no forced calls on thin data).
+    fee = fee_annuity_value(co, a)
+    if fee:
+        return fee
+    young = young_company_value(co, a)
+    if young:
+        return young
     return None
