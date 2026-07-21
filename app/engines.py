@@ -291,7 +291,10 @@ def _is_high_payout(co: Dict, a: Dict) -> bool:
 # EV/EBITDA, asset-light ones on P/E — so we weight the right multiple higher.
 _BLEND_WEIGHTS = {
     "fin":    [("Residual Income", 0.65), ("Gordon Growth P/B", 0.20), ("P/E (sector)", 0.15)],
-    "nonfin": [("FCFF DCF",        0.55), ("Exit Multiple",     0.30), ("P/E (sector)", 0.15)],
+    # FIX-11: DCF leads harder (.55→.65) and the exit multiple is trusted less
+    # (.30→.20) — the exit leg was the single biggest source of rich confident
+    # calls (CORR-1); the intrinsic DCF is the more defensible anchor.
+    "nonfin": [("FCFF DCF",        0.65), ("Exit Multiple",     0.20), ("P/E (sector)", 0.15)],
     # Asset-light: earnings-based P/E is the meaningful multiple; EV/EBITDA less so.
     "nonfin_light": [("FCFF DCF",  0.55), ("Exit Multiple",     0.15), ("P/E (sector)", 0.30)],
 }
@@ -341,9 +344,10 @@ def blended(co: Dict, a: Dict) -> Dict:
     # The intrinsic DCF/RI leads. The relative multiples are a SANITY BAND — they
     # can corroborate or nudge the primary, but a rich sector exit multiple (which
     # reads ~2× the DCF on premium sectors) must not be able to drag the blend far
-    # above the intrinsic. Clamp each cross-check to ±50% of the primary before
-    # weighting. The raw (uncapped) value is still shown in the breakdown.
-    LO, HI = 0.5 * primary, 2.2 * primary
+    # above the intrinsic. Clamp each cross-check to [0.6, 1.6]× the primary before
+    # weighting (FIX-11: tightened from [0.5, 2.2] — the wide upper band let a rich
+    # exit multiple inflate confident calls). The raw value is still shown in the breakdown.
+    LO, HI = 0.6 * primary, 1.6 * primary
     components = []
     for name, w in spec:
         raw = vals.get(name)
