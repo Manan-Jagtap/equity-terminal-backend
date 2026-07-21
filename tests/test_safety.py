@@ -535,7 +535,10 @@ def test_manager_report_convictions_and_note():
     assert exit_a["conviction"] > add_d["conviction"]
     assert any("50-DMA" in x for x in exit_a["reasons"])
     assert exit_a["size_inr"] == round((0.6 - 0.35) * 100000)
-    assert add_d["size_inr"] == round(0.03 * 100000)
+    # FIX-20: DDD is a low-conviction (40), evidence-pending add → half the base
+    # tranche (0.03 × 0.5×), not the old flat 3%; the note explains the sizing.
+    assert add_d["size_inr"] == round(0.03 * 0.5 * 100000)
+    assert "low conviction" in add_d["size_note"]
     assert m["aum"] == 100000.0
     assert "Concentration" in m["note"] or "positions worth" in m["note"]
 
