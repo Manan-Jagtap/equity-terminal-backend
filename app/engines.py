@@ -608,9 +608,27 @@ def recommend(co: Dict, a: Dict) -> Dict:
     # reasons it can't see (LIC HF: model ~1.5x book vs a 0.73x market). That is NOT
     # a confident BUY — drop it to the honest LOW CONF / "no confident call" state
     # (with the analyst consensus surfaced) rather than a fabricated high upside.
+    #
+    # FIX-10 (corroboration-aware, ZERO gate loosening): a ≥80%-MoS lender call is
+    # KEPT only when a SECOND, independent leg agrees — the Gordon-growth justified
+    # P/B value also lands ≥ 1.25× the market price. Two methods pointing the same
+    # way is real corroboration (it converts the wrongly-abstained PSU lenders —
+    # PFC/RECLTD/LICHSGFIN — that the RI *and* the P/B both value cheap), not a
+    # weakened threshold: absent the second leg, still LOW CONF exactly as before.
     if (co.get("type") == "financial" and mos is not None and mos >= 0.80
             and verdict in ("BUY", "ACCUMULATE")):
-        verdict = "LOW CONF"
+        _gpb = gordon_pb_value(co, a, v)
+        _price = co.get("price")
+        _corroborated = (_gpb is not None and _price and _price > 0
+                         and _gpb >= 1.25 * _price)
+        if _corroborated:
+            reasons.append({"label": "Corroboration", "score": 70,
+                            "note": (f"Two independent legs agree cheap: RI/blend {mos*100:.0f}% "
+                                     f"below intrinsic AND Gordon-growth justified P/B ₹{_gpb:.0f} "
+                                     f"≥ 1.25× price ₹{_price:.0f}. Call kept (not gate-cleared)."),
+                            "good": True, "bad": False})
+        else:
+            verdict = "LOW CONF"
 
     # A dedicated model (SOTP for conglomerates, P/EV for insurers) replaced the
     # single-engine intrinsic above → keep the computed verdict, but CAP confidence

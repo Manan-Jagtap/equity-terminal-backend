@@ -35,20 +35,39 @@ def _multiple_for(sector_key: str) -> float:
 
 
 def _segment_value(seg: dict) -> tuple[float | None, str]:
-    """(value in ₹cr, how it was derived) for one segment. None if not valuable."""
+    """(value in ₹cr, how it was derived) for one segment. None if not valuable.
+
+    FIX-10 (correct EV/EBITDA basis): the sector multiple is an EV/*EBITDA*
+    multiple, so it must be applied to segment EBITDA, not EBIT. Applying it to
+    EBIT (EBITDA − D&A) systematically UNDER-values the segment. Prefer an
+    explicit `ebitda` when the filing gives one; fall back to `ebit × multiple`
+    only as a conservative floor, and label it as such so the basis mismatch is
+    never silent. (The ITC/RELIANCE/insurer re-seed with real FY26 segment
+    EBITDA is a separate owner data step.)"""
     if not isinstance(seg, dict):
         return None, ""
     kind = (seg.get("kind") or "").lower()
-    if seg.get("value") is not None and (kind == "stake" or seg.get("ebit") is None):
+    if seg.get("value") is not None and (kind == "stake" or
+                                         (seg.get("ebit") is None and seg.get("ebitda") is None)):
         try:
             return float(seg["value"]), "stake / stated market value"
+        except (TypeError, ValueError):
+            return None, ""
+    sector = seg.get("sector") or "sector"
+    ebitda = seg.get("ebitda")
+    if ebitda is not None:
+        try:
+            mult = _multiple_for(seg.get("sector"))
+            return float(ebitda) * mult, f"EBITDA ₹{float(ebitda):.0f}cr × {mult:.0f}x ({sector})"
         except (TypeError, ValueError):
             return None, ""
     ebit = seg.get("ebit")
     if ebit is not None:
         try:
             mult = _multiple_for(seg.get("sector"))
-            return float(ebit) * mult, f"EBIT ₹{float(ebit):.0f}cr × {mult:.0f}x ({seg.get('sector') or 'sector'})"
+            return (float(ebit) * mult,
+                    f"EBIT ₹{float(ebit):.0f}cr × {mult:.0f}x ({sector}) — conservative floor, "
+                    "no segment EBITDA reported")
         except (TypeError, ValueError):
             return None, ""
     return None, ""
@@ -87,12 +106,14 @@ def normalise_segments(raw: list) -> list[dict]:
     for s in raw if isinstance(raw, list) else []:
         if not isinstance(s, dict) or not s.get("name"):
             continue
-        if s.get("ebit") is None and s.get("value") is None:
+        if s.get("ebit") is None and s.get("ebitda") is None and s.get("value") is None:
             continue
+        _op = s.get("ebit") is None and s.get("ebitda") is None and s.get("value") is not None
         out.append({
             "name": str(s["name"])[:60],
-            "kind": (s.get("kind") or ("stake" if s.get("value") is not None and s.get("ebit") is None else "operating")),
+            "kind": (s.get("kind") or ("stake" if _op else "operating")),
             "ebit": s.get("ebit"),
+            "ebitda": s.get("ebitda"),   # FIX-10: preferred EV/EBITDA basis when the filing reports it
             "value": s.get("value"),
             "sector": (s.get("sector") or "MANUFACTURING"),
             "revenue": s.get("revenue"),
@@ -112,7 +133,37 @@ def get_segment_sotp(db, ticker: str, net_debt: float, shares: float) -> dict | 
     out = compute_sotp(rec.get("segments") or [], nd, sh)
     if out and rec.get("as_of"):
         out["note"] += f" Segments as of {rec['as_of']}."
+        # FIX-10: preset staleness warning. Segment financials entered off a
+        # filing go out of date; past ~2 quarters (183d) they need re-verifying
+        # against the latest reported segment result (this is what let ITC's
+        # preset drift). Surfaced in the note; the divergence guard still gates
+        # any resulting >60% call, but the caveat makes staleness visible.
+        stale = _quarters_stale(rec.get("as_of"))
+        if stale is not None and stale >= 2:
+            out["stale_quarters"] = stale
+            out["note"] += (f" ⚠ Segment data is ~{stale} quarters old — re-verify "
+                            "against the latest filing before relying on this SOTP.")
     return out
+
+
+def _quarters_stale(as_of: str | None) -> int | None:
+    """Whole quarters between an as_of date (YYYY-MM-DD, YYYY-MM, or 'Mar 2026')
+    and today. None if unparseable — a bad date must never break the SOTP."""
+    if not as_of:
+        return None
+    import datetime as _dt
+    s = str(as_of).strip()
+    dt = None
+    for fmt in ("%Y-%m-%d", "%Y-%m", "%b %Y", "%B %Y", "%Y"):
+        try:
+            dt = _dt.datetime.strptime(s, fmt).date()
+            break
+        except ValueError:
+            continue
+    if dt is None:
+        return None
+    days = (_dt.date.today() - dt).days
+    return max(0, days // 91)
 
 
 def store_segments(db, ticker: str, segments: list[dict], *, as_of: str | None = None,

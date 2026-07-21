@@ -44,3 +44,8 @@ app/ingest/probe_dump.json
 terminal.db-journal
 .DS_Store
 backend/
+
+# Calibration harness local artifacts (re-capturable via public API; see tests/calibration_check.py)
+tests/calibration_inputs.json
+tests/calib_baseline.json
+tests/_calib_replay.db
