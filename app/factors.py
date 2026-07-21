@@ -136,9 +136,24 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
     mom = {r["ticker"]: momentum(r.get("closes") or []) for r in rows}
     vol = {r["ticker"]: realized_vol(r.get("closes") or []) for r in rows}
 
-    r_mos = _pct_ranks([(r["ticker"], r.get("mos")) for r in rows])
-    r_ey = _pct_ranks(ey.items())
-    r_by = _pct_ranks(by.items())
+    # FIX-14 (EXPL-01): a gated no-call's "value" is NOT evidence. The engine
+    # itself refused to stand behind that intrinsic (LOW CONF / NO DATA), so its
+    # margin of safety must not buy Alpha rank — KISSHT sat at Ideas #1 off a
+    # "+450%" MoS the verdict engine had explicitly disowned, and 12 of the
+    # top-20 were no-calls. The whole VALUE leg (MoS + earnings/book yield) is
+    # neutralised to 50 for gated names — their pe/pb are frequently the same
+    # stale/mismatched inputs that made them LOW CONF, so a 0.5× "P/E" must not
+    # buy rank either. Their quality/momentum/low-vol legs stay real (actual
+    # price behaviour). Value ranks are computed over CONFIDENT names only, so
+    # junk yields don't squeeze honest percentiles. This filters the FACTOR
+    # input only — verdicts are computed upstream in engines.recommend and are
+    # never touched from here (no feedback).
+    _gated = {r["ticker"] for r in rows
+              if (r.get("verdict") or "").upper() in ("LOW CONF", "NO DATA", "NO CALL")}
+    r_mos = _pct_ranks([(r["ticker"], r.get("mos")) for r in rows
+                        if r["ticker"] not in _gated])
+    r_ey = _pct_ranks([(t, v) for t, v in ey.items() if t not in _gated])
+    r_by = _pct_ranks([(t, v) for t, v in by.items() if t not in _gated])
     r_roe = _pct_ranks([(r["ticker"], r.get("roe")) for r in rows])
     r_mom = _pct_ranks(mom.items())
     r_vol = _pct_ranks(vol.items(), higher_is_better=False)   # low vol ranks high
@@ -154,7 +169,7 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
     for r in rows:
         tk = r["ticker"]
         factors = {
-            "value":    blend(r_mos.get(tk), r_ey.get(tk), r_by.get(tk)),
+            "value":    (50.0 if tk in _gated else blend(r_mos.get(tk), r_ey.get(tk), r_by.get(tk))),
             "quality":  blend(r_roe.get(tk)),
             "momentum": r_mom.get(tk),
             "low_vol":  r_vol.get(tk),
@@ -168,11 +183,29 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
                 num += wt * factors[k]
                 den += wt
         alpha = round(num / den, 1) if den > 0 else None
+        # FIX-15 (EXPL-02): when the two engines tell OPPOSITE stories — a bearish
+        # valuation verdict on a top-quartile Alpha name (LT, VEDL, POWERGRID…)
+        # or the inverse — say so explicitly instead of letting the user find the
+        # contradiction across tabs. Surfaced as a chip; neither engine is muted.
+        _v = (r.get("verdict") or "").upper()
+        disagree = note = None
+        if alpha is not None:
+            if _v in ("REDUCE", "AVOID") and alpha >= 70:
+                disagree = "verdict_bearish_alpha_bullish"
+                note = (f"Valuation says {_v} (price above fair value) but the factor "
+                        f"engine ranks it {alpha:.0f}/100 on quality/momentum — a strong "
+                        "business at a rich price. Two lenses, opposite reads.")
+            elif _v in ("BUY", "ACCUMULATE") and alpha <= 30:
+                disagree = "verdict_bullish_alpha_bearish"
+                note = (f"Valuation says {_v} (price below fair value) but the factor "
+                        f"engine ranks it only {alpha:.0f}/100 — weak quality/momentum. "
+                        "Cheap for a reason until the factors turn.")
         out.append({
             **r,
             "factors": {k: (round(v, 1) if v is not None else None) for k, v in factors.items()},
             "momentum_ret": mom.get(tk), "volatility": vol.get(tk),
             "alpha_score": alpha,
+            "engines_disagree": disagree, "disagree_note": note,
         })
     out.sort(key=lambda x: (x["alpha_score"] is not None, x["alpha_score"] or 0.0), reverse=True)
     for i, r in enumerate(out, 1):
