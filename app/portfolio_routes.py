@@ -64,9 +64,10 @@ def engine_ledger(days: int = 90, db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
         return {"calls": [], "summary": None}
+    from app.benchmark import nifty_return
     cid_by = {c.ticker: c.id for c in db.query(models.Company).all()}
     price_by = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
-    calls, rets = [], []
+    calls, rets, bench_rets = [], [], []
     today = _dt2.date.today()
     for r in rows:
         p_now = price_by.get(cid_by.get(r.ticker))
@@ -74,15 +75,27 @@ def engine_ledger(days: int = 90, db: Session = Depends(get_db)):
         age = (today - _dt2.date.fromisoformat(r.date)).days
         if ret is not None and age >= 7:
             rets.append(ret)
+            # FIX-22 (FM-07): grade each call against the NIFTY-50 over the SAME
+            # window — the engine's absolute return means little without the market
+            # it was picking against. Both the call and the index are price-only, so
+            # this stays apples-to-apples (no dividend mismatch, unlike ENG-09).
+            b = nifty_return(r.date)
+            if b is not None:
+                bench_rets.append(b)
         calls.append({"date": r.date, "ticker": r.ticker, "action": r.action,
                       "conviction": r.conviction, "entry_price": r.price,
                       "price_now": p_now, "return_pct": ret, "age_days": age,
                       "val_blend": r.val_blend, "quality": r.quality})
     summary = None
     if rets:
+        avg = sum(rets) / len(rets)
+        bench = (sum(bench_rets) / len(bench_rets)) if bench_rets else None
         summary = {"n_graded": len(rets),
-                   "avg_return": round(sum(rets) / len(rets), 4),
-                   "hit_rate": round(sum(1 for x in rets if x > 0) / len(rets), 3)}
+                   "avg_return": round(avg, 4),
+                   "hit_rate": round(sum(1 for x in rets if x > 0) / len(rets), 3),
+                   "benchmark": "NIFTY 50 (price, same windows)" if bench is not None else None,
+                   "benchmark_return": round(bench, 4) if bench is not None else None,
+                   "alpha": round(avg - bench, 4) if bench is not None else None}
     from app.manager_engine import LEDGER_GAPS, LEDGER_NOTES
     return {"calls": calls[:200], "summary": summary,
             # FIX-01: published-not-backfilled gaps (ENG-01 froze the append
@@ -242,16 +255,23 @@ def _nifty_series():
 
 
 def benchmark_block(items: list[dict]) -> dict | None:
-    """Capital-matched NIFTY 50 benchmark: what the SAME rupees invested on the
+    """Capital-matched NIFTY-50 benchmark: what the SAME rupees invested on the
     SAME buy dates would be worth in the index today, vs the actual book. Only
-    covers positions that carry a buy date + cost; alpha is the honest apples-to-
-    apples gap. None when the Dhan index feed is unavailable."""
+    covers positions that carry a buy date + cost. None when the feed is missing.
+
+    FIX-22 (ENG-09): the portfolio side includes dividends (div_income) while the
+    NIFTY-50 feed is a PRICE index — grading one against the other overstates
+    alpha by the index's ~1.3%/yr yield. We accrue that yield onto the benchmark
+    to make it a TRI *proxy*, so alpha is honest apples-to-apples."""
     import bisect
+    import datetime as _dt
+    from app.benchmark import NIFTY_DIV_YIELD
     series = _nifty_series()
     if not series:
         return None
     dates, closes = series
     now = closes[-1]
+    today = _dt.date.today()
 
     def asof(d_iso):
         i = bisect.bisect_right(dates, d_iso) - 1
@@ -265,14 +285,18 @@ def benchmark_block(items: list[dict]) -> dict | None:
         lvl = asof(bd)
         if not lvl or lvl <= 0:
             continue
+        try:
+            yrs = max(0.0, (today - _dt.date.fromisoformat(str(bd)[:10])).days / 365.0)
+        except Exception:
+            yrs = 0.0
         invested += c
-        bench_now += c * (now / lvl)
+        bench_now += c * (now / lvl + NIFTY_DIV_YIELD * yrs)   # price + accrued yield → TRI proxy
         port_now += v + (i.get("div_income") or 0.0)
     if invested <= 0:
         return None
     bench_ret = bench_now / invested - 1
     port_ret = port_now / invested - 1
-    return {"benchmark": "NIFTY 50", "benchmark_return": bench_ret,
+    return {"benchmark": "NIFTY 50 TR (proxy)", "benchmark_return": bench_ret,
             "portfolio_return": port_ret, "alpha": port_ret - bench_ret,
             "matched_cost": invested, "as_of": dates[-1]}
 
@@ -769,9 +793,12 @@ def portfolio_analysis(user: models.User = Depends(get_current_user),
     results_due = _results_due(db, within_days=12)
     # Investable cash the owner has flagged (dry powder) — sizes and gates adds.
     cash = _get_cash(db, uk)
+    # FIX-22 hysteresis input: how long the current verdict has stood per held name.
+    verdict_age_by = _verdict_age_by(db, {i["ticker"] for i in items})
     analysis["manager"] = manager_report(items, analysis, mom_by, target_by,
                                          intel_by, quote_by, evidence, macro,
-                                         results_due=results_due, cash=cash)
+                                         results_due=results_due, cash=cash,
+                                         verdict_age_by=verdict_age_by)
     _apply_construction_checks(db, items, analysis)
     return analysis
 
@@ -988,6 +1015,58 @@ def _tranche_size(conviction, base_frac, total, ev, *, hard_cap_frac=0.05):
     return round(size), note
 
 
+# FIX-22 (FM-05): turnover / transaction-cost consciousness. Actions carried no
+# cost model and no churn budget, so a user following daily could be whipsawed.
+_COST_BPS = 30   # one-way brokerage + impact ≈ 30 bps on Indian equities
+
+
+def _cost_line(size_inr) -> dict | None:
+    """One-way transaction cost on a trade of this size (round trip ≈ 2×)."""
+    if not size_inr:
+        return None
+    return {"bps": _COST_BPS, "inr": round(_COST_BPS / 10000.0 * size_inr),
+            "note": f"~{_COST_BPS} bps one-way (≈{2*_COST_BPS} bps round trip)"}
+
+
+def _turnover_caveat(action: str, verdict, verdict_age, min_sessions: int = 10):
+    """A REVIEW driven by a signal younger than min_sessions sessions is likely a
+    whipsaw — confirm rather than churn. A decisive SELL overrides (act now).
+    Returns a caveat string or None."""
+    if not (action or "").startswith("REVIEW") or verdict == "SELL":
+        return None
+    if verdict_age is not None and verdict_age < min_sessions:
+        return (f"turnover discipline: this signal is only {verdict_age} session"
+                f"{'s' if verdict_age != 1 else ''} old — confirm before trading; a round trip "
+                f"costs ~{2*_COST_BPS} bps and churning on a whipsaw erodes returns.")
+    return None
+
+
+def _verdict_age_by(db, tickers, lookback_days: int = 90) -> dict:
+    """Sessions the CURRENT verdict has stood per ticker, from VerdictSnapshot —
+    FIX-22 hysteresis reads this so a 1–2 session whipsaw doesn't trigger a trade."""
+    if not tickers:
+        return {}
+    import datetime as _dt
+    cutoff = (_dt.date.today() - _dt.timedelta(days=lookback_days)).isoformat()
+    rows = (db.query(models.VerdictSnapshot.ticker, models.VerdictSnapshot.verdict)
+              .filter(models.VerdictSnapshot.ticker.in_(list(tickers)),
+                      models.VerdictSnapshot.date >= cutoff)
+              .order_by(models.VerdictSnapshot.date.desc()).all())
+    by: dict[str, list] = {}
+    for tk, v in rows:
+        by.setdefault(tk, []).append(v)
+    out = {}
+    for tk, verds in by.items():
+        cur, n = verds[0], 0
+        for v in verds:
+            if v == cur:
+                n += 1
+            else:
+                break
+        out[tk] = n
+    return out
+
+
 def _risk_control_lines(analysis: dict) -> list[str]:
     """FIX-21 (FM-04): portfolio-LEVEL risk controls for the PM note — the layer
     that protects against a bad PORTFOLIO, not just bad names. Single-name ≤8%
@@ -1028,7 +1107,7 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
                    target_by: dict | None = None, intel_by: dict | None = None,
                    quote_by: dict | None = None, evidence: dict | None = None,
                    macro: dict | None = None, results_due: dict | None = None,
-                   cash: float | None = None) -> dict:
+                   cash: float | None = None, verdict_age_by: dict | None = None) -> dict:
     """The fund-manager brief, v4: conviction comes from TRIANGULATED evidence
     (model × analyst consensus × own valuation band, forensic quality, flow,
     results, momentum, macro regime) — never from the DCF alone. Suspect model
@@ -1046,6 +1125,7 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     ev_names = (evidence or {}).get("names") or {}
     ev_weights = (evidence or {}).get("weights") or {}
     results_due = results_due or {}
+    verdict_age_by = verdict_age_by or {}
 
     def _levels(tk, i):
         """Entry band / target / upside from the model's OWN fair value.
@@ -1228,6 +1308,18 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
             c["size_inr"], c["size_note"] = _tranche_size(
                 c["conviction"], base, total, ev_names.get(c["ticker"]))
         actions.append(c)
+
+    # ── FIX-22 turnover discipline: cost line on every trade + whipsaw hysteresis ──
+    for a in actions:
+        cost = _cost_line(a.get("size_inr"))
+        if cost:
+            a["cost"] = cost
+        caveat = _turnover_caveat(a["action"], a.get("verdict"), verdict_age_by.get(a["ticker"]))
+        if caveat:
+            a["reasons"] = a.get("reasons", []) + [caveat]
+            a["turnover_hold"] = True
+            a["priority"] = max(a.get("priority", 2), 3)   # a fresh-flip trim never tops the queue
+    actions.sort(key=lambda x: (-x["conviction"], x.get("priority", 9)))
 
     # ── Results-awareness: hold ahead of an imminent earnings print ──────────
     # A name reporting within days is an event the manager shouldn't front-run:
