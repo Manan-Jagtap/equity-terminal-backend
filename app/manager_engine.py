@@ -41,12 +41,14 @@ log = logging.getLogger("manager_engine")
 EVIDENCE_KEY = "fm_evidence_v1"
 MACRO_KEY = "fm_macro_v1"
 CALIBRATION_KEY = "fm_calibration_v1"
-ENGINE_SCHEMA = 7   # bump when evidence blobs gain fields → boot rebuild fires
+ENGINE_SCHEMA = 8   # bump when evidence blobs gain fields → boot rebuild fires
 # ↑ 6 (FIX-19): the per-name `model` block now carries the full FIX-13 valuation
 #   contract (gate_state / data_tier / method_dispersion / sensitivity_swing /
 #   tv_share) so the desk can gate on it.
 # ↑ 7 (FIX-20): each name gains a `risk` block (sigma=annualised vol,
 #   adv_inr=median daily traded value) for conviction-aware position sizing.
+# ↑ 8 (FIX-22): blob gains `trust_coverage`; model_trust is recomputed on the
+#   widened, de-tautologised (beat-the-market) basis — force a fresh rebuild.
 
 # FIX-01 / ENG-01: the nightly ledger append silently failed 16–20 Jul 2026,
 # when macro_regime NameError'd on an un-imported macro_data and unwound before
@@ -673,22 +675,33 @@ def _annualised_vol(closes: list[float]) -> float | None:
     return round((var ** 0.5) * (252 ** 0.5), 4)
 
 
-def model_trust_by_sector(db, min_calls: int = 8) -> dict[str, float]:
-    """Score the model's own BUY record per valuation sector from
-    VerdictSnapshot: of BUY calls ≥126 trading days old, what share beat the
-    universe median forward 6-month return? Mapped to a 0.3-1.0 trust weight.
-    Sectors without enough aged calls get no entry (caller uses the default)."""
+def model_trust_by_sector(db, min_calls: int = 6) -> dict[str, float]:
+    """Score the model's own BUY record per valuation sector from VerdictSnapshot:
+    of aged BUY calls, what share BEAT THE MARKET (NIFTY-50) from the call date to
+    today? Mapped to a 0.3–1.0 trust weight; sectors without enough aged calls get
+    no entry (caller uses the 0.6 default).
+
+    FIX-22 (FM-06/ENG-07): two fixes to a metric that was inert AND tautological.
+      · It compared each call to the calls' OWN median forward return, so ~50% of
+        every large sector "won" by construction — trust pinned near 0.75 and
+        measuring nothing. Now the yardstick is the NIFTY-50 over the same window:
+        did the BUY actually beat the index? (Feed missing → beat-zero fallback,
+        still non-tautological.)
+      · Horizons widened (aged ≥ 120 days, 3-yr lookback, min 6 calls/sector) so
+        the calibration is no longer empty in production (`model_trust_sectors`
+        was 0 — every vote silently used the 0.6 fallback)."""
     from app import models
+    from app.benchmark import nifty_return
     today = _dt.date.today()
-    cut_new = (today - _dt.timedelta(days=185)).isoformat()   # call must be aged
-    cut_old = (today - _dt.timedelta(days=720)).isoformat()
+    cut_new = (today - _dt.timedelta(days=120)).isoformat()    # call must be aged ≥120d
+    cut_old = (today - _dt.timedelta(days=3 * 365)).isoformat()
     rows = (db.query(models.VerdictSnapshot)
               .filter(models.VerdictSnapshot.date >= cut_old,
                       models.VerdictSnapshot.date <= cut_new,
                       models.VerdictSnapshot.verdict == "BUY").all())
     if not rows:
         return {}
-    # first BUY snapshot per (company, month) to avoid oversampling
+    # first BUY snapshot per (company, month) to avoid oversampling a standing call
     seen: set = set()
     calls: list = []
     for r in sorted(rows, key=lambda r: r.date):
@@ -697,20 +710,16 @@ def model_trust_by_sector(db, min_calls: int = 8) -> dict[str, float]:
             continue
         seen.add(k)
         calls.append(r)
-    # forward price ≈ latest close vs call price, annl-agnostic comparison set
-    from app import models as _m
-    latest = {m.company_id: m.price for m in db.query(_m.MarketSnapshot).all()}
-    fwd = []
+    latest = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    by_sec: dict[str, list[int]] = {}
     for r in calls:
         p_now = latest.get(r.company_id)
-        if p_now and r.price:
-            fwd.append((r, p_now / r.price - 1.0))
-    if len(fwd) < min_calls:
-        return {}
-    med = sorted(x for _, x in fwd)[len(fwd) // 2]
-    by_sec: dict[str, list[int]] = {}
-    for r, ret in fwd:
-        by_sec.setdefault(r.valuation_sector or "—", []).append(1 if ret > med else 0)
+        if not (p_now and r.price):
+            continue
+        ret = p_now / r.price - 1.0
+        mkt = nifty_return(r.date)                 # market over the SAME window
+        won = ret > mkt if mkt is not None else ret > 0.0   # beat market, else beat zero
+        by_sec.setdefault(r.valuation_sector or "—", []).append(1 if won else 0)
     out = {}
     for sec, wins in by_sec.items():
         if len(wins) >= min_calls:
@@ -974,7 +983,12 @@ def build_evidence(db) -> dict:
     return {"as_of": _dt.datetime.utcnow().isoformat(timespec='seconds') + "Z",
             "schema": ENGINE_SCHEMA,
             "weights": weights, "calibration_as_of": cal.get("as_of"),
-            "model_trust": trust, "names": out}
+            "model_trust": trust,
+            # FIX-22: surface trust coverage so engine-status shows whether the
+            # "weighted by realised hit-rate" feature is actually operating.
+            "trust_coverage": {"sectors": len(trust),
+                               "sectors_scored": sorted(trust.keys())},
+            "names": out}
 
 
 # ── macro regime ─────────────────────────────────────────────────────────────
@@ -1310,6 +1324,7 @@ def snapshot_evidence(db) -> dict:
 
     return {"names": len(ev.get("names") or {}), "regime": mac.get("regime"),
             "as_of": ev.get("as_of"), "ledger_added": n_ledger,
+            "trust_sectors": (ev.get("trust_coverage") or {}).get("sectors", 0),
             "macro_stale": macro_stale}
 
 
