@@ -44,6 +44,29 @@ def daily_returns(series):
     return [vals[i] / vals[i - 1] - 1.0 for i in range(1, len(vals)) if vals[i - 1]]
 
 
+def annualised_vol(returns):
+    """Annualised volatility of the book's daily returns (√252 scaling), as a
+    fraction (0.16 = 16%). None when the sample is too thin to mean anything —
+    FIX-21 uses it for the 12–18% portfolio-vol band."""
+    if not returns or len(returns) < 60:
+        return None
+    n = len(returns)
+    mu = sum(returns) / n
+    var = sum((r - mu) ** 2 for r in returns) / (n - 1)
+    return (var ** 0.5) * (252 ** 0.5)
+
+
+def current_drawdown(series):
+    """How far below its trailing peak the book sits RIGHT NOW (a NEGATIVE
+    fraction; 0 at a fresh high) — distinct from max_drawdown's worst-ever dip.
+    FIX-21's −12% alert reads this. None when the series is too short."""
+    if not series or len(series) < 2:
+        return None
+    peak = max(v for _, v in series)
+    last = series[-1][1]
+    return (last / peak - 1.0) if peak > 0 else None
+
+
 def hist_var(returns, confidence: float = 0.95):
     """Historical-simulation VaR: the loss at the (1-confidence) quantile of the
     daily return distribution, as a POSITIVE fraction (0.021 = a 95% bad day
@@ -126,6 +149,8 @@ def risk_summary(holdings, closes_by, cashflows, total_value):
         "max_drawdown": dd["mdd"] if dd else None,
         "drawdown_peak": dd["peak_date"] if dd else None,
         "drawdown_trough": dd["trough_date"] if dd else None,
+        "vol_annual": annualised_vol(rets),            # FIX-21: 12–18% band
+        "current_drawdown": current_drawdown(series),  # FIX-21: −12% alert
         "xirr": xirr(cashflows),
         "observations": len(series),
         "covered": covered, "uncovered": uncovered,
