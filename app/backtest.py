@@ -83,9 +83,18 @@ def compress_calls(snaps: list[dict], latest_price: float | None,
                 calls.append(_close(run_start, s["date"], s["price"], open_=False, actions=actions))
             run_start = s
     if run_start is not None:
-        calls.append(_close(run_start, None,
-                            latest_price if latest_price else run_start["price"],
-                            open_=True, actions=actions))
+        # ENG-05: a delisted / coverage-dropped name has no live MarketSnapshot
+        # price. Mark the open call to its LAST KNOWN snapshot price (snaps[-1])
+        # rather than freezing it at ENTRY — the old `else run_start["price"]`
+        # reported a flat 0% for a name that may have gone to zero, quietly
+        # editing losers out of the track record. Flag the stale mark so the
+        # ledger discloses it.
+        stale = latest_price is None
+        mark = latest_price if latest_price is not None else snaps[-1]["price"]
+        c = _close(run_start, None, mark, open_=True, actions=actions)
+        if stale:
+            c["stale_price"] = True
+        calls.append(c)
     return calls
 
 
@@ -211,6 +220,12 @@ def calibrate(scored: list[dict], snapshot_days: int) -> dict:
     buckets: dict = {}
     for c in scored:
         if c.get("ret") is None:
+            continue
+        # ENG-06: HOLD (and any non-directional verdict) makes NO directional
+        # claim. Scoring it as a short call (a "win" when the price falls) is
+        # wrong by construction and would de-rate HOLD confidence in any rising
+        # tape. Exclude it — consistent with aggregate()'s `HOLD wins = None`.
+        if c["verdict"] not in ("BUY", "ACCUMULATE", "REDUCE", "AVOID"):
             continue
         key = f'{c["verdict"]}|{band(c.get("mos"))}'
         b = buckets.setdefault(key, {"n": 0, "wins": 0, "sum_ret": 0.0})

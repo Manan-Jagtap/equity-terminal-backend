@@ -295,16 +295,30 @@ def sector_strength(ranked) -> list[dict]:
     return out
 
 
-def alpha_backtest(rows, buckets: int = 5) -> dict:
+def alpha_backtest(rows, buckets: int = 5, min_days: int = 30) -> dict:
     """Forward-return-by-Alpha-bucket test. rows: [{ticker, alpha0, price0,
-    price_now}] where alpha0/price0 are from a name's FIRST snapshot. Buckets
-    names into quantiles by alpha0 (Q1 = highest) and reports each bucket's mean
-    forward return + the Q1−Q(last) spread. Honest and forward — only meaningful
-    once snapshots span real time. Pure math."""
-    usable = [r for r in rows
-              if r.get("alpha0") is not None and r.get("price0") and r.get("price_now") and r["price0"] > 0]
-    for r in usable:
-        r["fwd_ret"] = r["price_now"] / r["price0"] - 1.0
+    price_now, days}] where alpha0/price0 are from a name's FIRST snapshot.
+    Buckets names into quantiles by alpha0 (Q1 = highest) and reports each
+    bucket's mean forward return + the Q1−Q(last) spread. Pure math.
+
+    ENG-04: forward returns are ANNUALISED (CAGR over each name's own window) so
+    a name onboarded 40 days ago and one onboarded 300 days ago are comparable —
+    the old raw first-snapshot→today return mixed horizons inside one bucket
+    mean. Windows shorter than `min_days` are dropped (annualising a two-week
+    move is noise, not signal). Returns are price-only — stated in the caller's
+    note."""
+    usable = []
+    for r in rows:
+        if (r.get("alpha0") is None or not r.get("price0") or not r.get("price_now")
+                or r["price0"] <= 0):
+            continue
+        days = r.get("days")
+        if not days or days < min_days:
+            continue
+        raw = r["price_now"] / r["price0"] - 1.0
+        # annualise to a per-year basis; clamp a wipeout so (1+raw) stays > 0.
+        r["fwd_ret"] = (1.0 + max(raw, -0.999)) ** (365.0 / days) - 1.0
+        usable.append(r)
     n = len(usable)
     if n < buckets:
         return {"n": n, "buckets": [], "top_minus_bottom": None}

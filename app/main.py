@@ -571,20 +571,33 @@ def api_factors_backtest(db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
         return {"tracking_since": None, "snapshot_days": 0, "n": 0, "buckets": [], "top_minus_bottom": None}
-    first = {}
+    first, last = {}, {}
     dates = set()
     for s in snaps:
         dates.add(s.date)
         if s.company_id not in first:      # earliest (rows are date-ascending per company)
             first[s.company_id] = s
+        last[s.company_id] = s             # latest snapshot for this name
     price_now = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
-    rows = [{"ticker": s.ticker, "alpha0": s.alpha_score, "price0": s.price,
-             "price_now": price_now.get(cid)} for cid, s in first.items()]
+    today = _dt.date.today()
+    rows = []
+    for cid, s in first.items():
+        # ENG-04: a delisted / coverage-dropped name has no MarketSnapshot row.
+        # Keep it at its LAST KNOWN AlphaSnapshot price instead of dropping it
+        # (survivorship on a page marketed as "honest and forward").
+        pnow = price_now.get(cid)
+        stale = pnow is None
+        if pnow is None:
+            pnow = last[cid].price
+        rows.append({"ticker": s.ticker, "alpha0": s.alpha_score, "price0": s.price,
+                     "price_now": pnow, "stale_price": stale,
+                     "days": (today - _dt.date.fromisoformat(s.date)).days})
     bt = alpha_backtest(rows)
     return {"tracking_since": (min(dates) if dates else None),
             "snapshot_days": len(dates),
-            "note": "Forward return by Alpha bucket (Q1 = highest Alpha). If the model has signal, "
-                    "Q1 should beat Q5 over time. Accrues from the tracking-since date.",
+            "note": "Forward return by Alpha bucket (Q1 = highest Alpha), ANNUALISED per name so "
+                    "different onboarding dates are comparable; price-only (no dividends). If the "
+                    "model has signal, Q1 should beat Q5 over time. Accrues from the tracking-since date.",
             **bt}
 
 
