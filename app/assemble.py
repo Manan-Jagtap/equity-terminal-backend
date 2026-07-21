@@ -70,16 +70,34 @@ def build_company(db: Session, co: models.Company) -> dict:
     equity     = facts.get(K.NET_WORTH)
     net_profit = facts.get(K.NET_PROFIT)
 
+    # FIX-12 (type↔sector reconciliation): the resolved valuation SECTOR is the
+    # source of truth for WHICH model runs. A name mapped to a financial sector
+    # (BANK/NBFC/INSURANCE) but stored with type≠financial — the 12 mis-typed
+    # brokers/holdcos (ARSSBL, EDELWEISS, RELIGARE, …) — otherwise runs the
+    # FCFF/WACC-DCF path on a balance sheet where debt is raw material (the
+    # classic category error: ARSSBL printed a DCF BUY at +176%). Reconcile the
+    # type HERE, before the asset-quality vs revenue split, so the engine, the
+    # derived assumptions and `_is_fee_financial` all agree and the brokers get
+    # an honest financial/fee verdict instead of a fabricated FCFF upside.
+    template_code = co.template_code or T.classify(co.sector)
+    valuation_sector = (SP.TICKER_OVERRIDES.get((co.ticker or "").upper())
+                        or SP.classify_valuation_sector(co.sector, template_code))
+    eff_type = "financial" if valuation_sector in SP.FINANCIAL_VSECTORS else co.type
+    is_fin = T.is_financial(template_code) or eff_type == "financial"
+
     out = {
         "id": co.id, "ticker": co.ticker, "name": co.name,
-        "type": co.type, "sector": co.sector,
+        "type": eff_type, "sector": co.sector,
         "shares": co.shares_outstanding if (co.shares_outstanding and co.shares_outstanding > 0) else None,
         "price": price, "equity": equity, "net_profit": net_profit,
         "series": series, "synthetic_series": synthetic_series,
         "synthetic_price": real_price is None,
+        "template_code": template_code,
+        "is_financial_template": is_fin,
+        "valuation_sector": valuation_sector,
     }
 
-    if co.type == "financial":
+    if eff_type == "financial":
         out["nbfc"] = {
             "aum":  facts.get(K.AUM),
             "gnpa": facts.get(K.GNPA),
@@ -91,15 +109,6 @@ def build_company(db: Session, co: models.Company) -> dict:
     else:
         out["revenue"]  = facts.get(K.REVENUE)
         out["net_debt"] = facts.get(K.NET_DEBT)
-
-    # Attach the 5-year statement history + valuation sector so the engine can
-    # derive forward drivers from the company's OWN data (see derive.py).
-    template_code = co.template_code or T.classify(co.sector)
-    is_fin = T.is_financial(template_code) or co.type == "financial"
-    out["template_code"] = template_code
-    out["is_financial_template"] = is_fin
-    out["valuation_sector"] = (SP.TICKER_OVERRIDES.get((co.ticker or "").upper())
-                               or SP.classify_valuation_sector(co.sector, template_code))
 
     hist_rows = (db.query(models.HistoricalFinancial)
                    .filter_by(company_id=co.id).all())

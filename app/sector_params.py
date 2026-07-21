@@ -292,6 +292,13 @@ _TEMPLATE_FALLBACK = {
     "CONSUMER": "CONSUMER", "MANUFACTURING": "MANUFACTURING",
 }
 
+# The valuation sectors that MUST be valued as financials (book/RI/EV, never a
+# FCFF/WACC-DCF on a balance sheet where debt is raw material). FIX-12 uses this
+# to reconcile the company `type` to its resolved valuation_sector at
+# build_company: a name mapped here but stored type≠financial is the category
+# error (12 mis-typed brokers/holdcos) that otherwise runs the FCFF path.
+FINANCIAL_VSECTORS: frozenset[str] = frozenset({"BANK", "NBFC", "INSURANCE"})
+
 
 def classify_valuation_sector(sector: str | None, template_code: str | None = None) -> str:
     """Map a free-text sector string to a valuation_sector.
