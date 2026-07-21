@@ -114,7 +114,60 @@ def build_company(db: Session, co: models.Company) -> dict:
                    .filter_by(company_id=co.id).all())
     out["statements"] = _shape_statements(hist_rows)
 
+    # FIX-09: margin-based DISTRIBUTION-economics override. A thin-margin,
+    # high-revenue name in a full-margin consumer/industrial sector earns its
+    # value like a DISTRIBUTOR (pass-through topline, structurally low margins),
+    # not a franchise — capitalising that topline at CONSUMER/MANUFACTURING
+    # multiples over-values it (AWL, a ₹58k-cr edible-oil distributor at ~1.3%
+    # through-cycle net margin, printed a rich BUY). Route it to DISTRIBUTION's
+    # low multiples. GUARD: only the full-margin sectors are eligible — cyclicals
+    # (METAL/ENERGY/CEMENT/CHEMICALS/AUTO…) carry their own through-cycle models
+    # and are NEVER re-bucketed; the ₹5k-cr floor keeps small specialty names out.
+    if out["valuation_sector"] in _DIST_ELIGIBLE:
+        tc_npm, tc_rev = _through_cycle_npm(out["statements"])
+        eq = out.get("equity")
+        # Revenue/equity turnover separates a DISTRIBUTOR (capital-light,
+        # pass-through volume → turns its equity many times in revenue) from a
+        # thin-net-margin BRAND (owns capacity/brand, lower turns, fatter gross
+        # margin narrowed by A&P/interest). Without it the rule wrongly swept in
+        # UBL / VOLTAS / WHIRLPOOL and UNDER-valued them. The net-margin FLOOR
+        # keeps out near-zero / loss names (ABDL, TVSSCS) — those are a data /
+        # loss-maker case the existing low-ROE gate abstains, not distribution.
+        turnover = (tc_rev / eq) if (tc_rev and eq and eq > 0) else None
+        if (tc_npm is not None and 0.005 < tc_npm < 0.04
+                and tc_rev is not None and tc_rev > 5000
+                and turnover is not None and turnover > 2.5):
+            out["_distribution_override"] = (
+                f"{out['valuation_sector']}→DISTRIBUTION: through-cycle net margin "
+                f"{tc_npm*100:.1f}% (0.5–4%) at {turnover:.1f}× revenue/equity turnover "
+                f"on ₹{tc_rev:,.0f}cr — capital-light distribution economics, not a "
+                "full-margin franchise (FIX-09).")
+            out["valuation_sector"] = "DISTRIBUTION"
+
     return out
+
+
+# Full-margin sectors eligible for the FIX-09 DISTRIBUTION override. Cyclicals
+# (METAL/ENERGY/CEMENT/CHEMICALS/AUTO/AVIATION/…) are deliberately excluded so a
+# thin down-cycle margin never re-buckets a genuine cyclical.
+_DIST_ELIGIBLE = frozenset({"CONSUMER", "CONSUMER_DISC", "MANUFACTURING"})
+
+
+def _through_cycle_npm(statements: dict) -> tuple[float | None, float | None]:
+    """(median net-profit margin, median revenue in ₹cr) across the available
+    fiscal years, from the same canonical PL keys derive.py uses. None when there
+    isn't a usable revenue+PAT pair — a name we can't margin-classify keeps its
+    sector, never gets force-bucketed on missing data."""
+    import statistics
+    pats, revs = [], []
+    for y in (statements or {}):
+        pl = (statements[y] or {}).get("PL") or {}
+        rev, pat = pl.get("revenue"), pl.get("pat")
+        if rev and rev > 0 and pat is not None:
+            revs.append(rev); pats.append(pat)
+    if not revs:
+        return None, None
+    return statistics.median(p / r for p, r in zip(pats, revs)), statistics.median(revs)
 
 
 def _shape_statements(hist_rows) -> dict:
