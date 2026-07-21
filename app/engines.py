@@ -372,6 +372,50 @@ def sensitivity(co: Dict, a: Dict) -> Dict:
     return {"rate_deltas": rate_deltas, "g_deltas": g_deltas, "grid": grid}
 
 
+# ── FIX-13: conviction legs (the FM contract) ────────────────────────────────
+def method_dispersion(components) -> float | None:
+    """Max/min across the WEIGHTED, positive blended method values — how far the
+    engine's OWN methods disagree. None when fewer than two methods compute."""
+    vals = [c.get("value") for c in (components or [])
+            if c.get("value") and c["value"] > 0 and (c.get("weight") or 0) > 0]
+    return (max(vals) / min(vals)) if len(vals) >= 2 else None
+
+
+def sensitivity_swing(co: Dict, a: Dict, base_iv) -> float | None:
+    """Fractional spread of the primary intrinsic under a ±1% adverse/favourable
+    move in BOTH the discount rate and terminal growth (the two levers the DCF is
+    most sensitive to). High swing = the fair value isn't robust. Two extra
+    valuate calls; guarded so it never breaks a recommendation."""
+    if not base_iv or base_iv <= 0:
+        return None
+    try:
+        bear = valuate(co, {**a, "risk_free": a["risk_free"] + 0.01,
+                            "terminal_growth": a["terminal_growth"] - 0.01}).get("intrinsic")
+        bull = valuate(co, {**a, "risk_free": a["risk_free"] - 0.01,
+                            "terminal_growth": a["terminal_growth"] + 0.01}).get("intrinsic")
+    except Exception:
+        return None
+    if bear is None or bull is None:
+        return None
+    return abs(bull - bear) / base_iv
+
+
+def tv_share(v) -> float | None:
+    """Terminal value as a share of the model value — how much sits beyond the
+    explicit forecast (the speculative part). MUST divide by same-unit components:
+    fcff returns tv_pv/pv_explicit in EV terms (bvps0 None) → tv/(pv+tv)=tv/EV;
+    RI is per-share with bvps0 → tv/(bvps0+pv+tv)=tv/intrinsic. Dividing by the
+    per-share `intrinsic` directly would mix EV with per-share and blow up."""
+    # DCF-only concept: fcff returns bvps0=None. A financial's RI value is anchored
+    # by book (bvps0 set) and its terminal excess return can be negative, so a
+    # "TV share" isn't meaningful there → None.
+    tv, pv = v.get("tv_pv"), v.get("pv_explicit")
+    if tv is None or pv is None or v.get("bvps0") is not None:
+        return None
+    denom = pv + tv
+    return (tv / denom) if denom > 0 else None
+
+
 def fundamentals(co: Dict) -> Dict:
     """N/M-safe. A multiple is returned only when its denominator is positive;
     otherwise None → the UI shows 'N/M' instead of a misleading negative or
@@ -777,6 +821,46 @@ def recommend(co: Dict, a: Dict) -> Dict:
                                      + ". Not a confident call."),
                             "good": False, "bad": True})
 
+    # ── FIX-13: conviction legs + the FM contract ────────────────────────────
+    # Expose HOW MUCH to trust the call: method_dispersion (do the engine's own
+    # methods agree?), sensitivity_swing (is the value robust to a ±1% assumption
+    # move?), tv_share (how much rides on terminal value?), data_tier. Fold them
+    # into conviction — a confident BUY requires agreeing methods, and confidence
+    # is capped when the value is almost all TV or swings wildly. This is the
+    # contract FIX-19's Fund Manager reads, so the field names/types are pinned.
+    _disp = method_dispersion(b.get("components")) if not alt else None
+    _tv = tv_share(v) if not alt else None
+    _swing = sensitivity_swing(co, a, b.get("primary")) if (iv is not None and not alt) else None
+    _tier = (conf.get("level") if isinstance(conf, dict) else None)
+    _gate = "clean"
+
+    # No confident BUY when the engine's own methods disagree > 2.5× (VAL-04).
+    if verdict == "BUY" and _disp is not None and _disp > 2.5:
+        verdict = "LOW CONF"
+        reliable = False
+        _gate = "high_dispersion"
+        reasons.append({"label": "Conviction", "score": 45,
+                        "note": f"Engine methods disagree {_disp:.1f}× (> 2.5×) — the fair "
+                                "value isn't corroborated, so this is not a confident BUY.",
+                        "good": False, "bad": True})
+    # Speculative: almost all of the value is terminal value → cap confidence.
+    if _tv is not None and _tv > 0.85 and isinstance(conf, dict) and conf.get("level") == "high":
+        conf = {**conf, "level": "medium", "score": min(conf.get("score") or 0.79, 0.79)}
+        _gate = "high_tv_share" if _gate == "clean" else _gate
+        reasons.append({"label": "Conviction", "score": 55,
+                        "note": f"{_tv*100:.0f}% of the fair value is terminal value — "
+                                "confidence capped to MEDIUM.", "good": False, "bad": False})
+    # Fragile: a ±1% assumption move swings the value > 80% → cap confidence.
+    if _swing is not None and _swing > 0.80 and isinstance(conf, dict) and conf.get("level") == "high":
+        conf = {**conf, "level": "medium", "score": min(conf.get("score") or 0.79, 0.79)}
+        _gate = "high_sensitivity" if _gate == "clean" else _gate
+        reasons.append({"label": "Conviction", "score": 55,
+                        "note": f"A ±1% move in the discount rate / growth swings the value "
+                                f"{_swing*100:.0f}% — confidence capped to MEDIUM.",
+                        "good": False, "bad": False})
+    if _gate == "clean" and verdict in ("LOW CONF", "NO DATA", "NO CALL"):
+        _gate = "abstain"
+
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
             "intrinsic": iv, "confidence": conf, "reliable": reliable,
             "reasons": reasons, "composite": composite, "verdict": verdict,
@@ -785,4 +869,9 @@ def recommend(co: Dict, a: Dict) -> Dict:
             "blended": iv, "components": (alt["components"] if alt else b.get("components")),
             "dcf_value": b.get("primary"), "primary_method": b.get("primary_method"),
             "method": method, "alt_method": (alt["method"] if alt else None),
-            "drivers": a.get("_drivers"), "valuation_sector": a.get("_valuation_sector")}
+            "drivers": a.get("_drivers"), "valuation_sector": a.get("_valuation_sector"),
+            # FIX-13 FM contract (pinned names/types): data_tier=str|None,
+            # method_dispersion=float|None (max/min), sensitivity_swing=float|None
+            # (fraction), tv_share=float|None (0-1), gate_state=str.
+            "data_tier": _tier, "method_dispersion": _disp,
+            "sensitivity_swing": _swing, "tv_share": _tv, "gate_state": _gate}
