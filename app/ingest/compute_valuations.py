@@ -110,13 +110,16 @@ def _verdict_from(mos, composite, reliable, current, *,
         return "NO DATA"
     if not reliable:
         return "LOW CONF"
-    if (composite or 0) >= 68 and mos > 0.15:
+    # FIX-18: bands mirror engines.recommend exactly — BUY capped at +50% (the
+    # top label steps down to ACCUMULATE on extreme claimed upside) and AVOID
+    # from −18% (empirically re-banded against the independent groundtruth).
+    if (composite or 0) >= 68 and 0.15 < mos <= 0.50:
         v = "BUY"
     elif (composite or 0) >= 58 and mos > 0.05:
         v = "ACCUMULATE"
     elif mos >= -0.10:
         v = "HOLD"
-    elif mos >= -0.25:
+    elif mos >= -0.18:
         v = "REDUCE"
     else:
         v = "AVOID"

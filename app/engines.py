@@ -640,13 +640,27 @@ def recommend(co: Dict, a: Dict) -> Dict:
     _high_roe = ((f.get("roe") or 0) >= 0.16
                  or (a.get("_valuation_sector") in ("BANK", "NBFC")
                      and max(a.get("forecast_roe") or 0, a.get("terminal_roe") or 0) >= 0.16))
+    # FIX-18 (CORR-5/VAL-10): the ladder was re-banded EMPIRICALLY against the
+    # 1,001-name independent groundtruth, not by intuition. Two changes survived
+    # measurement; the plan's other prescriptions were tested and REJECTED because
+    # they lowered agreement / broke the Agree set (see the confusion matrix in
+    # PR #31): HOLD ±12 (−5pts agreement, 6 hard breaks), a leg-corroboration
+    # condition on BUY (no-op — mistaken BUYs are 19/19 leg-corroborated; the
+    # legs share fundamentals), and AVOID-from-−0.35 (the groundtruth is MORE
+    # bearish than the engine, not less).
+    #   · AVOID starts at −18% (was −25%): the independent read calls AVOID at a
+    #     median −21% — the −18..−25 slab was the largest single error cell.
+    #   · BUY caps at +50%: beyond that the size of the claimed upside is itself
+    #     the risk, so the top label steps down to ACCUMULATE (same POS zone —
+    #     an escalation ladder with VAL-01: >50% needs corroboration, >100%
+    #     abstains, and >50% never wears the strongest label).
     if iv is None:                              verdict = "NO DATA"
     elif mos is None:                           verdict = "NO DATA"   # have intrinsic but no usable price
     elif conf["score"] < 0.5:                   verdict = "LOW CONF"
-    elif composite >= 68 and mos > 0.15:        verdict = "BUY"
+    elif composite >= 68 and 0.15 < mos <= 0.50: verdict = "BUY"
     elif composite >= 58 and mos > 0.05:        verdict = "ACCUMULATE"
     elif mos >= -0.10:                          verdict = "HOLD"
-    elif mos >= -0.25:                          verdict = "REDUCE"
+    elif mos >= -0.18:                          verdict = "REDUCE"
     elif mos >= -0.45 and _high_roe:            verdict = "REDUCE"
     else:                                       verdict = "AVOID"
 
