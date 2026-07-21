@@ -41,7 +41,10 @@ log = logging.getLogger("manager_engine")
 EVIDENCE_KEY = "fm_evidence_v1"
 MACRO_KEY = "fm_macro_v1"
 CALIBRATION_KEY = "fm_calibration_v1"
-ENGINE_SCHEMA = 5   # bump when evidence blobs gain fields → boot rebuild fires
+ENGINE_SCHEMA = 6   # bump when evidence blobs gain fields → boot rebuild fires
+# ↑ 6 (FIX-19): the per-name `model` block now carries the full FIX-13 valuation
+#   contract (gate_state / data_tier / method_dispersion / sensitivity_swing /
+#   tv_share) so the desk can gate on it.
 
 # FIX-01 / ENG-01: the nightly ledger append silently failed 16–20 Jul 2026,
 # when macro_regime NameError'd on an un-imported macro_data and unwound before
@@ -227,7 +230,8 @@ def news_red_flags(ticker: str, budget_guard=None) -> list[str]:
 
 def triangulate(model_mos, cons_upside, band_pct,
                 confidence: str | None, intrinsic, weights: dict,
-                sector_trust: float | None) -> dict:
+                sector_trust: float | None,
+                method_dispersion: float | None = None) -> dict:
     """Cross-examine the three valuation witnesses.
 
     Returns {score, used, suspect, suspect_reasons} where score ∈ [-1, +1]
@@ -273,6 +277,16 @@ def triangulate(model_mos, cons_upside, band_pct,
     votes: list[tuple[str, float, float]] = []   # (source, normalized score, weight)
     if model_mos is not None and not suspect:
         w = weights.get("val_model", 0.16) * (sector_trust if sector_trust is not None else 0.6)
+        # FIX-19: the engine's own methods disagreeing beyond tolerance HALVES the
+        # model witness's weight. A partially-corroborated fair value still votes,
+        # but can't carry the blend the way an agreeing one does. (When dispersion
+        # tipped a BUY into LOW CONF upstream, `suspect` is already set and the
+        # model vote is dropped entirely — this catches the non-BUY names whose
+        # methods disagree without a verdict flip.)
+        if method_dispersion is not None and method_dispersion > 2.5:
+            w *= 0.5
+            reasons.append(f"model methods disagree {method_dispersion:.1f}× (> 2.5×) "
+                           "— its valuation vote is down-weighted, not trusted whole")
         votes.append(("model", _clamp(model_mos, -1.0, 1.0), w))
     if cons_upside is not None:
         votes.append(("consensus", _clamp(cons_upside, -1.0, 1.0),
@@ -297,6 +311,29 @@ def triangulate(model_mos, cons_upside, band_pct,
 
 
 # ── conviction ───────────────────────────────────────────────────────────────
+
+def _valuation_uncertain(model: dict | None) -> bool:
+    """FIX-19 (FM-02): is the valuation's OWN contract telling us the fair value
+    isn't solid enough to top the public ledger or earn top conviction?
+
+    True when the engine's gate_state is anything but clean (dispersion / almost-
+    all-terminal-value / fragile-to-assumptions / abstaining), its own methods
+    disagree beyond 2.5×, or the data tier is explicitly thin (low). Absent
+    signals (None) are treated as NO signal — a Valuation row computed before the
+    FIX-13 contract existed must never silently empty the ledger, so we act only
+    on a POSITIVE flag, never on a missing one.
+
+    This is the gate that keeps AUBANK (16× method dispersion) and PATELENG (both
+    independent probes condemn it) out of the top-conviction ledger, however
+    juicy the lone consensus/band witness looks."""
+    m = model or {}
+    gate = m.get("gate_state")
+    disp = m.get("method_dispersion")
+    tier = m.get("data_tier")
+    return ((gate is not None and gate != "clean")
+            or (disp is not None and disp > 2.5)
+            or tier == "low")
+
 
 def conviction_add(ev: dict, weights: dict, macro: dict | None) -> tuple[int, list[str]]:
     """Evidence-weighted conviction (5-95) + human reasons for an ADD/TOP-UP."""
@@ -423,6 +460,14 @@ def conviction_add(ev: dict, weights: dict, macro: dict | None) -> tuple[int, li
     # A name whose ONLY case is a suspect model never earns high conviction.
     if tri.get("suspect") and (tri.get("score") is None):
         c = min(c, 42.0)
+    # FIX-19: hard ceiling of 60 when the valuation contract itself is uncertain
+    # (non-clean gate / disagreeing methods / thin data). A juicy consensus or
+    # 5-yr-band read can no longer carry a broken-model name into top-conviction
+    # territory — the model has to actually corroborate first.
+    if _valuation_uncertain(ev.get("model")) and c > 60:
+        c = 60.0
+        reasons.append("valuation uncertain (engine gate / method dispersion / thin "
+                       "data) — conviction capped at 60 until the model corroborates")
     return int(_clamp(round(c), 5, 95)), reasons
 
 
@@ -837,7 +882,8 @@ def build_evidence(db) -> dict:
                           (band or {}).get("combined_pct"),
                           getattr(v, "confidence", None),
                           getattr(v, "intrinsic", None),
-                          weights, sector_trust)
+                          weights, sector_trust,
+                          method_dispersion=getattr(v, "method_dispersion", None))
 
         # headline screen — only for names good enough to surface as actions
         # (bounded vendor calls; silently empty while the quota is exhausted)
@@ -850,7 +896,14 @@ def build_evidence(db) -> dict:
             "ticker": tk, "name": co.name, "sector": co.sector, "price": price,
             "model": {"mos": getattr(v, "mos", None), "verdict": getattr(v, "verdict", None),
                       "confidence": getattr(v, "confidence", None),
-                      "intrinsic": getattr(v, "intrinsic", None)},
+                      "intrinsic": getattr(v, "intrinsic", None),
+                      # FIX-19: the full FIX-13 valuation contract, consumed by the
+                      # ledger-eligibility + conviction-cap gates.
+                      "gate_state": getattr(v, "gate_state", None),
+                      "data_tier": getattr(v, "data_tier", None),
+                      "method_dispersion": getattr(v, "method_dispersion", None),
+                      "sensitivity_swing": getattr(v, "sensitivity_swing", None),
+                      "tv_share": getattr(v, "tv_share", None)},
             "consensus": {"upside": getattr(v, "analyst_upside", None),
                           "rating": getattr(v, "analyst_rating", None),
                           "target": getattr(v, "analyst_target", None),
@@ -1182,6 +1235,12 @@ def snapshot_evidence(db) -> dict:
             if (q.get("composite") or 0) < 55 or (q.get("red_flags") or []):
                 continue
             if momo.get("above_200dma") is False and (momo.get("mom_pct") or 50) < 50:
+                continue
+            # FIX-19: HARD ledger eligibility — a name whose own valuation contract
+            # is uncertain (non-clean gate / methods disagree > 2.5× / thin data)
+            # can never enter the public track record, however good its other legs
+            # look. This is what excludes AUBANK/PATELENG-class names from top-15.
+            if _valuation_uncertain(e.get("model")):
                 continue
             cv, _ = conviction_add(e, weights, mac)
             scored.append((cv, tk, e))
