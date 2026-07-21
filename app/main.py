@@ -414,6 +414,10 @@ def _live_recommend(db, co):
             "confidence": (rec.get("confidence") or {}).get("level"),
             "roe": f.get("roe"), "pb": f.get("pb"), "pe": f.get("pe"),
             "valuation_sector": rec.get("valuation_sector"),
+            # FIX-13 FM contract
+            "data_tier": rec.get("data_tier"), "method_dispersion": rec.get("method_dispersion"),
+            "sensitivity_swing": rec.get("sensitivity_swing"), "tv_share": rec.get("tv_share"),
+            "gate_state": rec.get("gate_state"),
         }
     except Exception:
         return None
@@ -636,7 +640,10 @@ def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
             m = {"intrinsic": v.intrinsic, "mos": v.mos, "verdict": v.verdict,
                  "composite": v.composite, "reliable": bool(v.reliable),
                  "confidence": v.confidence, "roe": v.roe, "pb": v.pb, "pe": v.pe,
-                 "valuation_sector": v.valuation_sector}
+                 "valuation_sector": v.valuation_sector,
+                 "data_tier": v.data_tier, "method_dispersion": v.method_dispersion,
+                 "sensitivity_swing": v.sensitivity_swing, "tv_share": v.tv_share,
+                 "gate_state": v.gate_state}
         else:
             m = _live_recommend(db, co)
             if m is None:
@@ -665,6 +672,10 @@ def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
             "composite": m["composite"], "reliable": m["reliable"],
             "confidence": m["confidence"], "valuation_sector": m.get("valuation_sector"),
             "roe": m["roe"], "pb": m["pb"], "pe": m["pe"],
+            # FIX-13 conviction legs (the FM contract)
+            "data_tier": m.get("data_tier"), "method_dispersion": m.get("method_dispersion"),
+            "sensitivity_swing": m.get("sensitivity_swing"), "tv_share": m.get("tv_share"),
+            "gate_state": m.get("gate_state"),
             # ANALYST consensus (separate; for the consensus column/tab)
             "analyst": cons,
             "analyst_target": (cons or {}).get("target"),

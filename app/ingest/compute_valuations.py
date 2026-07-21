@@ -44,6 +44,10 @@ def _payload(co, data, rec, insight_data):
         composite=rec.get("composite"), reliable=1 if rec.get("reliable") else 0,
         confidence=(rec.get("confidence") or {}).get("level"),
         method=rec.get("method") or "Blended", valuation_sector=rec.get("valuation_sector"),
+        # FIX-13 conviction legs (the FM contract) — written every recompute.
+        data_tier=rec.get("data_tier"), method_dispersion=rec.get("method_dispersion"),
+        sensitivity_swing=rec.get("sensitivity_swing"), tv_share=rec.get("tv_share"),
+        gate_state=rec.get("gate_state"),
         roe=f.get("roe"), pb=f.get("pb"), pe=f.get("pe"),
         analyst_target=cons.get("target"), analyst_low=cons.get("low"),
         analyst_high=cons.get("high"), analyst_rating=cons.get("rating"),

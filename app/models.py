@@ -212,6 +212,13 @@ class Valuation(Base):
     confidence  = Column(String, nullable=True)
     method      = Column(String, nullable=True)
     valuation_sector = Column(String, nullable=True)
+    # FIX-13 conviction legs (the FM contract — FIX-19 reads these). Nullable so
+    # rows written before the backfill read None, never a fabricated value.
+    data_tier         = Column(String, nullable=True)   # high | medium | low
+    method_dispersion = Column(Float, nullable=True)    # max/min of weighted methods
+    sensitivity_swing = Column(Float, nullable=True)    # fractional value swing on ±1%
+    tv_share          = Column(Float, nullable=True)    # terminal value / intrinsic (0-1)
+    gate_state        = Column(String, nullable=True)   # clean|high_dispersion|high_tv_share|high_sensitivity|abstain
     # Snapshot fundamentals (so the screener needn't recompute)
     roe         = Column(Float, nullable=True)
     pb          = Column(Float, nullable=True)
