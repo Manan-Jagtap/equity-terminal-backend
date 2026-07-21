@@ -913,6 +913,60 @@ def _apply_construction_checks(db, items, analysis):
 
 # ── Fund Manager report ──────────────────────────────────────────────────────
 
+# FIX-20 (FM-03): conviction- and volatility-aware position sizing. The old feed
+# handed a conviction-87 large-cap and a conviction-62 micro-cap the SAME flat 3%
+# tranche (1.5% risk-off), scaled by nothing but the regime flag. Now:
+#   tranche = base(regime) × conviction-tier × inverse-vol scalar,
+#   hard-capped per name, and never larger than 5× the name's median daily
+#   traded value (a liquidity guard for thin small/micro-caps).
+def _conviction_tier(cv):
+    """0.5× / 1× / 1.5× — a low-conviction idea starts smaller, a high-conviction
+    one larger, symmetric around the base tranche."""
+    cv = cv or 0
+    if cv >= 75:
+        return 1.5, "high conviction"
+    if cv >= 55:
+        return 1.0, "base conviction"
+    return 0.5, "low conviction"
+
+
+def _vol_scalar(sigma):
+    """Inverse-vol scalar from bucketed annualised σ — a calm compounder carries a
+    bigger position than a volatile trade at equal conviction. None σ → neutral."""
+    if sigma is None:
+        return 1.0, None
+    if sigma < 0.25:
+        return 1.2, "low"
+    if sigma < 0.40:
+        return 1.0, "moderate"
+    if sigma < 0.60:
+        return 0.8, "high"
+    return 0.6, "very high"
+
+
+def _tranche_size(conviction, base_frac, total, ev, *, hard_cap_frac=0.05):
+    """Return (size_inr, note). base_frac is the regime base (0.03, or 0.015
+    risk-off). Pure + unit-testable."""
+    conv_mult, conv_lbl = _conviction_tier(conviction)
+    risk = (ev or {}).get("risk") or {}
+    vol_mult, vol_lbl = _vol_scalar(risk.get("sigma"))
+    frac = min(base_frac * conv_mult * vol_mult, hard_cap_frac)   # hard cap per name
+    size = frac * total
+    adv = risk.get("adv_inr")
+    liq_capped = adv and size > 5 * adv
+    if liq_capped:
+        size = 5 * adv                                            # ≤ 5 days of ADV
+    bits = [f"~{frac*100:.1f}% of book", conv_lbl]
+    if vol_lbl:
+        bits.append(f"{vol_lbl} volatility")
+    note = "sized for " + ", ".join(bits)
+    if liq_capped:
+        note += " — trimmed to 5× the name's daily traded value (liquidity)"
+    elif base_frac <= 0.015:
+        note += " (halved for the defensive tape)"
+    return round(size), note
+
+
 def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None,
                    target_by: dict | None = None, intel_by: dict | None = None,
                    quote_by: dict | None = None, evidence: dict | None = None,
@@ -1037,11 +1091,8 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
                 a["size_inr"] = round((w - tgt) * total)
                 a["size_note"] = f"to its risk-balanced target of {tgt*100:.0f}%"
         elif r["action"].startswith(("ADD", "TOP-UP")) and total:
-            frac = 0.015 if (macro or {}).get("regime") == "risk_off" else 0.03
-            a["size_inr"] = round(frac * total)
-            a["size_note"] = ("a half tranche (~1.5% of book — defensive tape)"
-                              if frac == 0.015 else
-                              "a starter tranche (~3% of book; scale on conviction)")
+            base = 0.015 if (macro or {}).get("regime") == "risk_off" else 0.03
+            a["size_inr"], a["size_note"] = _tranche_size(cv, base, total, ev)
         # Levels: honest about a suspect model — quote the consensus target
         # instead of a fair value the evidence just rejected.
         lv = _levels(tk, by_ticker.get(tk))
@@ -1116,11 +1167,9 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     cands.sort(key=lambda x: -x["conviction"])
     for c in cands[:4]:
         if total:
-            frac = 0.015 if (macro or {}).get("regime") == "risk_off" else 0.03
-            c["size_inr"] = round(frac * total)
-            c["size_note"] = ("a half tranche (~1.5% of book — defensive tape)"
-                              if frac == 0.015 else
-                              "a starter tranche (~3% of book; scale on conviction)")
+            base = 0.015 if (macro or {}).get("regime") == "risk_off" else 0.03
+            c["size_inr"], c["size_note"] = _tranche_size(
+                c["conviction"], base, total, ev_names.get(c["ticker"]))
         actions.append(c)
 
     # ── Results-awareness: hold ahead of an imminent earnings print ──────────

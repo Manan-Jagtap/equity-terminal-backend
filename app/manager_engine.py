@@ -41,10 +41,12 @@ log = logging.getLogger("manager_engine")
 EVIDENCE_KEY = "fm_evidence_v1"
 MACRO_KEY = "fm_macro_v1"
 CALIBRATION_KEY = "fm_calibration_v1"
-ENGINE_SCHEMA = 6   # bump when evidence blobs gain fields → boot rebuild fires
+ENGINE_SCHEMA = 7   # bump when evidence blobs gain fields → boot rebuild fires
 # ↑ 6 (FIX-19): the per-name `model` block now carries the full FIX-13 valuation
 #   contract (gate_state / data_tier / method_dispersion / sensitivity_swing /
 #   tv_share) so the desk can gate on it.
+# ↑ 7 (FIX-20): each name gains a `risk` block (sigma=annualised vol,
+#   adv_inr=median daily traded value) for conviction-aware position sizing.
 
 # FIX-01 / ENG-01: the nightly ledger append silently failed 16–20 Jul 2026,
 # when macro_regime NameError'd on an un-imported macro_data and unwound before
@@ -641,11 +643,34 @@ def _series_for_evidence(db, ids: list[int], chunk: int = 250) -> dict[int, dict
                     monthly.append((d, c))
             if monthly and monthly[-1][0] != ser[-1][0]:
                 monthly.append((ser[-1][0], ser[-1][1]))   # today closes the band
-            out[cid] = {"recent": [c for _, c, _v2 in ser[-260:]],
-                        "recent_vol": [v for _, _c, v in ser[-260:] if v],
-                        "monthly": monthly}
+            recent = ser[-260:]                            # aligned (date, close, vol)
+            closes260 = [c for _, c, _v2 in recent]
+            # FIX-20 risk inputs for conviction-aware sizing (and FIX-21 controls).
+            # σ: annualised daily-return vol; ADV: median daily traded VALUE (₹),
+            # computed here where close and volume are still aligned (recent_vol
+            # below is None-filtered and must NOT be zipped with closes).
+            sigma = _annualised_vol(closes260)
+            day_vals = sorted(c * v for _, c, v in recent if v and c)
+            adv_inr = round(day_vals[len(day_vals) // 2]) if day_vals else None
+            out[cid] = {"recent": closes260,
+                        "recent_vol": [v for _, _c, v in recent if v],
+                        "monthly": monthly,
+                        "sigma": sigma, "adv_inr": adv_inr}
         del rows, dated
     return out
+
+
+def _annualised_vol(closes: list[float]) -> float | None:
+    """Annualised volatility from daily simple returns (√252 scaling). None when
+    there isn't enough history to be meaningful."""
+    if not closes or len(closes) < 30:
+        return None
+    rets = [closes[i] / closes[i - 1] - 1 for i in range(1, len(closes)) if closes[i - 1]]
+    if len(rets) < 20:
+        return None
+    mu = sum(rets) / len(rets)
+    var = sum((r - mu) ** 2 for r in rets) / (len(rets) - 1)
+    return round((var ** 0.5) * (252 ** 0.5), 4)
 
 
 def model_trust_by_sector(db, min_calls: int = 8) -> dict[str, float]:
@@ -925,6 +950,8 @@ def build_evidence(db) -> dict:
                           "low": getattr(v, "analyst_low", None),
                           "high": getattr(v, "analyst_high", None)},
             "band": band, "quality": quality, "momo": momo,
+            # FIX-20: per-name risk inputs for conviction-aware position sizing.
+            "risk": {"sigma": ser.get("sigma"), "adv_inr": ser.get("adv_inr")},
             "flow": {"inst_delta": (own.get("institutional") or {}).get("delta"),
                      "promoter_delta": (own.get("promoter") or {}).get("delta")},
             # eps_surprise returns surprise_pct in PERCENT (−0.4 = −0.4%); the
