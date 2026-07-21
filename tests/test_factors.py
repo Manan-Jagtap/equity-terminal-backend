@@ -108,8 +108,9 @@ def test_sector_strength_aggregates_and_sorts():
 
 
 def test_alpha_backtest_buckets_and_spread():
-    # 10 names, alpha 100..10, flat entry price, exit priced so higher alpha → higher return
-    rows = [{"ticker": f"T{i}", "alpha0": 100 - i * 10, "price0": 100.0,
+    # 10 names, alpha 100..10, flat entry price, exit priced so higher alpha → higher return.
+    # days=365 → annualised return == raw return, so the ordering assertions hold (ENG-04).
+    rows = [{"ticker": f"T{i}", "alpha0": 100 - i * 10, "price0": 100.0, "days": 365,
              "price_now": 100 * (1 + (100 - i * 10) / 1000)} for i in range(10)]
     bt = alpha_backtest(rows, buckets=5)
     assert bt["n"] == 10 and len(bt["buckets"]) == 5
@@ -118,7 +119,8 @@ def test_alpha_backtest_buckets_and_spread():
 
 
 def test_alpha_backtest_insufficient_history():
-    bt = alpha_backtest([{"ticker": "A", "alpha0": 50, "price0": 100, "price_now": 110}], buckets=5)
+    bt = alpha_backtest([{"ticker": "A", "alpha0": 50, "price0": 100, "price_now": 110,
+                          "days": 365}], buckets=5)
     assert bt["n"] == 1 and bt["buckets"] == [] and bt["top_minus_bottom"] is None
 
 
