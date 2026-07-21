@@ -97,8 +97,8 @@ _P = dict
 SECTOR_PARAMS: dict[str, dict] = {
     # ── Non-financials ──────────────────────────────────────────────────────
     "IT_SERVICES":   _P(beta=0.85, terminal_growth=0.055, mature_roic=0.30, mature_roe=0.30, exit_pe=25, exit_ev_ebitda=16, exit_pb=None),
-    "CONSUMER":      _P(beta=0.58, terminal_growth=0.055, mature_roic=0.22, mature_roe=0.30, exit_pe=42, exit_ev_ebitda=28, exit_pb=None),
-    "CONSUMER_DISC": _P(beta=0.80, terminal_growth=0.055, mature_roic=0.18, mature_roe=0.22, exit_pe=38, exit_ev_ebitda=22, exit_pb=None),
+    "CONSUMER":      _P(beta=0.58, terminal_growth=0.055, mature_roic=0.22, mature_roe=0.30, exit_pe=34, exit_ev_ebitda=28, exit_pb=None),
+    "CONSUMER_DISC": _P(beta=0.80, terminal_growth=0.055, mature_roic=0.18, mature_roe=0.22, exit_pe=30, exit_ev_ebitda=22, exit_pb=None),
     "PHARMA":        _P(beta=0.64, terminal_growth=0.050, mature_roic=0.18, mature_roe=0.20, exit_pe=30, exit_ev_ebitda=18, exit_pb=None),
     "AUTO":          _P(beta=1.10, terminal_growth=0.050, mature_roic=0.16, mature_roe=0.18, exit_pe=24, exit_ev_ebitda=13, exit_pb=None),
     "METAL":         _P(beta=1.30, terminal_growth=0.040, mature_roic=0.12, mature_roe=0.13, exit_pe=11, exit_ev_ebitda=6,  exit_pb=None),
@@ -136,13 +136,13 @@ SECTOR_PARAMS: dict[str, dict] = {
     "CABLES":        _P(beta=1.00, terminal_growth=0.055, mature_roic=0.18, mature_roe=0.18, exit_pe=27, exit_ev_ebitda=15, exit_pb=None),
     # Capital goods / engineering — order-book driven, working-capital-heavy; the
     # quality names (L&T, ABB, Siemens, Cummins) command decent multiples.
-    "CAPITAL_GOODS": _P(beta=1.10, terminal_growth=0.055, mature_roic=0.17, mature_roe=0.18, exit_pe=32, exit_ev_ebitda=22, exit_pb=None),
+    "CAPITAL_GOODS": _P(beta=1.10, terminal_growth=0.055, mature_roic=0.17, mature_roe=0.18, exit_pe=27, exit_ev_ebitda=22, exit_pb=None),
     # Construction / infra / EPC — LOW margins, very working-capital-heavy, lumpy
     # execution → CHEAP multiples (was getting MANUFACTURING's 28x). Through-cycle.
     "CONSTRUCTION":  _P(beta=1.20, terminal_growth=0.050, mature_roic=0.13, mature_roe=0.14, exit_pe=15, exit_ev_ebitda=9,  exit_pb=None),
     # Defence — structural order-book growth, high returns, indigenisation tailwind
     # → the PSUs (HAL/BEL/BDL) sustain premium multiples.
-    "DEFENCE":       _P(beta=0.95, terminal_growth=0.060, mature_roic=0.20, mature_roe=0.22, exit_pe=34, exit_ev_ebitda=24, exit_pb=None),
+    "DEFENCE":       _P(beta=0.95, terminal_growth=0.060, mature_roic=0.20, mature_roe=0.22, exit_pe=28, exit_ev_ebitda=24, exit_pb=None),
     # Textiles — commodity, cyclical (cotton/yarn), thin returns → cheap + through-cycle.
     "TEXTILES":      _P(beta=1.10, terminal_growth=0.040, mature_roic=0.11, mature_roe=0.12, exit_pe=13, exit_ev_ebitda=7,  exit_pb=None),
     # Logistics / transport (ex-airlines) — asset-moderate, GDP-linked.
