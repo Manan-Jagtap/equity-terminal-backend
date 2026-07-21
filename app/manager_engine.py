@@ -58,6 +58,21 @@ LEDGER_GAPS = [
                 "recorded daily and never reconstructed after the fact.")},
 ]
 
+# Methodology changes that alter WHICH names are eligible for the ledger, disclosed
+# rather than retro-applied. The same doctrine as LEDGER_GAPS runs both ways: we
+# never backfill favourable rows AND never scrub unfavourable ones, so an entry
+# recorded before a gate existed stays exactly as the engine emitted it that day —
+# graded honestly, gate and all. New rules bind forward from their effective date.
+LEDGER_NOTES = [
+    {"effective": "2026-07-22",
+     "change": ("FIX-19: the ledger now enforces the valuation-contract eligibility "
+                "gate — a name whose engine methods disagree beyond tolerance, whose "
+                "gate is not clean, or whose data is thin can no longer enter the "
+                "top-ideas record. Entries dated before 2026-07-22 predate this gate "
+                "and are left untouched (not reconstructed); they are graded as the "
+                "engine actually recorded them.")},
+]
+
 # Priors: used until (and blended with) measured ICs from the calibration job.
 # Grouped to sum loosely to 1 across the valuation trio + non-valuation set.
 PRIOR_WEIGHTS = {

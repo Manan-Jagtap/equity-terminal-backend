@@ -83,13 +83,17 @@ def engine_ledger(days: int = 90, db: Session = Depends(get_db)):
         summary = {"n_graded": len(rets),
                    "avg_return": round(sum(rets) / len(rets), 4),
                    "hit_rate": round(sum(1 for x in rets if x > 0) / len(rets), 3)}
-    from app.manager_engine import LEDGER_GAPS
+    from app.manager_engine import LEDGER_GAPS, LEDGER_NOTES
     return {"calls": calls[:200], "summary": summary,
             # FIX-01: published-not-backfilled gaps (ENG-01 froze the append
             # 16–20 Jul). Surfaced so the record is honest about its own outage.
             "gaps": LEDGER_GAPS,
+            # FIX-19: methodology-change disclosures — eligibility rules bind
+            # forward from their effective date; older rows are never scrubbed.
+            "methodology_notes": LEDGER_NOTES,
             "note": ("Calls at least 7 days old are graded against the current "
-                     "price. Recorded nightly, never backfilled.")}
+                     "price. Recorded nightly, never backfilled — and, symmetrically, "
+                     "never scrubbed: entries predating a rule change stay as recorded.")}
 
 
 class HoldingUpsert(BaseModel):
