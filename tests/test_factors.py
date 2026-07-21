@@ -43,28 +43,33 @@ def test_score_universe_ranks_dominant_name_first():
 
 
 def test_score_universe_handles_missing_factors():
-    # No price series and no growth → value+quality still score; alpha not None.
-    rows = [{"ticker": "X", "mos": 0.1, "roe": 0.2, "pe": 20, "pb": 4, "closes": [], "growth": None},
+    # ENG-14: value+quality only = 2 legs, below the ≥3-factor gate → alpha abstains
+    # with a reason (a thin name must not rank against fully-covered ones).
+    thin = [{"ticker": "X", "mos": 0.1, "roe": 0.2, "pe": 20, "pb": 4, "closes": [], "growth": None},
             {"ticker": "Y", "mos": 0.2, "roe": 0.1, "pe": 10, "pb": 2, "closes": [], "growth": None}]
-    out = score_universe(rows)
-    assert all(r["alpha_score"] is not None for r in out)
+    out = score_universe(thin)
+    assert all(r["alpha_score"] is None and r["alpha_reason"] for r in out)
     assert all(r["factors"]["momentum"] is None for r in out)   # no price history
+    # a third leg (growth) clears the gate
+    out2 = score_universe([dict(r, growth=0.1) for r in thin])
+    assert all(r["alpha_score"] is not None for r in out2)
 
 
 def test_catalyst_factor_participates_when_present():
-    # Isolate catalyst: all other factor inputs absent (None) so only the
-    # revision signal drives the score (avoids arbitrary tie-splitting).
-    rows = [
-        {"ticker": "A", "mos": None, "roe": None, "pe": None, "pb": None, "closes": [], "growth": None, "catalyst": 0.30},
-        {"ticker": "B", "mos": None, "roe": None, "pe": None, "pb": None, "closes": [], "growth": None, "catalyst": -0.10},
-    ]
+    # value + quality identical across both (they don't differentiate); catalyst is
+    # the only differing leg. 3 factors present → clears the ≥3-factor gate.
+    base = {"mos": 0.1, "roe": 0.15, "pe": None, "pb": None, "closes": [], "growth": None}
+    rows = [{"ticker": "A", **base, "catalyst": 0.30},
+            {"ticker": "B", **base, "catalyst": -0.10}]
     m = {r["ticker"]: r for r in score_universe(rows)}
     assert m["A"]["factors"]["catalyst"] == 100.0 and m["B"]["factors"]["catalyst"] == 0.0
     assert m["A"]["alpha_score"] > m["B"]["alpha_score"]        # upgraded name ranks higher
 
 
 def test_catalyst_none_degrades_gracefully():
-    rows = [{"ticker": "X", "mos": 0.2, "roe": 0.2, "pe": 20, "pb": 4, "closes": [], "catalyst": None}]
+    # value + quality + growth = 3 factors → scores even with catalyst absent.
+    rows = [{"ticker": "X", "mos": 0.2, "roe": 0.2, "pe": 20, "pb": 4, "closes": [],
+             "growth": 0.15, "catalyst": None}]
     out = score_universe(rows)
     assert out[0]["factors"]["catalyst"] is None and out[0]["alpha_score"] is not None
 
@@ -127,15 +132,14 @@ def test_alpha_backtest_insufficient_history():
 def test_surprise_factor_participates_and_renormalizes():
     # Isolate the surprise factor (all other inputs None, like the catalyst-only
     # test): alpha is then driven purely by the beat/miss rank.
-    base = {"mos": None, "roe": None, "pe": None, "pb": None, "closes": [], "growth": None}
+    base = {"mos": 0.1, "roe": 0.15, "pe": None, "pb": None, "closes": [], "growth": None}
     rows = [{"ticker": "BEAT", **base, "surprise": 8.0},
             {"ticker": "MISS", **base, "surprise": -6.0}]
     out = {r["ticker"]: r for r in score_universe(rows)}
     assert out["BEAT"]["factors"]["surprise"] == 100.0
     assert out["MISS"]["factors"]["surprise"] == 0.0
     assert out["BEAT"]["alpha_score"] > out["MISS"]["alpha_score"]
-    # Without surprise data the factor is simply None (score renormalizes
-    # over whatever else exists — here nothing, so alpha is None too).
-    out2 = score_universe([{"ticker": "A", **base}])
-    assert out2[0]["factors"]["surprise"] is None
-    assert out2[0]["alpha_score"] is None
+    # A name on only value+quality (2 factors) is below the ≥3 gate → alpha None + reason.
+    out2 = score_universe([{"ticker": "A", "mos": 0.1, "roe": 0.1, "pe": None, "pb": None,
+                            "closes": [], "growth": None}])
+    assert out2[0]["alpha_score"] is None and out2[0]["alpha_reason"]

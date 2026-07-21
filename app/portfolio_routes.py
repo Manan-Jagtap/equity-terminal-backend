@@ -516,8 +516,15 @@ def _risk_block(db: Session, holdings) -> dict | None:
     for h in holdings:
         tk = (h.company.ticker or "").upper()
         hold_rows.append({"ticker": tk, "qty": h.qty or 0.0})
-        added = h.added_at.date() if isinstance(h.added_at, _dt.datetime) else today
-        cashflows.append((added, -(h.qty or 0.0) * (h.avg_cost or 0.0)))
+        # ENG-16: use the actual buy_date as the entry basis (falling back to
+        # added_at, then today) — the same basis the totals XIRR uses — so the
+        # two book XIRRs converge instead of diverging on when the row happened
+        # to be created in our DB vs when the shares were actually bought.
+        bd = getattr(h, "buy_date", None)
+        if isinstance(bd, _dt.datetime):
+            bd = bd.date()
+        entry = bd or (h.added_at.date() if isinstance(h.added_at, _dt.datetime) else today)
+        cashflows.append((entry, -(h.qty or 0.0) * (h.avg_cost or 0.0)))
         price = price_by.get(h.company_id)
         if price:
             total_value += (h.qty or 0.0) * price

@@ -248,12 +248,29 @@ def forensic_report(statements: dict, co: dict) -> dict:
     ta_avg = _avg([ta_now, ta_prev])
     if pat is not None and cfo is not None and ta_avg:
         accr = (pat - cfo) / ta_avg
-        fl = _flag(abs(accr), 0.10, 0.25, higher_is_better=False)
+        # ENG-12: Sloan (1996) is a signal about high POSITIVE accruals (earnings
+        # propped up by non-cash items). Grade on the SIGNED ratio — the old
+        # abs() red-flagged big NEGATIVE accruals too, punishing a conservative
+        # company (CFO ≫ PAT) identically to an aggressive one and knocking clean
+        # compounders out of Hidden Gems on a self-contradictory "earnings exceed
+        # cash by −30%" note. Positive is the sin; deeply negative is only "verify".
+        if accr >= 0.25:
+            fl = "red"
+        elif accr >= 0.10 or accr <= -0.25:
+            fl = "amber"
+        else:
+            fl = "green"
+        _desc = ("cash-backed" if fl == "green" else "accrual-heavy" if accr > 0
+                 else "unusually cash-rich vs earnings")
         metrics["accrual_ratio"] = {"value": round(accr, 4), "flag": fl,
-            "note": f"{accr*100:+.1f}% of assets — {'cash-backed' if fl=='green' else 'accrual-heavy' if fl=='red' else 'moderate'} earnings"}
+            "note": f"{accr*100:+.1f}% of assets — {_desc} earnings"}
         if fl == "red":
             flags.append({"level": "red", "label": "High accruals",
                           "note": f"Earnings exceed operating cash by {accr*100:.0f}% of assets — watch earnings quality."})
+        elif accr <= -0.25:
+            flags.append({"level": "amber", "label": "Cash exceeds earnings",
+                          "note": f"Operating cash exceeds earnings by {abs(accr)*100:.0f}% of assets — "
+                                  "likely conservative accounting or a non-cash charge; verify it's a one-off, not a red flag."})
 
     # ── Cash conversion: 3y average CFO / PAT.
     cfo_s = [g(yr, "CF", "operating_cf") for yr in years[-3:]]
