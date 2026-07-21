@@ -612,8 +612,9 @@ def build_analysis(items: list[dict], universe: list[dict]) -> dict:
                            + (f" (MoS {i['mos']*100:+.0f}%)" if i.get("mos") is not None else ""))
         elif i.get("mos") is not None and i["mos"] < -0.30:
             reasons.append(f"trades {abs(i['mos'])*100:.0f}% ABOVE the model's fair value")
-        if w > 0.30:
-            reasons.append(f"position is {w*100:.0f}% of the book — single-name concentration")
+        if w > 0.10:   # FIX-21: trim prompt at 10% (8% target), was an institutionally loose 30%
+            reasons.append(f"position is {w*100:.0f}% of the book — above the 10% single-name "
+                           f"trim line (8% target); size it down unless conviction is exceptional")
         if reasons:
             if i.get("term") == "short" and (i.get("days_to_lt") or 0) > 0 and i["days_to_lt"] <= 90:
                 reasons.append(f"turns LONG-TERM in {i['days_to_lt']}d "
@@ -842,13 +843,14 @@ def _apply_construction_checks(db, items, analysis):
     total = sum(i["value"] for i in live) or 0.0
     sec_w = {s["sector"]: (s.get("weight") or 0)
              for s in (analysis.get("sectors") or [])}
-    # sector cap first (no data needed)
+    # sector cap first (no data needed) — FIX-21: 25%, was 30%
     for a in adds:
         sec = a.get("sector")
-        if sec and sec_w.get(sec, 0) >= 0.30:
+        if sec and sec_w.get(sec, 0) >= 0.25:
             a["conviction"] = max(5, a["conviction"] - 5)
             a["reasons"] = a.get("reasons", []) + [
-                f"{sec} is already {sec_w[sec]*100:.0f}% of the book — this add concentrates it further"]
+                f"{sec} is already {sec_w[sec]*100:.0f}% of the book — above the 25% sector cap; "
+                f"this add concentrates it further"]
     # correlation vs book (needs ≥3 priced holdings to be meaningful)
     if len(live) >= 3 and total:
         try:
@@ -899,7 +901,16 @@ def _apply_construction_checks(db, items, analysis):
                         den += i["value"]
                 if den:
                     avg_c = num / den
-                    if avg_c >= 0.65:
+                    a["book_corr"] = round(avg_c, 3)
+                    if avg_c > 0.75:
+                        # FIX-21 correlation guard: a name this co-moving with the
+                        # book IS the book you already own — reject it as an idea
+                        # rather than pretend it diversifies.
+                        a["risk_blocked"] = "correlation"
+                        a["reasons"] = [f"REJECTED by the correlation guard: moves {avg_c:.0%} in "
+                                        f"lock-step with the book (> 75%) — this is the risk you "
+                                        f"already hold, not diversification"] + a.get("reasons", [])
+                    elif avg_c >= 0.65:
                         a["conviction"] = max(5, a["conviction"] - 4)
                         a["reasons"] = a.get("reasons", []) + [
                             f"moves {avg_c:.0%} in step with the current book — duplicates existing risk, adds little diversification"]
@@ -908,6 +919,16 @@ def _apply_construction_checks(db, items, analysis):
                             f"low co-movement with the book ({avg_c:.0%}) — genuine diversification"]
         except Exception:
             db.rollback()
+    # Drop correlation-rejected adds from the feed and disclose it in the PM note.
+    blocked = [a for a in actions if a.get("risk_blocked") == "correlation"]
+    if blocked:
+        mgr["actions"] = [a for a in actions if a.get("risk_blocked") != "correlation"]
+        names = ", ".join(a["ticker"] for a in blocked[:4])
+        extra = (f"Correlation guard rejected {len(blocked)} candidate"
+                 f"{'s' if len(blocked) != 1 else ''} ({names}) for moving > 75% in step with "
+                 f"the book — they add exposure you already own, not diversification.")
+        mgr["note"] = (mgr.get("note", "") + " " + extra).strip()
+        actions = mgr["actions"]
     actions.sort(key=lambda x: (-x["conviction"], x.get("priority", 9)))
 
 
@@ -965,6 +986,42 @@ def _tranche_size(conviction, base_frac, total, ev, *, hard_cap_frac=0.05):
     elif base_frac <= 0.015:
         note += " (halved for the defensive tape)"
     return round(size), note
+
+
+def _risk_control_lines(analysis: dict) -> list[str]:
+    """FIX-21 (FM-04): portfolio-LEVEL risk controls for the PM note — the layer
+    that protects against a bad PORTFOLIO, not just bad names. Single-name ≤8%
+    (flag >10%), sector ≤25%, book vol in a 12–18% band, drawdown alert at −12%.
+    Pure: reads the already-computed concentration / sectors / risk blocks."""
+    out: list[str] = []
+    conc = analysis.get("concentration") or {}
+    top1 = conc.get("top1")
+    if top1 is not None and top1 > 0.10:
+        out.append(f"Single-name risk: the largest position is {top1*100:.0f}% of the book — "
+                   f"above the 10% trim line (8% target). Size it down unless the conviction is "
+                   f"exceptional and you can hold the volatility.")
+    hot = sorted([s for s in (analysis.get("sectors") or [])
+                  if (s.get("weight") or 0) > 0.25],
+                 key=lambda s: -(s.get("weight") or 0))
+    if hot:
+        nm = ", ".join(f"{s['sector']} ({s['weight']*100:.0f}%)" for s in hot[:3])
+        out.append(f"Sector concentration above the 25% cap: {nm} — a sector-wide shock would "
+                   f"hit the book disproportionately; diversify new capital elsewhere.")
+    risk = analysis.get("risk") or {}
+    vol = risk.get("vol_annual")
+    if vol is not None:
+        if vol > 0.18:
+            out.append(f"Book volatility is running ~{vol*100:.0f}% annualised, above the 12–18% "
+                       f"comfort band — the most volatile names are the first place to lighten risk.")
+        elif vol < 0.12 and (risk.get("observations") or 0) >= 60:
+            out.append(f"Book volatility is only ~{vol*100:.0f}% annualised, below the 12–18% band — "
+                       f"there is capacity to add risk where conviction is genuinely high.")
+    cdd = risk.get("current_drawdown")
+    if cdd is not None and cdd <= -0.12:
+        out.append(f"Drawdown alert: the book is {abs(cdd)*100:.0f}% below its trailing peak "
+                   f"(past the −12% line) — protect capital, fund any add from trims rather than "
+                   f"adding fresh risk into the decline.")
+    return out
 
 
 def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None,
@@ -1277,9 +1334,8 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     lines = []
     if total:
         lines.append(f"The book runs {conc.get('n', 0)} positions worth ₹{total:,.0f}.")
-    if conc.get("top1") is not None and conc["top1"] > 0.30:
-        lines.append(f"Concentration is the first conversation: the largest position is "
-                     f"{conc['top1']*100:.0f}% of the book.")
+    # FIX-21: portfolio-level risk controls (single-name, sector, vol band, drawdown).
+    lines.extend(_risk_control_lines(analysis))
     if risk_w > 0.25:
         lines.append(f"{risk_w*100:.0f}% of value sits in names the model now rates "
                      f"REDUCE/SELL — review the exit queue first.")
