@@ -75,6 +75,16 @@ LEDGER_NOTES = [
                 "top-ideas record. Entries dated before 2026-07-22 predate this gate "
                 "and are left untouched (not reconstructed); they are graded as the "
                 "engine actually recorded them.")},
+    {"effective": "2026-07-23",
+     "change": ("VAL-02: (a) a PROVEN durable-franchise non-financial (non-cyclical, "
+                "≥6y history, operating ROIC ≥1.4× sector, stable margins) now fades "
+                "its terminal ROIC only halfway to the sector level instead of "
+                "surrendering its whole return advantage — one-sided, capped at "
+                "1.5× sector / 40%; (b) cigarettes moved from the CONSUMER staples "
+                "multiple set to a dedicated TOBACCO set (exit EV/EBITDA 28x → 11x, "
+                "P/E 34x → 20x) reflecting regulated, taxed, volume-declining "
+                "economics. Fair values for gated compounders and tobacco names "
+                "change from this date; prior ledger entries are untouched.")},
 ]
 
 # Priors: used until (and blended with) measured ICs from the calibration job.

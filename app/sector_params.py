@@ -98,6 +98,12 @@ SECTOR_PARAMS: dict[str, dict] = {
     # ── Non-financials ──────────────────────────────────────────────────────
     "IT_SERVICES":   _P(beta=0.85, terminal_growth=0.055, mature_roic=0.30, mature_roe=0.30, exit_pe=25, exit_ev_ebitda=16, exit_pb=None),
     "CONSUMER":      _P(beta=0.58, terminal_growth=0.055, mature_roic=0.22, mature_roe=0.30, exit_pe=34, exit_ev_ebitda=28, exit_pb=None),
+    # Tobacco (ITC/Godfrey Phillips/VST): ultra-high ROIC but regulated,
+    # punitively taxed, volume-declining — global tobacco trades 8-13x
+    # EV/EBITDA, nothing like staples' 28x. Mapping cigarettes to CONSUMER
+    # inflated ITC's segment SOTP to +89% (correctly suppressed by the
+    # divergence gate, but the LEVEL was the bug).
+    "TOBACCO":       _P(beta=0.65, terminal_growth=0.045, mature_roic=0.30, mature_roe=0.30, exit_pe=20, exit_ev_ebitda=11, exit_pb=None),
     "CONSUMER_DISC": _P(beta=0.80, terminal_growth=0.055, mature_roic=0.18, mature_roe=0.22, exit_pe=30, exit_ev_ebitda=22, exit_pb=None),
     "PHARMA":        _P(beta=0.64, terminal_growth=0.050, mature_roic=0.18, mature_roe=0.20, exit_pe=30, exit_ev_ebitda=18, exit_pb=None),
     "AUTO":          _P(beta=1.10, terminal_growth=0.050, mature_roic=0.16, mature_roe=0.18, exit_pe=24, exit_ev_ebitda=13, exit_pb=None),
@@ -169,6 +175,11 @@ TICKER_OVERRIDES: dict[str, str] = {
     # it, and MANUFACTURING's 28x exit P/E fabricated a +173% BUY on a 2%-EBIT
     # IT-products distributor.
     "REDINGTON": "DISTRIBUTION",
+    # Tobacco trio — belt-and-braces (vendor sector strings drift; a blank or
+    # "FMCG"-ish string must never hand cigarettes the staples 28x again).
+    "ITC": "TOBACCO",
+    "GODFRYPHLP": "TOBACCO",
+    "VSTIND": "TOBACCO",
 }
 
 
@@ -245,9 +256,20 @@ _RULES: list[tuple[str, str]] = [
     ("capital goods", "CAPITAL_GOODS"), ("agric. machinery", "CAPITAL_GOODS"),
     ("industrial machinery", "CAPITAL_GOODS"), ("machinery", "CAPITAL_GOODS"),
     ("heavy electrical equipment", "CAPITAL_GOODS"),
-    # NB: "electronic instr & controls" and bare "electrical equipment" are NOT
-    # mapped — the vendor applies them to auto ancillaries (Sharda Motor, LGB) and
-    # consumer durables, so they stay MANUFACTURING rather than mis-bucket.
+    # Furniture & fixtures (Sheela Foam, Wakefit, Stove Kraft class) — branded
+    # consumer discretionary, was falling to MANUFACTURING.
+    ("furniture", "CONSUMER_DISC"),
+    # NB (reviewed again 23 Jul 2026 — 128-name fallback cohort audit): the
+    # following vendor strings are DELIBERATELY unmapped because the vendor
+    # applies each to heterogeneous businesses, so any blanket bucket would
+    # mis-price part of the cohort; they stay MANUFACTURING (the mid-multiple):
+    #   · "electronic instr & controls" / "electrical equipment" — transformers
+    #     (CAPITAL_GOODS-ish) AND auto ancillaries AND consumer durables;
+    #   · "constr. - supplies" — steel tubes, sanitaryware, wire, glassware;
+    #   · "misc. fabricated products" — genuinely mixed manufacturing;
+    #   · "business services" — supply-chain logistics AND ER&D IT services;
+    #   · "semiconductors" — the vendor tags SOLAR MODULE makers with it.
+    # Fix the outliers per-ticker via TICKER_OVERRIDES, never by keyword.
     # Textiles — commodity-cyclical.
     ("textile", "TEXTILES"),
     # Logistics / transport (ex-airlines, matched above). Placed AFTER aviation so
@@ -269,7 +291,10 @@ _RULES: list[tuple[str, str]] = [
     ("tyre", "AUTO"), ("tires", "AUTO"), ("auto", "AUTO"),
     # Consumer (staples vs discretionary)
     ("fast moving consumer", "CONSUMER"), ("fmcg", "CONSUMER"), ("packaged food", "CONSUMER"),
-    ("beverages", "CONSUMER"), ("tobacco", "CONSUMER"), ("personal product", "CONSUMER"),
+    ("beverages", "CONSUMER"),
+    # Cigarettes are NOT a staple economically: regulated, taxed, volume-declining.
+    ("tobacco", "TOBACCO"), ("cigarette", "TOBACCO"),
+    ("personal product", "CONSUMER"),
     # "household prod" catches the vendor's abbreviated "Personal & Household
     # Prods." (P&G Hygiene, Bajaj Consumer, Cupid) that "household product" missed.
     ("household prod", "CONSUMER"), ("consumer staple", "CONSUMER"),
