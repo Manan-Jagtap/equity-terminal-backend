@@ -17,8 +17,13 @@ REGION=ap-south-1
 GATE_SYMBOL="${1:-}"
 
 cd "$(git rev-parse --show-toplevel)"
-if [ -n "$(git status --porcelain)" ]; then
-    echo "!! working tree is dirty — commit before cutting a release tag (the SHA tag must match the source)." >&2
+# Block only on TRACKED modifications — the SHA tag must match committed source.
+# Untracked files (stray notes/scratch) don't affect the SHA, and the image build
+# only COPYs app/, alembic, scheduler.py (guarded further by .dockerignore), so a
+# root-level untracked file must not block a release. `-uno` = ignore untracked.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "!! tracked files modified — commit them before cutting a release tag (the SHA tag must match the source)." >&2
+    git status --porcelain --untracked-files=no >&2
     exit 1
 fi
 SHA="git-$(git rev-parse --short HEAD)"
