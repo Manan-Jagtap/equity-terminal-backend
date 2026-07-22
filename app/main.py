@@ -60,8 +60,10 @@ from app.history_routes import router as history_router
 app.include_router(history_router)
 from app.news_routes import router as news_router
 app.include_router(news_router)
-from app.bse_routes import router as bse_router
-app.include_router(bse_router)
+# ARCH-05: /api/bse/* removed — zero frontend callers and the BSE AnnGetData
+# vendor path is anti-bot blocked (docs freshness comes from IndianAPI
+# /documents). The app/bse/ package + scripts/test_bse_fetch.py remain for
+# offline use; only the dead API surface is gone.
 from app.market_routes import router as market_router
 app.include_router(market_router)
 from app.profile_routes import router as profile_router
