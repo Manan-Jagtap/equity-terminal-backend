@@ -60,3 +60,83 @@ def test_pool_engine_imports_cleanly():
     assert d.engine is not None
     if not d.DATABASE_URL.startswith("sqlite"):
         assert d.engine.pool.size() == 10        # SCALE-01 pool sizing applied
+
+
+# ---------------------------------------------------------------------------
+# SCALE-02 (deferred from FIX-27, completed in batch 21): the list caches in
+# app/main.py must rebuild ONCE under concurrent cold traffic. Each endpoint
+# now double-checks its cache under a per-cache lock (same pattern as
+# signals.ranked_visible), so N concurrent cold calls -> 1 rebuild.
+# ---------------------------------------------------------------------------
+import threading
+import time as _time
+
+import pytest
+
+
+def _hammer_endpoint(monkeypatch, endpoint, cache, builder_name, built, n_threads=6, **kwargs):
+    """Patch the cold-rebuild helper with a slow counting stub, reset the cache,
+    fire n concurrent calls, and return (build_count, results, errors)."""
+    calls = []
+
+    def slow_build(db):
+        calls.append(1)
+        _time.sleep(0.15)          # wide window: unlocked caches WOULD stampede
+        return built
+
+    monkeypatch.setattr(main, builder_name, slow_build)
+    old = dict(cache)
+    cache.update(ts=0.0, data=None)
+    results, errors = [], []
+
+    def hit():
+        try:
+            results.append(endpoint(db=None, **kwargs))
+        except Exception as e:      # pragma: no cover — failure detail for the assert
+            errors.append(e)
+
+    threads = [threading.Thread(target=hit) for _ in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    # Leave the shared module-global cache cold for later tests in the session.
+    cache.update(old)
+    return len(calls), results, errors
+
+
+@pytest.mark.parametrize("endpoint_name,cache_name,builder_name,built,kwargs", [
+    ("list_companies",       "_COMPANIES_CACHE", "_build_companies_rows", [],           {"nifty50": False}),
+    ("api_factors",          "_FACTORS_CACHE",   "_build_factors_payload", {"count": 0}, {}),
+    ("api_screen_technical", "_TECH_CACHE",      "_build_tech_payload",    {"count": 0}, {}),
+    ("peer_universe",        "_PEER_UNIV_CACHE", "_build_peer_universe",   [],           {}),
+])
+def test_scale02_concurrent_cold_calls_rebuild_once(monkeypatch, endpoint_name,
+                                                    cache_name, builder_name,
+                                                    built, kwargs):
+    endpoint = getattr(main, endpoint_name)
+    cache = getattr(main, cache_name)
+    n_builds, results, errors = _hammer_endpoint(
+        monkeypatch, endpoint, cache, builder_name, built, **kwargs)
+    assert not errors, f"concurrent calls raised: {errors!r}"
+    assert len(results) == 6                      # every caller got a response
+    assert all(r == built for r in results)       # ...and the SAME payload
+    assert n_builds == 1, f"expected 1 rebuild under stampede, got {n_builds}"
+
+
+def test_scale02_peer_universe_build_failure_serves_stale(monkeypatch):
+    # The pre-existing resilience contract: if the rebuild raises, serve the
+    # stale copy (or []) and do NOT refresh the timestamp. Must survive the lock.
+    def boom(db):
+        raise RuntimeError("vendor down")
+    monkeypatch.setattr(main, "_build_peer_universe", boom)
+    old = dict(main._PEER_UNIV_CACHE)
+    stale = [{"ticker": "STALE"}]
+    main._PEER_UNIV_CACHE.update(ts=0.0, data=stale)   # expired but present
+    try:
+        assert main.peer_universe(db=None) == stale
+        assert main._PEER_UNIV_CACHE["ts"] == 0.0      # untouched → next call retries
+        main._PEER_UNIV_CACHE.update(ts=0.0, data=None)
+        assert main.peer_universe(db=None) == []       # nothing stale → empty list
+    finally:
+        main._PEER_UNIV_CACHE.update(old)

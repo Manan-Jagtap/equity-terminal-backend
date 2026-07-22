@@ -405,6 +405,14 @@ def _all_latest_facts(db):
 _COMPANIES_CACHE = {"ts": 0.0, "data": None}
 _FACTORS_CACHE = {"ts": 0.0, "data": None}
 _TECH_CACHE = {"ts": 0.0, "data": None}
+# SCALE-02: per-cache rebuild locks (double-checked, same pattern as
+# signals.ranked_visible). A cold deploy fields N concurrent requests at once;
+# without the lock each one runs the same full-universe rebuild (stampede →
+# the memory-pressure profile that swap-killed the t3.micro). First caller
+# rebuilds, the rest wait for (or reuse) its result.
+_COMPANIES_LOCK = threading.Lock()
+_FACTORS_LOCK = threading.Lock()
+_TECH_LOCK = threading.Lock()
 
 _VERDICT_RANK = {"BUY": 5, "ACCUMULATE": 4, "HOLD": 3, "REDUCE": 2, "AVOID": 1}
 
@@ -457,6 +465,18 @@ def api_universe():
     }
 
 
+def _build_factors_payload(db):
+    """Cold rebuild for /api/factors (called under _FACTORS_LOCK)."""
+    from app.factors import FACTOR_WEIGHTS, sector_strength
+    from app.signals import ranked_visible
+    ranked = ranked_visible(db)
+    return {"count": len(ranked), "weights": FACTOR_WEIGHTS,
+            "note": "Transparent multi-factor ranking (value/quality/momentum/low-vol/growth/"
+                    "catalyst). A research aid, not investment advice.",
+            "sectors": sector_strength(ranked),
+            "ideas": ranked}
+
+
 @app.get("/api/factors")
 def api_factors(db: Session = Depends(get_db)):
     """Multi-factor Alpha Score ranking of the visible universe (Nifty 100).
@@ -464,19 +484,15 @@ def api_factors(db: Session = Depends(get_db)):
     A transparent value / quality / momentum / low-vol / growth composite — turns
     the universe into a ranked idea list with a factor breakdown. A research aid,
     NOT investment advice. Cached 5 min (same as /api/companies)."""
-    from app.factors import FACTOR_WEIGHTS, sector_strength
-    from app.signals import ranked_visible
     if _FACTORS_CACHE["data"] is not None and (time.time() - _FACTORS_CACHE["ts"]) < 300:
         return _FACTORS_CACHE["data"]
-
-    ranked = ranked_visible(db)
-    payload = {"count": len(ranked), "weights": FACTOR_WEIGHTS,
-               "note": "Transparent multi-factor ranking (value/quality/momentum/low-vol/growth/"
-                       "catalyst). A research aid, not investment advice.",
-               "sectors": sector_strength(ranked),
-               "ideas": ranked}
-    _FACTORS_CACHE["data"], _FACTORS_CACHE["ts"] = payload, time.time()
-    return payload
+    with _FACTORS_LOCK:
+        # Re-check under the lock — another request may have just rebuilt (SCALE-02).
+        if _FACTORS_CACHE["data"] is not None and (time.time() - _FACTORS_CACHE["ts"]) < 300:
+            return _FACTORS_CACHE["data"]
+        payload = _build_factors_payload(db)
+        _FACTORS_CACHE["data"], _FACTORS_CACHE["ts"] = payload, time.time()
+        return payload
 
 
 _BASKETS_CACHE = {"ts": 0.0, "data": None}
@@ -534,17 +550,11 @@ def api_strategy_backtest(signal: str = "momentum", top_n: int = 15,
     return out
 
 
-@app.get("/api/screen/technical")
-def api_screen_technical(db: Session = Depends(get_db)):
-    """Technical read across the visible universe from the 5-yr OHLCV — DMA
-    states, 50/200 golden/death cross, RSI-14, 52-week-range position, 12-1
-    momentum, and volume vs its 50-day average. A screening aid, not advice.
-    Cached 5 min."""
+def _build_tech_payload(db):
+    """Cold rebuild for /api/screen/technical (called under _TECH_LOCK)."""
     import datetime as _dt
     from app.factors import technicals
     from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
-    if _TECH_CACHE["data"] is not None and time.time() - _TECH_CACHE["ts"] < 300:
-        return _TECH_CACHE["data"]
 
     cos = {c.id: c for c in db.query(models.Company).all()
            if (c.ticker or "").upper() in VISIBLE_UNIVERSE}
@@ -569,10 +579,25 @@ def api_screen_technical(db: Session = Depends(get_db)):
         out.append({"ticker": c.ticker, "name": c.name, "sector": c.sector, **t})
     out.sort(key=lambda r: (r.get("mom_12_1") if r.get("mom_12_1") is not None else -1e9),
              reverse=True)
-    payload = {"count": len(out), "items": out,
-               "note": "Technical read from the 5-yr OHLCV. A screening aid, not advice."}
-    _TECH_CACHE["data"], _TECH_CACHE["ts"] = payload, time.time()
-    return payload
+    return {"count": len(out), "items": out,
+            "note": "Technical read from the 5-yr OHLCV. A screening aid, not advice."}
+
+
+@app.get("/api/screen/technical")
+def api_screen_technical(db: Session = Depends(get_db)):
+    """Technical read across the visible universe from the 5-yr OHLCV — DMA
+    states, 50/200 golden/death cross, RSI-14, 52-week-range position, 12-1
+    momentum, and volume vs its 50-day average. A screening aid, not advice.
+    Cached 5 min."""
+    if _TECH_CACHE["data"] is not None and time.time() - _TECH_CACHE["ts"] < 300:
+        return _TECH_CACHE["data"]
+    with _TECH_LOCK:
+        # Re-check under the lock — another request may have just rebuilt (SCALE-02).
+        if _TECH_CACHE["data"] is not None and time.time() - _TECH_CACHE["ts"] < 300:
+            return _TECH_CACHE["data"]
+        payload = _build_tech_payload(db)
+        _TECH_CACHE["data"], _TECH_CACHE["ts"] = payload, time.time()
+        return payload
 
 
 @app.get("/api/factors/backtest")
@@ -619,24 +644,8 @@ def api_factors_backtest(db: Session = Depends(get_db)):
             **bt}
 
 
-@app.get("/api/companies")
-def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
-    """Screener rows. The headline intrinsic/MoS/verdict are the INDEPENDENT
-    model's own view (DCF/RI from history-derived drivers). The analyst
-    consensus is returned in a SEPARATE `analyst` block — never blended into the
-    intrinsic — so the screener can show both columns honestly.
-
-    ?nifty50=true returns ONLY the Nifty 50 (the universe we actively cover), so
-    the whole response fits in a single payload."""
-    from app.ingest.indianapi_ingester import UNIVERSE
-    import time as _t
-
-    def _scope(rows):
-        return [r for r in rows if r.get("ticker") in UNIVERSE] if nifty50 else rows
-
-    if _COMPANIES_CACHE["data"] is not None and (_t.time() - _COMPANIES_CACHE["ts"]) < 300:
-        return _scope(_COMPANIES_CACHE["data"])
-
+def _build_companies_rows(db):
+    """Cold rebuild of the full screener list (called under _COMPANIES_LOCK)."""
     rows = []
     insights_by_cid = {r.company_id: r.data for r in db.query(models.CompanyInsight).all() if r.data}
     # Prefer precomputed independent valuations (instant); fall back to live.
@@ -723,11 +732,92 @@ def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
         _VERDICT_RANK.get(r["verdict"], 0),
         r["mos"] if r.get("mos") is not None else -9,
     ), reverse=True)
-    _COMPANIES_CACHE["ts"], _COMPANIES_CACHE["data"] = _t.time(), rows
-    return _scope(rows)
+    return rows
+
+
+@app.get("/api/companies")
+def list_companies(nifty50: bool = False, db: Session = Depends(get_db)):
+    """Screener rows. The headline intrinsic/MoS/verdict are the INDEPENDENT
+    model's own view (DCF/RI from history-derived drivers). The analyst
+    consensus is returned in a SEPARATE `analyst` block — never blended into the
+    intrinsic — so the screener can show both columns honestly.
+
+    ?nifty50=true returns ONLY the Nifty 50 (the universe we actively cover), so
+    the whole response fits in a single payload."""
+    from app.ingest.indianapi_ingester import UNIVERSE
+    import time as _t
+
+    def _scope(rows):
+        return [r for r in rows if r.get("ticker") in UNIVERSE] if nifty50 else rows
+
+    if _COMPANIES_CACHE["data"] is not None and (_t.time() - _COMPANIES_CACHE["ts"]) < 300:
+        return _scope(_COMPANIES_CACHE["data"])
+    with _COMPANIES_LOCK:
+        # Re-check under the lock — another request may have just rebuilt (SCALE-02).
+        if _COMPANIES_CACHE["data"] is not None and (_t.time() - _COMPANIES_CACHE["ts"]) < 300:
+            return _scope(_COMPANIES_CACHE["data"])
+        rows = _build_companies_rows(db)
+        _COMPANIES_CACHE["ts"], _COMPANIES_CACHE["data"] = _t.time(), rows
+        return _scope(rows)
 
 
 _PEER_UNIV_CACHE = {"ts": 0.0, "data": None}
+_PEER_UNIV_LOCK = threading.Lock()   # SCALE-02: same rebuild lock as the caches above
+
+
+def _build_peer_universe(db):
+    """Cold rebuild for /api/peer_universe (called under _PEER_UNIV_LOCK)."""
+    out = []
+    from app.history_routes import _peer_metrics_map
+    pm = _peer_metrics_map(db) or {}
+    # company_id → its own IndianAPI ticker_id (to look up self-metrics)
+    tid_by_cid = {}
+    for r in db.query(models.CompanyInsight).all():
+        if getattr(r, "ticker_id", None):
+            tid_by_cid[r.company_id] = r.ticker_id
+
+    def _r(x, n=2):
+        try:
+            return round(float(x), n)
+        except (TypeError, ValueError):
+            return None
+
+    # Build from EVERY ingested company (has a MarketSnapshot). Multiples are
+    # computed from the DB; we OVERLAY IndianAPI self-metrics when present so
+    # the numbers match the rest of the terminal where coverage exists.
+    # PERF-06: batch the two per-company lookups — the lazy co.market access
+    # and the per-name _latest_facts query were ~1000 round-trips per cold
+    # build (measured 6.7s); two bulk loads replace them all.
+    price_by_cid = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
+    facts_by_cid = _all_latest_facts(db)
+    for co in db.query(models.Company).join(models.MarketSnapshot).all():
+        try:
+            price = price_by_cid.get(co.id)
+            facts = facts_by_cid.get(co.id) or {}
+            nw, npf, rev = facts.get(K.NET_WORTH), facts.get(K.NET_PROFIT), facts.get(K.REVENUE)
+            sh = co.shares_outstanding
+            eps  = (npf / sh) if (npf and sh) else None
+            bvps = (nw / sh) if (nw and sh) else None
+            pe  = (price / eps) if (price and eps and eps > 0) else None
+            pb  = (price / bvps) if (price and bvps and bvps > 0) else None
+            roe = (npf / nw * 100) if (npf and nw and nw > 0) else None
+            npm = (npf / rev * 100) if (npf and rev and rev > 0) else None
+            m = pm.get(tid_by_cid.get(co.id)) or {}
+            pick = lambda k, fb: (m.get(k) if m.get(k) is not None else fb)
+            out.append({
+                "ticker": co.ticker, "name": co.name, "sector": co.sector,
+                "price":    pick("price", _r(price)),
+                "pe":       pick("pe", _r(pe)),
+                "pb":       pick("pb", _r(pb)),
+                "roe_ttm":  pick("roe_ttm", _r(roe, 1)),
+                "npm_ttm":  pick("npm_ttm", _r(npm, 1)),
+                "div_yield": m.get("div_yield"),
+                "rating":   m.get("rating"),
+            })
+        except Exception:
+            continue
+    out.sort(key=lambda x: x.get("name") or "")
+    return out
 
 
 @app.get("/api/peer_universe")
@@ -739,61 +829,18 @@ def peer_universe(db: Session = Depends(get_db)):
     import time as _t
     if _PEER_UNIV_CACHE["data"] is not None and (_t.time() - _PEER_UNIV_CACHE["ts"]) < 1800:
         return _PEER_UNIV_CACHE["data"]
-    out = []
-    try:
-        from app.history_routes import _peer_metrics_map
-        pm = _peer_metrics_map(db) or {}
-        # company_id → its own IndianAPI ticker_id (to look up self-metrics)
-        tid_by_cid = {}
-        for r in db.query(models.CompanyInsight).all():
-            if getattr(r, "ticker_id", None):
-                tid_by_cid[r.company_id] = r.ticker_id
-
-        def _r(x, n=2):
-            try:
-                return round(float(x), n)
-            except (TypeError, ValueError):
-                return None
-
-        # Build from EVERY ingested company (has a MarketSnapshot). Multiples are
-        # computed from the DB; we OVERLAY IndianAPI self-metrics when present so
-        # the numbers match the rest of the terminal where coverage exists.
-        # PERF-06: batch the two per-company lookups — the lazy co.market access
-        # and the per-name _latest_facts query were ~1000 round-trips per cold
-        # build (measured 6.7s); two bulk loads replace them all.
-        price_by_cid = {m.company_id: m.price for m in db.query(models.MarketSnapshot).all()}
-        facts_by_cid = _all_latest_facts(db)
-        for co in db.query(models.Company).join(models.MarketSnapshot).all():
-            try:
-                price = price_by_cid.get(co.id)
-                facts = facts_by_cid.get(co.id) or {}
-                nw, npf, rev = facts.get(K.NET_WORTH), facts.get(K.NET_PROFIT), facts.get(K.REVENUE)
-                sh = co.shares_outstanding
-                eps  = (npf / sh) if (npf and sh) else None
-                bvps = (nw / sh) if (nw and sh) else None
-                pe  = (price / eps) if (price and eps and eps > 0) else None
-                pb  = (price / bvps) if (price and bvps and bvps > 0) else None
-                roe = (npf / nw * 100) if (npf and nw and nw > 0) else None
-                npm = (npf / rev * 100) if (npf and rev and rev > 0) else None
-                m = pm.get(tid_by_cid.get(co.id)) or {}
-                pick = lambda k, fb: (m.get(k) if m.get(k) is not None else fb)
-                out.append({
-                    "ticker": co.ticker, "name": co.name, "sector": co.sector,
-                    "price":    pick("price", _r(price)),
-                    "pe":       pick("pe", _r(pe)),
-                    "pb":       pick("pb", _r(pb)),
-                    "roe_ttm":  pick("roe_ttm", _r(roe, 1)),
-                    "npm_ttm":  pick("npm_ttm", _r(npm, 1)),
-                    "div_yield": m.get("div_yield"),
-                    "rating":   m.get("rating"),
-                })
-            except Exception:
-                continue
-        out.sort(key=lambda x: x.get("name") or "")
-    except Exception:
-        return _PEER_UNIV_CACHE["data"] or []
-    _PEER_UNIV_CACHE["ts"], _PEER_UNIV_CACHE["data"] = _t.time(), out
-    return out
+    with _PEER_UNIV_LOCK:
+        # Re-check under the lock — another request may have just rebuilt (SCALE-02).
+        if _PEER_UNIV_CACHE["data"] is not None and (_t.time() - _PEER_UNIV_CACHE["ts"]) < 1800:
+            return _PEER_UNIV_CACHE["data"]
+        try:
+            out = _build_peer_universe(db)
+        except Exception:
+            # Build failed — keep serving the stale copy (or empty) and leave the
+            # timestamp untouched so the next call retries.
+            return _PEER_UNIV_CACHE["data"] or []
+        _PEER_UNIV_CACHE["ts"], _PEER_UNIV_CACHE["data"] = _t.time(), out
+        return out
 
 
 def _get_or_404(db, ticker):
