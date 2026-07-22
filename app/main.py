@@ -454,6 +454,42 @@ def _live_recommend(db, co):
         return None
 
 
+def _writeback_valuation(db, co, data, rec):
+    """Product-consistency fix (stored-vs-live split): the company page runs the
+    model LIVE while the screener serves the STORED Valuation row, which fully
+    recomputes only nightly — after a re-ingest or a risk-free move the two
+    could disagree visibly (SAIL 38.07 stored vs 51.58 live). Whenever the page
+    computes a canonical result (independent assumptions, no user overrides),
+    persist it through the SAME `_payload` mapping the batch writer uses, so
+    the screener converges to exactly what the page just showed.
+
+    Cheap by construction: skipped when the stored intrinsic is already within
+    0.5% and the verdict/confidence agree; fail-silent (a write hiccup must
+    never break the page); last-write-wins is fine (deterministic inputs)."""
+    try:
+        from app.ingest.compute_valuations import _payload
+        row = db.query(models.Valuation).filter_by(company_id=co.id).first()
+        li, si = rec.get("intrinsic"), getattr(row, "intrinsic", None)
+        if (row is not None and li is not None and si is not None
+                and abs(li - si) <= 0.005 * abs(si)
+                and rec.get("verdict") == row.verdict
+                and (rec.get("confidence") or {}).get("level") == row.confidence):
+            return                                  # already converged
+        ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
+        payload = _payload(co, data, rec, ins.data if ins else None)
+        if row:
+            for k, v in payload.items():
+                setattr(row, k, v)
+        else:
+            db.add(models.Valuation(company_id=co.id, **payload))
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 @app.get("/api/universe")
 def api_universe():
     """Tickers the terminal currently EXPOSES — the SINGLE source of truth for
@@ -886,6 +922,8 @@ def company_detail(ticker: str, db: Session = Depends(get_db)):
         a = effective_assumptions(db, co, data)
         rec = engines.recommend(data, a)
         sens = engines.sensitivity(data, a)
+        # Canonical live result → converge the stored row (screener) to it.
+        _writeback_valuation(db, co, data, rec)
         try:
             analyst = _consensus_block(db, co, data.get("price"))
         except Exception:
