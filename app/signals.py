@@ -28,11 +28,20 @@ def catalyst_by(db, min_points: int = 2) -> dict:
     hist: dict[str, list] = {}
     for r in rows:
         hist.setdefault(r.ticker, []).append(r)
+    import datetime as _dt
+    win_cut = (_dt.date.today() - _dt.timedelta(days=60)).isoformat()
     out = {}
     for tk, h in hist.items():
         if len(h) < min_points:
             continue
-        latest, prior = h[-1], h[0]
+        latest = h[-1]
+        # ENG-03: `prior` = the most recent snapshot at least ~60 days old, so this
+        # measures TRAILING-WINDOW revision momentum (the ~3-month analyst-drift
+        # analog), not revision-since-inception. h[0] would make the factor mean
+        # "upside changed since we started tracking", drifting as the ledger ages.
+        # While history is younger than the window, fall back to the earliest.
+        older = [s for s in h if s.date <= win_cut]
+        prior = older[-1] if older else h[0]
         if latest.upside is not None and prior.upside is not None:
             out[tk] = latest.upside - prior.upside
         elif latest.target and prior.target:
@@ -124,6 +133,18 @@ def assemble_factor_rows(db, tickers) -> list[dict]:
             closes[cid] = series
     cat = catalyst_by(db)
     sur = surprise_by(db)
+    # ENG-02: the "growth" factor was fed Valuation.analyst_upside — analyst
+    # CHEAPNESS, not growth. It double-counted the Street (same quantity whose
+    # change is the `catalyst` leg and which is the FM's val_consensus witness).
+    # Feed REAL revenue growth (vendor 3y→5y→TTM sales CAGR) so the published
+    # "growth" leg means what it says. Lazy import avoids a manager_engine cycle.
+    from app.manager_engine import _parse_growth
+    growth_by = {}
+    try:
+        for r in db.query(models.CompanyInsight).all():
+            growth_by[r.company_id] = _parse_growth((r.data or {}).get("growth"))
+    except Exception:
+        db.rollback()
     rows = []
     for cid, co in cos.items():
         v = vals.get(cid)
@@ -135,7 +156,7 @@ def assemble_factor_rows(db, tickers) -> list[dict]:
             "price": price_by.get(cid), "mos": v.mos, "roe": v.roe, "pe": v.pe, "pb": v.pb,
             "verdict": v.verdict, "confidence": v.confidence,
             "closes": closes.get(cid, []),
-            "growth": v.analyst_upside,
+            "growth": growth_by.get(cid),
             "catalyst": cat.get((co.ticker or "").upper()),
             "surprise": sur.get((co.ticker or "").upper()),
         })

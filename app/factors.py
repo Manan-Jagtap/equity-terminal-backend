@@ -31,7 +31,12 @@ FACTOR_WEIGHTS = {"quality": 0.25, "momentum": 0.25, "value": 0.20, "low_vol": 0
 
 def _pct_ranks(items, higher_is_better: bool = True) -> dict:
     """items: iterable of (key, value|None) → {key: percentile 0..100} computed
-    over the non-None values only. Best value → 100."""
+    over the non-None values only. Best value → 100.
+
+    ENG-14: tied values get the AVERAGE of their ranks, so equal inputs get equal
+    percentiles regardless of row order — score_universe is then invariant to
+    row shuffling (the old sequential enumerate gave ties different percentiles
+    by input position, so a name's Alpha could jump when the query re-ordered)."""
     pairs = [(k, v) for k, v in items if v is not None]
     if not pairs:
         return {}
@@ -39,7 +44,17 @@ def _pct_ranks(items, higher_is_better: bool = True) -> dict:
     n = len(pairs)
     if n == 1:
         return {pairs[0][0]: 50.0}
-    return {k: round(100.0 * rank / (n - 1), 1) for rank, (k, _) in enumerate(pairs)}
+    out = {}
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and pairs[j + 1][1] == pairs[i][1]:
+            j += 1
+        pct = round(100.0 * ((i + j) / 2.0) / (n - 1), 1)   # average of tied ranks
+        for r in range(i, j + 1):
+            out[pairs[r][0]] = pct
+        i = j + 1
+    return out
 
 
 def trailing_return(closes, lookback: int = 126, skip: int = 21):
@@ -77,7 +92,9 @@ def _sma(xs, n):
 
 
 def rsi(closes, n: int = 14):
-    """Wilder-style RSI over the last n periods. None on too-short a series."""
+    """Simple-average RSI over the last n periods (mean of gains / mean of losses;
+    not Wilder's smoothed running average — ENG-14 label fix). None on too-short
+    a series."""
     if not closes or len(closes) < n + 1:
         return None
     gains = losses = 0.0
@@ -178,11 +195,21 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
             "surprise": r_sur.get(tk),
         }
         num = den = 0.0
+        n_present = 0
         for k, wt in w.items():
             if factors.get(k) is not None:
                 num += wt * factors[k]
                 den += wt
-        alpha = round(num / den, 1) if den > 0 else None
+                n_present += 1
+        # ENG-14: a name scored on only 1–2 legs is not comparable to a
+        # fully-covered one (a lone 95th-pct ROE could top the sheet). Require
+        # ≥3 populated factors for an Alpha score; otherwise abstain with a reason.
+        if den > 0 and n_present >= 3:
+            alpha = round(num / den, 1)
+            alpha_reason = None
+        else:
+            alpha = None
+            alpha_reason = f"only {n_present} factor{'s' if n_present != 1 else ''} populated — need ≥3 to rank"
         # FIX-15 (EXPL-02): when the two engines tell OPPOSITE stories — a bearish
         # valuation verdict on a top-quartile Alpha name (LT, VEDL, POWERGRID…)
         # or the inverse — say so explicitly instead of letting the user find the
@@ -200,11 +227,18 @@ def score_universe(rows, weights: dict | None = None) -> list[dict]:
                 note = (f"Valuation says {_v} (price below fair value) but the factor "
                         f"engine ranks it only {alpha:.0f}/100 — weak quality/momentum. "
                         "Cheap for a reason until the factors turn.")
+        # ENG-14: name the momentum horizon this row was ranked on — a <1yr series
+        # is scored on 6-1, not 12-1, and mixing them silently in one cross-section
+        # blurs the signal.
+        _closes = r.get("closes") or []
+        momentum_basis = ("12-1" if len(_closes) >= 231 + 21 + 1
+                          else "6-1" if mom.get(tk) is not None else None)
         out.append({
             **r,
             "factors": {k: (round(v, 1) if v is not None else None) for k, v in factors.items()},
-            "momentum_ret": mom.get(tk), "volatility": vol.get(tk),
-            "alpha_score": alpha,
+            "momentum_ret": mom.get(tk), "momentum_basis": momentum_basis,
+            "volatility": vol.get(tk),
+            "alpha_score": alpha, "alpha_reason": alpha_reason,
             "engines_disagree": disagree, "disagree_note": note,
         })
     out.sort(key=lambda x: (x["alpha_score"] is not None, x["alpha_score"] or 0.0), reverse=True)
@@ -265,7 +299,14 @@ def portfolio_xray(items, cap: float = 0.25, low_alpha: float = 40.0) -> dict:
         "weighted_alpha": wavg("alpha_score"),
         "factor_exposure": {k: wavg(k, in_factors=True)
                             for k in ("value", "quality", "momentum", "low_vol", "growth", "catalyst", "surprise")},
+        # ENG-16: this is the value-weighted mean of each name's STANDALONE vol —
+        # it ignores cross-correlations, so it OVERSTATES a diversified book's true
+        # volatility. Renamed to say what it is; est_volatility kept as an alias
+        # for compatibility. It informs no decision — display only.
+        "avg_position_vol": wavg("volatility"),
         "est_volatility": wavg("volatility"),
+        "vol_note": "value-weighted average of standalone position volatilities; "
+                    "ignores diversification (correlations) — an upper bound, not the book's σ",
         "top_weight": max((i["weight"] for i in priced if i.get("weight")), default=None),
         "sector_concentration": sector_conc,
         "hhi": round(sum(x["weight"] ** 2 for x in sector_conc), 3) if sector_conc else None,
