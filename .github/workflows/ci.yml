@@ -3,6 +3,12 @@ name: CI
 # The guardrail the enterprise audit found missing: the test suite had been
 # broken at COLLECTION for weeks with nobody noticing, because nothing ran it.
 # Every push/PR now runs the full backend suite; a red X is the alarm.
+#
+# FIX-26: a second job runs the SAME suite on Postgres (prod is Postgres, CI was
+# SQLite-only — the dialect-specific branches executed for the first time in
+# production), plus a narrow lint gate that catches the undefined-name /
+# syntax-error class — exactly the `_dt` NameError and the ENG-01 un-imported
+# macro_data that shipped live.
 
 on:
   push:
@@ -21,8 +27,10 @@ jobs:
           python-version: "3.13"
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest
-      - name: Run test suite
+        run: pip install -r requirements.txt pytest ruff
+      - name: Lint gate — undefined names & syntax errors (bug class, not style)
+        run: ruff check --select E9,F63,F7,F82 app/
+      - name: Run test suite (SQLite)
         env:
           DATABASE_URL: "sqlite:////tmp/ci_terminal.db"
         run: python -m pytest tests/ -q
@@ -33,3 +41,40 @@ jobs:
         run: |
           python tests/gen_parity_cases.py /tmp/parityCases.json
           python tests/gen_derive_cases.py /tmp/deriveCases.json
+
+  backend-tests-postgres:
+    # FIX-26 (TEST-01): prod is Postgres; run the real dialect. Catches the class
+    # of bug found only in prod on migration day (pg8000 TLS, sequence resync,
+    # JSON column behaviour, Postgres-only migration branches).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: terminal_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: "postgresql+pg8000://postgres:postgres@localhost:5432/terminal_ci"
+      # A non-SQLite URL trips the prod gate that requires a signing secret — set
+      # a throwaway CI value (never a real key).
+      AUTH_SECRET: "ci-postgres-throwaway-secret-000000000000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+      - name: Boot migrations must succeed on Postgres (fail-closed sanity)
+        run: python -c "from app.migrations_boot import run_boot_migrations as r; out=r(); print(out); assert not str(out).lower().startswith('error'), out"
+      - name: Run test suite (Postgres)
+        run: python -m pytest tests/ -q

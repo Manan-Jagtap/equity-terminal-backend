@@ -102,6 +102,11 @@ def test_verdict_age_by_counts_the_current_run():
     from app import models
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
+    # Postgres enforces the company_id FK (SQLite doesn't) — create the parent.
+    if not db.query(models.Company).filter_by(id=99001).first():
+        db.add(models.Company(id=99001, ticker="TSTAGE", name="Test Age",
+                              type="financial", sector="Financials", shares_outstanding=1.0))
+        db.commit()
     db.query(models.VerdictSnapshot).filter(models.VerdictSnapshot.ticker == "TSTAGE").delete()
     db.commit()
     base = dt.date.today()

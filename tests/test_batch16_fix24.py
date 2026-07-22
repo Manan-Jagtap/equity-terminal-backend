@@ -86,6 +86,11 @@ def test_catalyst_window_uses_60d_prior():
     from app.signals import catalyst_by
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
+    # Postgres enforces the company_id FK (SQLite doesn't) — create the parent.
+    if not db.query(models.Company).filter_by(id=99500).first():
+        db.add(models.Company(id=99500, ticker="TSTCAT", name="Test Cat",
+                              type="financial", sector="Financials", shares_outstanding=1.0))
+        db.commit()
     db.query(models.ConsensusSnapshot).filter(models.ConsensusSnapshot.ticker == "TSTCAT").delete()
     db.commit()
     today = dt.date.today()
