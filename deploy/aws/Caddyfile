@@ -1,0 +1,10 @@
+# FIX-25 (OPS-02) — committed copy of the live reverse-proxy config so prod is
+# rebuildable from source. Caddy terminates TLS (auto Let's Encrypt) for the API
+# host and proxies to the `web` container by name over the `edge` docker network.
+# user-data.sh writes this to /opt/Caddyfile and mounts it into the caddy:2
+# container at /etc/caddy/Caddyfile.
+api.equityverdict.com {
+    encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    reverse_proxy web:8080
+}
