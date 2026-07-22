@@ -606,3 +606,13 @@ def feedback_list(limit: int = 50, db: Session = Depends(get_db),
     return {"feedback": [{"id": r.id, "user_id": r.user_id, "message": r.message,
                           "page": r.page, "status": r.status,
                           "created_at": str(r.created_at)} for r in rows]}
+
+
+@router.get("/kv-health")
+def kv_health_view(db: Session = Depends(get_db),
+                   _admin: models.User = Depends(require_admin)):
+    """ARCH-04: every KV key with its registry owner + envelope updated_at/age.
+    A null owner means an unregistered key (add it to app/kv.py's registry);
+    a null age means the blob predates the envelope (stamps on next write)."""
+    from app.kv import kv_health
+    return {"keys": kv_health(db)}
