@@ -32,10 +32,17 @@ from app.manager_engine import load_evidence
 
 log = logging.getLogger("hidden_gems")
 
-GEMS_KEY = "manager:hidden_gems:v2"
+GEMS_KEY = "manager:hidden_gems:v3"   # v3: ENG-17 rank-based cap tiers
 
 # ── screen thresholds (honest, quality-first) ────────────────────────────────
-CAP_MAX_CR  = 20000.0   # small / mid only — a large cap is not "under-followed"
+# ENG-17: cap tiers follow the AMFI convention — by RANK, not a ₹-static cut
+# (top 100 by market cap = large, 101-250 = mid, 251+ = small), computed within
+# our covered universe (~top-1000 names, so ranks track the official list
+# closely). The ₹ bounds survive only as fallbacks for names whose rank can't
+# be computed, and as the liquidity floor (which is genuinely ₹-based).
+RANK_LARGE  = 100       # rank ≤ 100 → large cap: not "under-followed", excluded
+RANK_MID    = 250       # rank 101-250 → mid; 251+ → small
+CAP_MAX_CR  = 20000.0   # fallback gate only (no rank available)
 CAP_MIN_CR  = 300.0     # floor: below this liquidity/quality noise dominates
 QUAL_MIN    = 60        # forensic accounting-quality composite floor (clean books)
 ROE_MIN     = 0.14      # durable returns on capital
@@ -79,7 +86,14 @@ def _clamp(x, lo=0.0, hi=100.0):
     return max(lo, min(hi, x))
 
 
-def _cap_tier(cap_cr):
+def _cap_tier(cap_cr, cap_rank=None):
+    """AMFI-style tier by universe rank when known; ₹-static fallback otherwise."""
+    if cap_rank is not None:
+        if cap_rank <= RANK_LARGE:
+            return "Large cap"
+        if cap_rank <= RANK_MID:
+            return "Mid cap"
+        return "Small cap"
     if cap_cr is None:
         return None
     if cap_cr < 5000:
@@ -93,10 +107,10 @@ def _pct(x, d=0):
     return None if x is None else round(x * 100, d)
 
 
-def _thesis(ev, sc, cap_cr, roe, g, pat_yoy, covered):
+def _thesis(ev, sc, cap_cr, roe, g, pat_yoy, covered, cap_rank=None):
     """Honest, evidence-derived reasons this name has multibagger ingredients."""
     out = []
-    tier = _cap_tier(cap_cr) or "Small/mid cap"
+    tier = _cap_tier(cap_cr, cap_rank) or "Small/mid cap"
     if not covered:
         out.append(f"Under-followed: {tier.lower()} at Rs {cap_cr:,.0f} Cr with no street "
                    f"consensus yet — the kind of gap where mispricing lives.")
@@ -147,7 +161,7 @@ _RISK_BOILERPLATE = [
 ]
 
 
-def _rank(ev, sc, roe, g, pat_yoy, cap_cr, covered):
+def _rank(ev, sc, roe, g, pat_yoy, cap_cr, covered, cap_rank=None):
     """A 0-100 conviction blend for names that already cleared the hard gates."""
     scores = sc.get("scores") or {}
     def sv(k):
@@ -166,7 +180,7 @@ def _rank(ev, sc, roe, g, pat_yoy, cap_cr, covered):
         score += min(10.0, max(0.0, (roe - ROE_MIN) * 60))       # higher ROE
     if not covered:
         score += 8.0                                             # genuinely uncovered
-    elif cap_cr is not None and cap_cr < 5000:
+    elif _cap_tier(cap_cr, cap_rank) == "Small cap":
         score += 4.0                                             # small cap = under-followed
     gmax = max([x for x in (g, pat_yoy) if x is not None] or [0])
     score += min(8.0, max(0.0, (gmax - GROWTH_MIN) * 30))        # stronger growth
@@ -181,7 +195,8 @@ def _rank(ev, sc, roe, g, pat_yoy, cap_cr, covered):
     return round(_clamp(score), 1)
 
 
-def evaluate_name(tk, ev, cap_cr, roe, g, pat_yoy, covered, pe=None) -> dict | None:
+def evaluate_name(tk, ev, cap_cr, roe, g, pat_yoy, covered, pe=None,
+                  cap_rank=None) -> dict | None:
     """Apply the hard gates to one name and, if it passes, build its gem record.
     Pure (no DB) so it's unit-testable. Returns None when a gate fails."""
     sc = build_scorecard(ev)
@@ -192,7 +207,16 @@ def evaluate_name(tk, ev, cap_cr, roe, g, pat_yoy, covered, pe=None) -> dict | N
     conf = (model.get("confidence") or "").upper()
 
     # ── HARD GATES (honesty first; any failure excludes the name) ─────────────
-    if cap_cr is None or cap_cr > CAP_MAX_CR or cap_cr < CAP_MIN_CR:
+    # ENG-17: "not a large cap" is judged by AMFI-style rank when we have one
+    # (a ₹25k Cr name ranked ~180 IS a legitimate mid cap); the ₹-static cap
+    # only gates names whose rank couldn't be computed. The ₹ liquidity floor
+    # always applies.
+    if cap_cr is None or cap_cr < CAP_MIN_CR:
+        return None
+    if cap_rank is not None:
+        if cap_rank <= RANK_LARGE:
+            return None
+    elif cap_cr > CAP_MAX_CR:
         return None
     if (sc.get("scores", {}).get("quality", {}) or {}).get("value") is None:
         return None
@@ -219,8 +243,9 @@ def evaluate_name(tk, ev, cap_cr, roe, g, pat_yoy, covered, pe=None) -> dict | N
         "sector": ev.get("sector"),
         "price": ev.get("price"),
         "market_cap_cr": round(cap_cr, 0),
-        "cap_tier": _cap_tier(cap_cr),
-        "score": _rank(ev, sc, roe, g, pat_yoy, cap_cr, covered),
+        "cap_tier": _cap_tier(cap_cr, cap_rank),
+        "cap_rank": cap_rank,
+        "score": _rank(ev, sc, roe, g, pat_yoy, cap_cr, covered, cap_rank),
         "grade": sc.get("grade"),
         "overall": sc.get("overall"),
         "roe_pct": _pct(roe, 1),
@@ -229,7 +254,7 @@ def evaluate_name(tk, ev, cap_cr, roe, g, pat_yoy, covered, pe=None) -> dict | N
         "mos_pct": _pct(mos, 1),
         "pe": round(pe, 1) if pe else None,
         "under_followed": not covered,
-        "thesis": _thesis(ev, sc, cap_cr, roe, g, pat_yoy, covered),
+        "thesis": _thesis(ev, sc, cap_cr, roe, g, pat_yoy, covered, cap_rank),
         "risks": _RISK_BOILERPLATE,
         "scores": sc.get("scores"),
     }
@@ -267,14 +292,23 @@ def find_hidden_gems(db, limit: int = TOP_N, refresh: bool = False) -> dict:
         if tk:
             val_by[tk] = {"roe": roe, "pe": pe}
 
+    # ENG-17: AMFI-style cap ranks across the WHOLE covered universe (every
+    # name with price × shares, not just scorecard-ready ones) so rank ~ the
+    # official large/mid/small classification rather than a ₹-static cut.
+    cap_by = {}
+    for tk, ev in names.items():
+        price, shares = ev.get("price"), shares_by.get(tk)
+        if price and shares:
+            cap_by[tk] = price * shares
+    rank_by = {tk: i + 1 for i, (tk, _) in
+               enumerate(sorted(cap_by.items(), key=lambda kv: -kv[1]))}
+
     gems, considered = [], 0
     for tk, ev in names.items():
         if not build_scorecard(ev).get("available"):
             continue
         considered += 1
-        price = ev.get("price")
-        shares = shares_by.get(tk)
-        cap_cr = (price * shares) if (price and shares) else None
+        cap_cr = cap_by.get(tk)
         vinfo = val_by.get(tk) or {}
         # roe (Valuation.roe), growth (parsed by _parse_growth) and pat_yoy
         # (results yoy) are ALL already fractions — do NOT run them through
@@ -285,7 +319,8 @@ def find_hidden_gems(db, limit: int = TOP_N, refresh: bool = False) -> dict:
         pat_yoy = _f((ev.get("results") or {}).get("pat_yoy"))
         covered = bool((ev.get("consensus") or {}).get("rating") or
                        (ev.get("consensus") or {}).get("target"))
-        gem = evaluate_name(tk, ev, cap_cr, roe, g, pat_yoy, covered, pe=vinfo.get("pe"))
+        gem = evaluate_name(tk, ev, cap_cr, roe, g, pat_yoy, covered,
+                            pe=vinfo.get("pe"), cap_rank=rank_by.get(tk))
         if gem:
             gems.append(gem)
 
@@ -300,7 +335,10 @@ def find_hidden_gems(db, limit: int = TOP_N, refresh: bool = False) -> dict:
         "n_found": len(gems),
         "gems": gems,
         "criteria": {
-            "market_cap_cr": [CAP_MIN_CR, CAP_MAX_CR],
+            "cap_tiers": (f"AMFI-style rank within covered universe (top {RANK_LARGE} "
+                          f"large — excluded; {RANK_LARGE + 1}-{RANK_MID} mid; "
+                          f"{RANK_MID + 1}+ small); floor Rs {CAP_MIN_CR:,.0f} Cr"),
+            "market_cap_cr": [CAP_MIN_CR, CAP_MAX_CR],   # ₹ fallback when unranked
             "min_quality": QUAL_MIN, "min_roe_pct": ROE_MIN * 100,
             "min_growth_pct": GROWTH_MIN * 100, "min_pat_yoy_pct": PAT_YOY_MIN * 100,
             "clean_forensics": True, "excludes_suspect_models": True,
