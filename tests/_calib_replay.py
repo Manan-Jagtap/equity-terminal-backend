@@ -12,7 +12,18 @@ _LOADED = False
 _BETA = {}    # ticker -> frozen calc beta
 
 def load_fixture(path="tests/calibration_inputs.json"):
-    return json.load(open(path))
+    """The raw 3MB json is gitignored; the COMMITTED artefact is the .gz
+    (649kB) so the harness survives a laptop loss. Raw wins when present
+    (fresh captures), else fall back to the committed .gz transparently."""
+    import os, gzip
+    if os.path.exists(path):
+        return json.load(open(path))
+    gz = path + ".gz"
+    if os.path.exists(gz):
+        with gzip.open(gz, "rt") as fh:
+            return json.load(fh)
+    raise FileNotFoundError(f"{path}(.gz) — re-capture via the public API "
+                            f"(see calibration-harness notes)")
 
 def build_db(fixture):
     """One throwaway SQLite holding every captured name (isolated by company_id)."""
