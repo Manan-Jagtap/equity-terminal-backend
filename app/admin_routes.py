@@ -567,3 +567,42 @@ def coverage_gaps(_admin: models.User = Depends(require_admin),
                          "shares": co.shares_outstanding,
                          "has_statements": co.id in have_stmts})
     return {"count": len(gaps), "tickers": [g["ticker"] for g in gaps], "rows": gaps}
+
+
+@router.get("/usage")
+def usage_summary(days: int = 30, db: Session = Depends(get_db),
+                  _admin: models.User = Depends(require_admin)):
+    """INST-01: the owner's usage view — daily active users + top events over the
+    window. Self-owned telemetry (DPDP: our DB only, no IP/UA, 180-day retention
+    enforced opportunistically right here)."""
+    import datetime as _dt
+    from sqlalchemy import func as _f
+    from app.telemetry_routes import prune_usage_events, RETENTION_DAYS
+    pruned = prune_usage_events(db)
+    cutoff = _dt.datetime.utcnow() - _dt.timedelta(days=max(1, min(days, RETENTION_DAYS)))
+    base = db.query(models.UsageEvent).filter(models.UsageEvent.created_at >= cutoff)
+    dau = (db.query(_f.date(models.UsageEvent.created_at).label("d"),
+                    _f.count(_f.distinct(models.UsageEvent.user_id)))
+             .filter(models.UsageEvent.created_at >= cutoff,
+                     models.UsageEvent.user_id.isnot(None))
+             .group_by("d").order_by("d").all())
+    top = (db.query(models.UsageEvent.event, _f.count(models.UsageEvent.id))
+             .filter(models.UsageEvent.created_at >= cutoff)
+             .group_by(models.UsageEvent.event)
+             .order_by(_f.count(models.UsageEvent.id).desc()).limit(20).all())
+    return {"window_days": days, "events_total": base.count(), "pruned": pruned,
+            "daily_active_users": [{"date": str(d), "users": int(n)} for d, n in dau],
+            "top_events": [{"event": e, "n": int(n)} for e, n in top],
+            "retention_days": RETENTION_DAYS}
+
+
+@router.get("/feedback")
+def feedback_list(limit: int = 50, db: Session = Depends(get_db),
+                  _admin: models.User = Depends(require_admin)):
+    """INST-02: recent user feedback, newest first."""
+    rows = (db.query(models.Feedback)
+              .order_by(models.Feedback.created_at.desc())
+              .limit(max(1, min(limit, 200))).all())
+    return {"feedback": [{"id": r.id, "user_id": r.user_id, "message": r.message,
+                          "page": r.page, "status": r.status,
+                          "created_at": str(r.created_at)} for r in rows]}

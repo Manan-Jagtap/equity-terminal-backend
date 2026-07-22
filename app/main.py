@@ -113,6 +113,10 @@ app.include_router(intraday_router)
 from app.macro_routes import router as macro_router
 app.include_router(macro_router)
 
+# INST-01/02: self-owned product analytics + the user-feedback channel (DPDP-fit).
+from app.telemetry_routes import router as telemetry_router
+app.include_router(telemetry_router)
+
 from app.onepager import build_onepager
 
 

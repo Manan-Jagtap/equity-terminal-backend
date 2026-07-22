@@ -41,12 +41,15 @@ def test_upsert_hist_stamps_updated_at():
 
 
 def test_alembic_chain_has_intg04_head():
-    # the new migration must be reachable as the single head (guards a bad merge)
+    # intg04stmtts must sit in a SINGLE-head chain (guards a bad merge). The
+    # exact head moves with each new migration — the current-head assertion
+    # lives in the newest batch's test (test_batch24_inst.py).
     import os
     from alembic.config import Config
     from alembic.script import ScriptDirectory
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cfg = Config(os.path.join(root, "alembic.ini"))
     cfg.set_main_option("script_location", os.path.join(root, "alembic"))
-    heads = list(ScriptDirectory.from_config(cfg).get_heads())
-    assert heads == ["intg04stmtts"], heads
+    script = ScriptDirectory.from_config(cfg)
+    assert len(list(script.get_heads())) == 1
+    assert script.get_revision("intg04stmtts") is not None

@@ -287,6 +287,12 @@ def delete_account(body: DeleteAccountBody,
     db.query(models.AuthEvent).filter(
         (models.AuthEvent.user_id == user.id) | (models.AuthEvent.email == user.email)
     ).delete(synchronize_session=False)
+    # INST-01/02 under erasure: feedback is USER-AUTHORED content → deleted
+    # outright; usage events are app-defined event names only → anonymised
+    # (user link nulled) so aggregate counts survive without any identity.
+    db.query(models.Feedback).filter_by(user_id=user.id).delete(synchronize_session=False)
+    db.query(models.UsageEvent).filter_by(user_id=user.id).update(
+        {models.UsageEvent.user_id: None}, synchronize_session=False)
     db.query(models.User).filter_by(id=user.id).delete(synchronize_session=False)
     db.commit()
     return {"ok": True, "deleted": True}
