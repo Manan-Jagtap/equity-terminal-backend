@@ -8,6 +8,11 @@
 **/*.pyc
 venv/
 venv313/
+# ARCH-02/DATA-07 (FIX-28): dev-only vendor-shape probes + recorded response
+# dumps must never ship in the prod image, even if regenerated locally.
+app/ingest/probe_*.py
+app/ingest/endpoint_probe.py
+**/*_dump.json
 .venv/
 *.db
 *.sqlite

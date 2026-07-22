@@ -744,16 +744,6 @@ elif _flag("RUN_BACKUP_NOW"):
     run_encrypted_backup()
     log.info("Backup attempt finished (see the 'encrypted backup:' line above "
              "for ok/skipped/error). Remove RUN_BACKUP_NOW from Variables now.")
-elif _flag("RUN_PROBE_ENDPOINTS"):
-    # One-off shape probe for the not-yet-leveraged IndianAPI endpoints. Prints
-    # compact response shapes to the logs; writes nothing. Remove the flag after.
-    log.info("RUN_PROBE_ENDPOINTS set — probing unused IndianAPI endpoints…")
-    try:
-        from app.ingest.endpoint_probe import run as probe_new
-        probe_new()
-        log.info("Endpoint probe done. Remove RUN_PROBE_ENDPOINTS from Variables now.")
-    except Exception as e:
-        log.error(f"Endpoint probe failed: {e}")
 elif _flag("RUN_BOOTSTRAP_NOW"):
     log.info("RUN_BOOTSTRAP_NOW set — running the full server-side bootstrap now…")
     try:
