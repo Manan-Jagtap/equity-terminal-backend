@@ -1,0 +1,5 @@
+{
+  "_comment": "FIX-26 (TEST-04) — the shared FE<->BE response contract: the KEY SET each endpoint must return. The backend asserts these in test_batch18_fix26_contract.py; the frontend can import this same file in a vitest, so a backend field rename fails a test on THIS side before it ever reaches the UI (the drift class the hermetic Playwright smoke can't catch). Only key presence is contracted, never values.",
+  "/api/health": ["status", "errors_1h", "scheduler_beat_min", "price_age_days", "integrity"],
+  "/api/factors/backtest": ["tracking_since", "snapshot_days", "note", "n", "buckets", "top_minus_bottom"]
+}

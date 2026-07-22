@@ -564,6 +564,7 @@ def api_factors_backtest(db: Session = Depends(get_db)):
     from the AlphaSnapshot ledger (each name bucketed by its FIRST snapshot's
     Alpha, marked to today's price). Honest and forward — meaningful once
     snapshots span time; returns an empty-but-valid shape until then."""
+    import datetime as _dt
     from app.factors import alpha_backtest
     try:
         snaps = (db.query(models.AlphaSnapshot)
