@@ -162,10 +162,7 @@ def _rebalance_dates(all_dates, years, freq):
     out, seen = [], set()
     for d in win:
         y, m = int(d[:4]), int(d[5:7])
-        key = (y, m) if freq == "M" else (y, (m - 1) // 3)
-        if freq == "Q" and m not in (1, 4, 7, 10):
-            # still allow the first available quarter-month if data starts mid-quarter
-            pass
+        key = (y, m) if freq == "M" else (y, (m - 1) // 3)   # quarter bucket
         if key not in seen:
             seen.add(key)
             out.append(d)

@@ -401,7 +401,7 @@ def conviction_add(ev: dict, weights: dict, macro: dict | None) -> tuple[int, li
     mp = momo.get("mom_pct")
     if mp is not None and mp >= 67:
         c += 6 * wm
-        reasons.append(f"12-1 momentum in the top third of the universe")
+        reasons.append("12-1 momentum in the top third of the universe")
     off_hi = momo.get("off_52w_high")
     if off_hi is not None and off_hi >= -0.05:
         c += 4 * wm

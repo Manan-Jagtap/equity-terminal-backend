@@ -740,8 +740,10 @@ def _build_insight(s, co, stock, debug=False):
         try:
             data[key] = fn()
         except Exception as e:  # noqa: BLE001 — one bad field must not fail the row
-            _log.debug("ingest %s: %s field failed: %s: %s", ticker, key,
-                       type(e).__name__, e)
+            # DATA-08: WARNING, not DEBUG — both processes run at INFO, so a
+            # persistently-failing vendor field was silent data loss before.
+            _log.warning("ingest %s: %s field failed: %s: %s", ticker, key,
+                         type(e).__name__, e)
 
     _field("analyst",  lambda: _analyst(stock))
     _field("peers",    lambda: _peers(stock))
@@ -907,11 +909,20 @@ def _should_refresh_identity(stock, ticker, stored_name) -> bool:
                 and vn not in sn and sn not in vn)
 
 
+def _fy_label(today=None) -> int:
+    """DATA-05: the latest COMPLETED Indian fiscal year (FY ends 31 Mar, labelled
+    by its ending year). It is the current calendar year only from April onward;
+    a Jan–Mar ingest belongs to the PRIOR FY. The old `date.today().year` stamped
+    Jan–Mar data one year forward, minting phantom future "years" on re-ingest."""
+    import datetime
+    t = today or datetime.date.today()
+    return t.year if t.month >= 4 else t.year - 1
+
+
 def _insurer_statements(s, co):
     """Fallback statements via /statement for companies /stock can't cover."""
     ticker = (co.ticker or "").upper()
-    import datetime
-    year = datetime.date.today().year
+    year = _fy_label()
     wrote = 0
     # profit_loss is the annual Screener-style P&L; quarter_results is a single
     # QUARTER. Writing quarterly P&L lines under a fiscal-year column is exactly
