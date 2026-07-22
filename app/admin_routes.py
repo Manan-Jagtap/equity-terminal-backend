@@ -533,7 +533,11 @@ def run_backfill_status(_admin: models.User = Depends(require_admin)):
 def beta_state(recompute: bool = False,
                _admin: models.User = Depends(require_admin),
                db: Session = Depends(get_db)):
-    """DAT-04 diagnostic: the computed-beta cache summary — as-of, market used,
+    """ARCH-05 review 2026-07: RETAINED deliberately — no frontend caller, but
+    it's an admin-gated ops diagnostic (confirms the per-company beta
+    regression ran vs the sector-prior fallback), not product surface.
+
+    DAT-04 diagnostic: the computed-beta cache summary — as-of, market used,
     count, and a few samples so we can confirm the per-company regression actually
     ran (vs the sector-prior fallback). `?recompute=true` forces one compute_all
     first (blocking; ~seconds) so a single call both computes and reports."""
@@ -606,3 +610,13 @@ def feedback_list(limit: int = 50, db: Session = Depends(get_db),
     return {"feedback": [{"id": r.id, "user_id": r.user_id, "message": r.message,
                           "page": r.page, "status": r.status,
                           "created_at": str(r.created_at)} for r in rows]}
+
+
+@router.get("/kv-health")
+def kv_health_view(db: Session = Depends(get_db),
+                   _admin: models.User = Depends(require_admin)):
+    """ARCH-04: every KV key with its registry owner + envelope updated_at/age.
+    A null owner means an unregistered key (add it to app/kv.py's registry);
+    a null age means the blob predates the envelope (stamps on next write)."""
+    from app.kv import kv_health
+    return {"keys": kv_health(db)}

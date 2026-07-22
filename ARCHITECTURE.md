@@ -181,6 +181,16 @@ disclosed**, never silently reweighted.
 | Sun 04:00 | **Encrypted backup** — every table → JSONL.gz → Fernet (`BACKUP_KEY`) → R2, ciphertext-only off-stack (DPDP); restore/cutover via `scripts/restore_backup.py`; keeps 8 weeklies |
 | Sun 23:30 | Macro refresh (DBIE / OGD / MoSPI, env-gated) |
 
+**Intraday failover blast radius (DATA-09, by design):** the primary intraday
+path is ONE Dhan batch-LTP call covering every visible name. When Dhan is down
+or its token is expired, the health-based fallback polls IndianAPI for
+`UNIVERSE` only (Nifty 50 + extras, ~53 of ~1,001 names); the other ~950 keep
+their last price until the 10:15 UTC EOD job's Dhan-outage escalation. This is
+a deliberate quota trade-off, not a bug — widening the fallback to the full
+universe would burn ~1,000 IndianAPI calls per 90-min cycle. The fallback's
+calls ARE metered (FIX-07 vendor_meter ticks in `_get`) and are flushed to the
+durable monthly tally immediately after each fallback burst.
+
 **Schema migrations:** Alembic owns the schema (`alembic/`, baseline
 `974cc2004deb`). The web process stamps-or-upgrades at boot
 (`app/migrations_boot.py`: existing DB without a version table → stamp head,

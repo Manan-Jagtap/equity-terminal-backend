@@ -1232,13 +1232,10 @@ def macro_note(macro: dict) -> str:
 # ── persistence ──────────────────────────────────────────────────────────────
 
 def _kv_put(db, key: str, value: dict):
-    from app import models
-    row = db.query(models.KVStore).filter_by(key=key).first()
-    if row:
-        row.value = value
-    else:
-        db.add(models.KVStore(key=key, value=value))
-    db.commit()
+    # ARCH-04: delegate to the envelope writer so the FM blobs (the ENG-01
+    # staleness surface) carry a kv_meta updated_at stamp. Value shape unchanged.
+    from app.kv import kv_put
+    kv_put(db, key, value, schema_version=1)
 
 
 def _kv_get(db, key: str) -> dict | None:
