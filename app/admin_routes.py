@@ -85,7 +85,19 @@ def coverage(db: Session = Depends(get_db), _admin: models.User = Depends(requir
     from app.coverage import coverage_rows, summary
     from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
     rows = coverage_rows(db, VISIBLE_UNIVERSE)
-    return {"summary": summary(rows),
+    summ = summary(rows)
+    # INTG-04: how stale are the freshest fundamentals? Age of the most recently
+    # refreshed statement row (NULL updated_at = pre-instrumentation, ignored).
+    try:
+        import datetime as _dt
+        from sqlalchemy import func as _f
+        newest = db.query(_f.max(models.FinancialFact.updated_at)).scalar()
+        summ["fundamentals_age_days"] = (
+            (_dt.datetime.utcnow() - newest).days if newest else None)
+    except Exception:
+        db.rollback()
+        summ["fundamentals_age_days"] = None
+    return {"summary": summ,
             "gaps": [r for r in rows
                      if r["statements"] < 4 or not r["has_insight"]],
             "rows": rows}
