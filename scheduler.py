@@ -194,6 +194,19 @@ def run_intraday_prices():
             # presence check silently disables the backup vendor.
             n = run_intraday()
             src = "IndianAPI fallback"
+            # DATA-09: persist this burst's vendor ticks NOW rather than waiting
+            # for the next heartbeat — a process death in between would lose
+            # ~53 metered calls, exactly when the budget guard matters most.
+            try:
+                from app import vendor_meter
+                from app.database import SessionLocal as _SL
+                _s = _SL()
+                try:
+                    vendor_meter.flush(_s)
+                finally:
+                    _s.close()
+            except Exception:
+                pass    # metering must never break the price refresh
         if n:
             refresh_mos()                          # cheap: mos/verdict only
         log.info(f"Intraday price refresh: {n} prices updated ({src}).")
