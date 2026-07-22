@@ -886,11 +886,49 @@ def _financial_pl_supplement(s, co, year=None):
     ticker = (co.ticker or "").upper()
     if co.template_code == "INSURANCE":
         return 0
-    r = _get_safe("/historical_stats", {"stock_name": ticker, "stats": "yoy_results"})
+    # DATA-10: /historical_stats is a FUZZY NAME search with no exchange-code in
+    # its payload, so it can silently resolve to a stranger (stock_name
+    # "J&KBANK" returned a non-financial's Sales-shaped table, whose Interest/
+    # Expenses lines were stored as J&K Bank's own — 19 lenders incl.
+    # BAJFINANCE/RECLTD/HUDCO were contaminated this way). Three guards now:
+    #   1. query by the identity-verified stored NAME (from /stock), falling
+    #      back to the ticker only when no name is stored;
+    #   2. the payload must be LENDER-shaped ("Revenue" present, no "OPM %" /
+    #      "Sales" — the non-financial Screener shape means wrong entity or
+    #      wrong template, either way not writable under lender line items);
+    #   3. anchor identity on PBT: at least one overlapping year's
+    #      "Profit before tax" must match the /stock-derived stored pbt within
+    #      2% — /stock rows ARE exchange-code-verified, so agreement proves
+    #      the stats payload describes the same company.
+    query = (co.name or "").strip() or ticker
+    r = _get_safe("/historical_stats", {"stock_name": query, "stats": "yoy_results"})
     if not isinstance(r, dict) or "error" in r:
         detail = r.get("error") if isinstance(r, dict) else type(r).__name__
         _log.warning("FIX-08 lender supplement: yoy_results unavailable for %s (%s)", ticker, detail)
         return 0
+    if "Revenue" not in r or "OPM %" in r or "Sales" in r:
+        _log.warning("DATA-10: %s yoy_results is not lender-shaped (keys %s) — "
+                     "wrong entity or non-lender; nothing written", ticker, list(r)[:6])
+        return 0
+    pbt_series = r.get("Profit before tax")
+    if isinstance(pbt_series, dict):
+        stored_pbt = {h.fiscal_year: h.value for h in
+                      s.query(models.HistoricalFinancial)
+                       .filter_by(company_id=co.id, statement_type="PL",
+                                  line_item="pbt").all()}
+        anchored = disagreed = 0
+        for period, raw in pbt_series.items():
+            fy, v = _fy_from_period(period), _num(raw)
+            if fy in stored_pbt and v is not None and stored_pbt[fy]:
+                if abs(v - stored_pbt[fy]) <= 0.02 * abs(stored_pbt[fy]) + 1.0:
+                    anchored += 1
+                else:
+                    disagreed += 1
+        if anchored == 0 and disagreed > 0:
+            _log.warning("DATA-10: %s yoy_results PBT disagrees with verified "
+                         "/stock PBT on all %d overlapping years — identity "
+                         "unproven, nothing written", ticker, disagreed)
+            return 0
     by_year: dict[int, dict] = {}
     for yoy_line, canon in _YOY_LENDER_MAP.items():
         series = r.get(yoy_line)
@@ -1003,7 +1041,11 @@ def _resolve_onboarding(ticker, stock, cur_sector, cur_name):
 VENDOR_QUERY_ALIAS: dict[str, str] = {
     "TATAMOTORS": "Tata Motors",
     "EQUITASBNK": "Equitas Small Finance Bank",
-    "GUJGASLTD":  "Gujarat Gas",
+    # GSPC group consolidation: GSPC+GSPL+GSPC Energy merged INTO Gujarat Gas
+    # (eff. 1 May 2026) → renamed "Gujarat Energy" (14 May) → NSE SYMBOL
+    # renamed GUJGASLTD→GUJENERGY (1 Jul 2026). Vendor resolves only the new
+    # name; its exchangeCodeNse is GUJENERGY (identity guard verified).
+    "GUJENERGY":  "Gujarat Energy",
     "AGARWALEYE": "Dr Agarwals Health Care",
     "RAIN":       "Rain Industries",
     "TI":         "Tilaknagar Industries",     # NSE symbol renamed to TI (2025)
@@ -1455,7 +1497,7 @@ AMFI_NEXT_250 = {
     "FCL", "FDC", "FINEORG", "FLAIR", "FOSECOIND", "FRACTAL", "FUSION",
     "GALAXYSURF", "GANESHHOU", "GARFIBRES", "GATEWAY", "GENUSPOWER", "GLOBUSSPR",
     "GOLDIAM", "GOODLUCK", "GOPAL", "GREENLAM", "GREENPLY", "GRINDWELL", "GRINFRA",
-    "GRMOVER", "GUFICBIO", "GUJALKALI", "GUJGASLTD", "GUJTHEM", "GULFOILLUB",
+    "GRMOVER", "GUFICBIO", "GUJALKALI", "GUJENERGY", "GUJTHEM", "GULFOILLUB",
     "GVPIL", "HAPPYFORGE", "HARSHA", "HATSUN", "HEIDELBERG", "HIRECT", "HNDFDS",
     "HUBTOWN", "IBULLSLTD", "ICRA", "INDIQUBE", "INDOSTAR", "INDOTHAI",
     "INDRAMEDCO", "INGERRAND", "INNOVACAP", "INTERARCH", "IOLCP", "ISGEC", "ITDC",
