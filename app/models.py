@@ -77,6 +77,7 @@ class FinancialFact(Base):
     value        = Column(Float, nullable=False)
     unit         = Column(String, default="INR_CR")
     source       = Column(String, default="seed")
+    updated_at   = Column(DateTime, default=func.now(), onupdate=func.now())   # INTG-04: freshness at rest
     company      = relationship("Company", back_populates="facts")
     __table_args__ = (UniqueConstraint("company_id","fiscal_year","period","concept", name="uq_fact"),)
 
@@ -101,6 +102,10 @@ class HistoricalFinancial(Base):
     line_item      = Column(String, nullable=False)    # canonical name
     value          = Column(Float, nullable=True)      # ₹ cr; None = not available
     source         = Column(String, default="yfinance")
+    # INTG-04: when this statement row was last written/refreshed, so fundamentals
+    # staleness is measurable at rest. Client-side default → pre-migration rows
+    # stay NULL ("last refresh unknown") rather than falsely reading "fresh".
+    updated_at     = Column(DateTime, default=func.now(), onupdate=func.now())
     company        = relationship("Company", back_populates="hist_fins")
     __table_args__ = (UniqueConstraint("company_id","fiscal_year","statement_type","line_item", name="uq_hist_fin"),)
 
