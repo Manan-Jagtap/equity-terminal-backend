@@ -488,3 +488,31 @@ class TranscriptInsight(Base):
     llm_summary  = Column(String, nullable=True)          # optional narrative
     char_count   = Column(Integer, nullable=True)
     processed_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class UsageEvent(Base):
+    """INST-01: SELF-OWNED product analytics (DPDP posture: our DB, India-resident,
+    no third-party processor — the same doctrine as error_log). One row per app
+    event ("view:screener", "export:onepager"). Data-minimal by design: an event
+    name + an optional short detail with query strings stripped; NO IP, NO
+    user-agent. user_id has no FK on purpose — DPDP account erasure anonymises
+    these rows (nulls user_id) instead of destroying the aggregate counts."""
+    __tablename__ = "usage_events"
+    id         = Column(Integer, primary_key=True)
+    user_id    = Column(Integer, nullable=True, index=True)   # no FK: erasure → anonymised
+    event      = Column(String(64), nullable=False, index=True)
+    detail     = Column(String(200), nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), index=True)
+
+
+class Feedback(Base):
+    """INST-02: the user-feedback channel — problems stop surfacing only as
+    silent churn or an error counter. User-authored content, so DPDP account
+    erasure DELETES these rows outright (unlike usage events)."""
+    __tablename__ = "feedback"
+    id         = Column(Integer, primary_key=True)
+    user_id    = Column(Integer, nullable=True, index=True)   # no FK: rows removed on erasure
+    message    = Column(String(2000), nullable=False)
+    page       = Column(String(120), nullable=True)
+    status     = Column(String(16), default="new")            # new | seen
+    created_at = Column(DateTime, server_default=func.now())
