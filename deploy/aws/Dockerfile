@@ -23,11 +23,16 @@ RUN pip install -r requirements.txt
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini scheduler.py ./
+COPY deploy/aws/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Non-root runtime user
 RUN useradd -r -u 10001 terminal && chown -R terminal /srv
 USER terminal
 
 EXPOSE 8080
+# FIX-25: the entrypoint runs `alembic upgrade head` fail-closed (web role) before
+# handing off to the command below. Scheduler cutover passes RUN_MIGRATIONS=0.
+ENTRYPOINT ["/entrypoint.sh"]
 # Default role: web. Override the command for the scheduler service.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

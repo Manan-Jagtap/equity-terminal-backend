@@ -1,0 +1,61 @@
+name: Deploy
+
+# FIX-25 (OPS-03 / ARCH-01) — build the backend image on a clean amd64 runner,
+# push it SHA-tagged to ECR, and (opt-in) cut over the box + smoke-test. This
+# removes the class of failures that came from building on the owner's Mac
+# (arm cross-compile, a shell that mangled the tag, a stale local checkout):
+# CI always builds the exact committed SHA on a clean runner.
+#
+# Requires (owner one-time infra — see deploy/aws/ROLLBACK.md):
+#   secrets.AWS_DEPLOY_ROLE_ARN  — GitHub-OIDC IAM role (ECR push + ssm:SendCommand)
+#   secrets.EC2_INSTANCE_ID      — the prod instance id
+# Manual trigger only, so a merge never deploys by surprise.
+
+on:
+  workflow_dispatch:
+    inputs:
+      cutover:
+        description: "Cut over the running containers after push (else just build+push the image)"
+        type: boolean
+        default: false
+
+concurrency: deploy-prod        # never two deploys racing
+
+permissions:
+  id-token: write               # OIDC
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+
+      - name: Build + push (SHA-tagged + latest)
+        run: bash deploy/aws/build_and_push.sh
+
+      - name: Cut over + smoke
+        if: ${{ inputs.cutover }}
+        run: |
+          set -euo pipefail
+          CID=$(aws ssm send-command --region ap-south-1 \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name AWS-RunShellScript \
+            --parameters 'commands=["bash /opt/cutover.sh latest"]' \
+            --query Command.CommandId --output text)
+          echo "cutover command: $CID"
+          for i in $(seq 1 20); do
+            sleep 6
+            ST=$(aws ssm get-command-invocation --region ap-south-1 --command-id "$CID" \
+              --instance-id "${{ secrets.EC2_INSTANCE_ID }}" --query Status --output text 2>/dev/null || echo Pending)
+            echo "  status=$ST"; [ "$ST" = "Success" ] && break
+            [ "$ST" = "Failed" ] && { echo "cutover failed"; exit 1; }
+          done
+          bash deploy/aws/smoke.sh https://api.equityverdict.com

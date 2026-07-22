@@ -1,5 +1,15 @@
 # AWS Migration Runbook — Railway → AWS Mumbai (`ap-south-1`)
 
+> **FIX-25 — the deploy is now scripted and rebuildable.** Prefer the committed
+> scripts over ad-hoc commands: `build_and_push.sh` (SHA-tagged image + pre-push
+> gate), `cutover.sh` (recreate web+scheduler, waits for health), `smoke.sh`
+> (post-deploy health check), `user-data.sh` + `Caddyfile` (rebuild the box from
+> scratch), and `ROLLBACK.md` (roll back to a previous `git-<sha>` tag).
+> Migrations run **fail-closed at boot** via the image entrypoint (`alembic
+> upgrade head`), so a bad migration crashes the new container instead of
+> corrupting prod. See ROLLBACK.md for the one-time CI-OIDC setup.
+
+
 *Written for a non-technical operator: every step is a console click or a single
 pasted command. Do the steps in order; each phase ends with a check. Nothing
 here touches Railway until the final cutover, so the live site keeps running
