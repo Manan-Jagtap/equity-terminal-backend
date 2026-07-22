@@ -512,7 +512,9 @@ def test_term_fields_classification():
         buy_date = None
         added_at = dt.datetime.now() - dt.timedelta(days=100)
     t2 = _term_fields(H2())
-    assert t2["term"] == "short" and t2["days_to_lt"] == 265 and t2["date_source"] == "added"
+    # ENG-10: long-term begins at day 366 (holding MORE than 12 months), so a
+    # 100-day holding needs 266 more days, not 265.
+    assert t2["term"] == "short" and t2["days_to_lt"] == 266 and t2["date_source"] == "added"
 
 
 def test_manager_report_convictions_and_note():

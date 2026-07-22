@@ -24,7 +24,7 @@ NEWS_SENT_KEY = "news_sentiment_v1"
 # ("ban" in "urban", "fine" in "finance"). Multi-word phrases match as substrings.
 _BULL = ("surge", "surges", "surged", "jump", "jumps", "jumped", "rally", "rallies",
          "gain", "gains", "gained", "rise", "rises", "rose", "soar", "soars", "soared",
-         "climb", "climbs", "record", "high", "all-time high", "upgrade", "upgraded",
+         "climb", "climbs", "all-time high", "upgrade", "upgraded",
          "beat", "beats", "strong", "robust", "wins", "win", "bags", "bagged",
          "order win", "new order", "expansion", "expands", "acquire", "acquires",
          "acquisition", "launch", "launches", "approval", "approved", "outperform",
@@ -32,34 +32,49 @@ _BULL = ("surge", "surges", "surged", "jump", "jumps", "jumped", "rally", "ralli
          "profit jumps", "profit surges", "stake buy", "raises stake", "wins order")
 _BEAR = ("fall", "falls", "fell", "drop", "drops", "dropped", "plunge", "plunges",
          "plunged", "slump", "slumps", "decline", "declines", "tumble", "tumbles",
-         "miss", "misses", "loss", "losses", "cut", "cuts", "downgrade", "downgraded",
-         "probe", "fraud", "scam", "penalty", "fine", "fined", "ban", "banned",
+         "miss", "misses", "loss", "losses", "downgrade", "downgraded",
+         "probe", "fraud", "scam", "penalty", "fined", "ban", "banned",
          "recall", "default", "defaults", "resign", "resigns", "resignation",
          "layoff", "layoffs", "weak", "lawsuit", "raid", "raids", "warns", "warning",
          "stake sale", "pledge", "insolvency", "nclt", "sebi bars", "tax demand",
          "gst notice", "profit falls", "profit drops", "target cut", "downgraded to sell")
 
 
-def _build_re(words):
-    singles = [w for w in words if " " not in w and "-" not in w]
-    return re.compile(r"\b(" + "|".join(sorted(map(re.escape, singles), key=len, reverse=True)) + r")\b")
-
-
-_BULL_RE, _BEAR_RE = _build_re(_BULL), _build_re(_BEAR)
 _BULL_PHRASES = tuple(w for w in _BULL if " " in w or "-" in w)
 _BEAR_PHRASES = tuple(w for w in _BEAR if " " in w or "-" in w)
+_BULL_SINGLES = frozenset(w for w in _BULL if " " not in w and "-" not in w)
+_BEAR_SINGLES = frozenset(w for w in _BEAR if " " not in w and "-" not in w)
+# ENG-13: a small negation set. A sentiment word preceded by one of these within
+# a 3-token window is not counted — "no fraud alleged" / "denies wrongdoing" must
+# not read bearish.
+_NEG = frozenset({"no", "not", "never", "without", "denies", "denied", "deny",
+                  "dismiss", "dismisses", "dismissed", "rejects", "rejected",
+                  "false", "unfounded", "cleared", "clears"})
+_TOKEN_RE = re.compile(r"[a-z'\-]+")
+
+
+def _hit_count(toks, singles):
+    """Count single-word matches NOT negated by a preceding word (3-token window)."""
+    n = 0
+    for i, tk in enumerate(toks):
+        if tk in singles and not any(w in _NEG for w in toks[max(0, i - 3):i]):
+            n += 1
+    return n
 
 
 def news_headline_score(texts) -> tuple[float | None, int]:
     """Lexicon sentiment over headlines → (score in [-1,+1], n headlines with a
-    hit). None when nothing scores, so the leg is simply absent (never faked)."""
+    hit). None when nothing scores, so the leg is simply absent (never faked).
+    Single-word hits are negation-aware (ENG-13); multi-word phrases count as
+    substrings (rarely negated)."""
     pos = neg = hits = 0
     for t in texts or []:
         low = (t or "").lower()
         if not low:
             continue
-        p = len(_BULL_RE.findall(low)) + sum(low.count(ph) for ph in _BULL_PHRASES)
-        n = len(_BEAR_RE.findall(low)) + sum(low.count(ph) for ph in _BEAR_PHRASES)
+        toks = _TOKEN_RE.findall(low)
+        p = _hit_count(toks, _BULL_SINGLES) + sum(low.count(ph) for ph in _BULL_PHRASES)
+        n = _hit_count(toks, _BEAR_SINGLES) + sum(low.count(ph) for ph in _BEAR_PHRASES)
         pos += p
         neg += n
         if p or n:
@@ -90,7 +105,19 @@ def _news_one(db, tk: str):
     try:
         from app.manager_engine import _kv_get
         rec = (_kv_get(db, NEWS_SENT_KEY) or {}).get(tk)
-        return rec.get("score") if rec else None
+        if not rec:
+            return None
+        # ENG-13: expire a stale cached news score (> 30 days). It is written only
+        # when the News tab is opened, so a 6-month-old bearish headline would
+        # otherwise keep dragging today's sentiment indefinitely.
+        as_of = rec.get("as_of")
+        if as_of:
+            try:
+                if (_dt.date.today() - _dt.date.fromisoformat(as_of)).days > 30:
+                    return None
+            except Exception:
+                pass
+        return rec.get("score")
     except Exception:
         return None
 

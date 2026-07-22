@@ -183,9 +183,11 @@ def _term_fields(holding) -> dict:
         return {"buy_date": None, "date_source": None, "holding_days": None,
                 "term": None, "days_to_lt": None}
     days = (today - bd).days
+    # ENG-10: LTCG requires holding for MORE than 12 months — exactly 365 days
+    # (12 months to the day) is still short-term; long-term begins at day 366.
     return {"buy_date": bd.isoformat(), "date_source": src, "holding_days": days,
-            "term": "long" if days >= _LT_DAYS else "short",
-            "days_to_lt": max(0, _LT_DAYS - days) if days < _LT_DAYS else 0}
+            "term": "long" if days > _LT_DAYS else "short",
+            "days_to_lt": max(0, _LT_DAYS + 1 - days) if days <= _LT_DAYS else 0}
 
 
 def compute_totals(items: list[dict]) -> dict:
@@ -1483,8 +1485,13 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
     tnote = tax_note(tax)
     if tnote:
         lines.append(tnote)
-    # After-tax proceeds on each trim/exit the manager proposes.
-    exemption_left = tax.get("ltcg_exemption_usable") is not None and 125000.0 or 125000.0
+    # After-tax proceeds on each trim/exit the manager proposes. ENG-11: the old
+    # `... is not None and 125000.0 or 125000.0` was a dead conditional — it always
+    # handed the FULL ₹1.25L exemption to the trim estimates, double-counting the
+    # slice the harvest plan above already allocated. Start from what's actually
+    # left (cap − consumed) so the after-tax numbers don't over-credit the shield.
+    _ltcg_cap = (tax.get("regime") or {}).get("ltcg_exemption", 125000.0)
+    exemption_left = max(0.0, _ltcg_cap - (tax.get("ltcg_exemption_usable") or 0))
     by_tk = {i["ticker"]: i for i in live}
     for a in actions:
         if a["action"].startswith("REVIEW") and a.get("size_inr"):
