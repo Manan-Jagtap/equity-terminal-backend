@@ -30,6 +30,12 @@ docker rm -f scheduler 2>/dev/null || true
 docker run -d --name scheduler --network edge --restart always --env-file /opt/app.env \
     -e RUN_MIGRATIONS=0 --log-opt max-size=10m --log-opt max-file=3 "$IMG" python scheduler.py
 
+# SCALE-05: reclaim disk. Every deploy pulls a new ~500MB image; superseded
+# layers accumulate and a full 16GB root takes down all three containers at once
+# (and blocks the SSM fix-deploy). Prune anything older than 72h — recent
+# git-<sha> rollback targets survive.
+docker system prune -af --filter until=72h >/dev/null 2>&1 || true
+
 # Fail-closed verification: a bad migration crashes web at boot, so wait for it to
 # actually report healthy before calling the cutover done.
 echo ">> waiting for web to report healthy…"

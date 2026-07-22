@@ -325,21 +325,30 @@ def health(db: Session = Depends(get_db)):
     except Exception:
         errs = None
     beat_min = None
+    hb = {}
     try:
         row = db.query(models.KVStore).filter_by(key="scheduler_heartbeat").first()
-        ts = (row.value or {}).get("ts") if row else None
+        hb = (row.value or {}) if row else {}
+        ts = hb.get("ts")
         if ts:
             beat = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
             beat_min = round((_dt.datetime.now(_dt.timezone.utc) - beat).total_seconds() / 60)
     except Exception:
         pass
+    # SCALE-03: O(1) health. The freshest EOD date is stamped into the heartbeat
+    # by the scheduler each loop, so we read it from the KV row already fetched
+    # above instead of running max(date) over ~1.2M HistoricalPrice rows on every
+    # probe (uptime hits this every 30 min ×3, holding a pooled connection). Fall
+    # back to the scan only until the scheduler has written the field once.
     price_age_days = None
     try:
-        from sqlalchemy import func
-        latest = db.query(func.max(models.HistoricalPrice.date)).scalar()
-        if latest:
-            d = _dt.date.fromisoformat(str(latest)[:10])
-            price_age_days = (_dt.date.today() - d).days
+        eod = hb.get("latest_eod_date")
+        if not eod:
+            from sqlalchemy import func
+            latest = db.query(func.max(models.HistoricalPrice.date)).scalar()
+            eod = str(latest)[:10] if latest else None
+        if eod:
+            price_age_days = (_dt.date.today() - _dt.date.fromisoformat(eod)).days
     except Exception:
         pass
     # FIX-05/OPS-06: surface the weekly data-integrity sweep's red/amber/green
@@ -370,17 +379,25 @@ def _latest_facts(db, company_id):
 
 
 def _all_latest_facts(db):
-    """Latest value per (company, concept) for EVERY company in ONE query —
-    replaces the per-company _latest_facts call in the list endpoint (which was
-    ~500 round-trips through the DB pooler and timed the screener out cold)."""
-    best = {}  # (cid, concept) -> (year, value)
-    for r in db.query(models.FinancialFact).all():
-        k = (r.company_id, r.concept)
-        cur = best.get(k)
-        if cur is None or r.fiscal_year > cur[0]:
-            best[k] = (r.fiscal_year, r.value)
+    """Latest value per (company, concept) for EVERY company — computed DB-SIDE.
+
+    SCALE-02/PERF-05: the old version pulled the ENTIRE financial_facts table
+    into Python (~10^5–10^6 ORM objects at the top-1000 tier, growing with the
+    coverage backfill) and de-duped there — the app's single largest allocation
+    and the deploy-cold OOM driver. A grouped subquery picks MAX(fiscal_year) per
+    (company_id, concept) and joins back for the value, so we materialise only
+    the latest rows. Portable across SQLite (dev/CI) and Postgres (prod)."""
+    from sqlalchemy import func
+    F = models.FinancialFact
+    latest = (db.query(F.company_id, F.concept,
+                       func.max(F.fiscal_year).label("fy"))
+                .group_by(F.company_id, F.concept).subquery())
+    q = (db.query(F.company_id, F.concept, F.value)
+           .join(latest, (F.company_id == latest.c.company_id)
+                 & (F.concept == latest.c.concept)
+                 & (F.fiscal_year == latest.c.fy)))
     out = {}
-    for (cid, concept), (yr, val) in best.items():
+    for cid, concept, val in q.all():
         out.setdefault(cid, {})[concept] = val
     return out
 

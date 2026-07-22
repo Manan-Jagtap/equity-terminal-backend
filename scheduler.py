@@ -1051,6 +1051,15 @@ def _heartbeat():
         try:
             row = s.query(models.KVStore).filter_by(key="scheduler_heartbeat").first()
             payload = {"ts": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
+            # SCALE-03: stamp the freshest EOD date here (background process) so
+            # /api/health reads it O(1) instead of scanning ~1.2M price rows.
+            try:
+                from sqlalchemy import func
+                latest = s.query(func.max(models.HistoricalPrice.date)).scalar()
+                if latest:
+                    payload["latest_eod_date"] = str(latest)[:10]
+            except Exception:
+                pass
             if row:
                 row.value = payload
             else:

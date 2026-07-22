@@ -41,9 +41,14 @@ def get_r2_client():
         }.items() if not v]
         raise RuntimeError(f"R2 env vars missing: {missing}")
 
+    # OPS-05: allow an explicit endpoint override so the storage backend can move
+    # to S3 (or another S3-compatible host) by setting R2_ENDPOINT — the
+    # MIGRATION_AWS runbook claimed this was possible but the URL was hard-derived
+    # from the account id, so that step wasn't executable. Default unchanged.
+    endpoint = os.getenv("R2_ENDPOINT") or f"https://{account_id}.r2.cloudflarestorage.com"
     return boto3.client(
         "s3",
-        endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
+        endpoint_url=endpoint,
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
         region_name="auto",
