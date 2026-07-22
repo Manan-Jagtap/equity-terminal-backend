@@ -180,6 +180,26 @@ def _upsert_fact(s, cid, year, concept, value):
                                    concept=concept, value=value, unit="INR_CR", source="indianapi"))
 
 
+def _magnitude_warnings(yd: dict) -> list:
+    """DATA-08: implausible ingested magnitudes for a LISTED company — surfaced,
+    never dropped (the raw statement still stores/displays; downstream gates
+    protect the verdicts). Reuses the BSE-PDF path's validate_pl for P&L
+    consistency and adds a balance-sheet floor: VAML/VISL stored total_assets =
+    0.02 cr (₹2 lakh) and no floor fired at ingest, so it read as silent data
+    loss on the statements tab."""
+    from app.ingest.pl_parser import validate_pl
+    _pl_keys = ("revenue", "interest_income", "total_income", "pat", "pbt", "nii", "raw_material")
+    _, pl_warns = validate_pl({k: yd[k] for k in _pl_keys if k in yd})
+    # Keep only IMPLAUSIBILITY warnings — a partial payload legitimately missing a
+    # top/profit line is normal at ingest (handled elsewhere), not a magnitude flag.
+    warns = [w for w in pl_warns if "no top line" not in w and "no profit line" not in w]
+    for k in ("total_assets", "net_worth", "equity"):
+        v = yd.get(k)
+        if v is not None and 0 < abs(v) < 1.0:      # a listed co's crore figure isn't < 1
+            warns.append(f"{k}={v} implausibly small (<1 cr)")
+    return warns
+
+
 def _parse_financials(s, cid, co, stock):
     """Read the embedded /stock financials (7 annual years of INC/BAL/CAS) into
     HistoricalFinancial + latest-year FinancialFact + corrected share count."""
@@ -233,6 +253,10 @@ def _parse_financials(s, cid, co, stock):
     if years:
         ly = years[-1]
         yd = by_year[ly]
+        _w = _magnitude_warnings(yd)
+        if _w:
+            _log.warning("ingest %s FY%s magnitude sanity: %s",
+                         (co.ticker or "").upper(), ly, "; ".join(_w))
         if "revenue" in yd:
             _upsert_fact(s, cid, ly, K.REVENUE, yd["revenue"])
         if "pat" in yd:
