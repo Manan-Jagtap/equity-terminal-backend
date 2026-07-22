@@ -64,3 +64,22 @@ jobs:
           done
           echo "::error::Production health check FAILED after 3 attempts (HTTP $code)"
           exit 1
+
+      - name: Probe the Vercel frontend (equityverdict.com)
+        # OPS-08: the API was watched but the frontend wasn't — Vercel silently
+        # missed a merge webhook on 20 Jul and nobody was alerted. Assert the app
+        # actually serves (200 + the React mount marker), so a broken/stale/absent
+        # deploy fails this run and emails the owner like an API outage does.
+        run: |
+          URL="https://equityverdict.com"
+          for i in 1 2 3; do
+            code=$(curl -sL -m 20 -o /tmp/fe.html -w "%{http_code}" "$URL" || echo 000)
+            body=$(cat /tmp/fe.html 2>/dev/null || true)
+            echo "attempt $i: HTTP $code"
+            if [ "$code" = "200" ] && echo "$body" | grep -q 'id="root"'; then
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::Frontend FAILED — equityverdict.com not serving the app (HTTP $code; Vercel missed-webhook / broken-build class)"
+          exit 1

@@ -34,7 +34,15 @@ if "+pg8000" in DATABASE_URL and (
         _ctx.check_hostname = False
         _ctx.verify_mode = ssl.CERT_NONE
     connect_args["ssl_context"] = _ctx
-engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
+# SCALE-01: size the pool for prod concurrency. The defaults (5 + 10 overflow =
+# 15 conns, 30s blocking wait) meet a ~40-thread sync worker: >15 concurrent
+# DB-touching requests queued 30s then 500'd. 10 + 20 overflow (30 max) vs the
+# web+scheduler share of RDS max_connections (~80-100 on db.t4g.micro) is safe;
+# pool_timeout 5s fails fast instead of hanging; pool_recycle drops stale conns.
+# SQLite (dev/CI) uses a different pool that rejects these kwargs, so guard it.
+_pool_kwargs = {} if DATABASE_URL.startswith("sqlite") else dict(
+    pool_size=10, max_overflow=20, pool_timeout=5, pool_recycle=1800)
+engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True, **_pool_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
