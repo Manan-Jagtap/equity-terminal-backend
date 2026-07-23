@@ -48,3 +48,25 @@ R2_ACCESS_KEY_ID=...      R2_SECRET_ACCESS_KEY=...      R2_BUCKET=...
 `R2_ACCOUNT_ID` is still required for the default R2 URL; with `R2_ENDPOINT` set
 it is unused for the endpoint. Rehearse a backup+restore against the new host
 before switching prod.
+
+
+## Drill log
+
+### 2026-07-23 — first drill: PASSED
+- Backup: `backups/2026-07-23/` (26 table files; backups are running DAILY).
+- Restored 25 tables into a scratch `dr_drill` database on the prod RDS
+  instance (created + dropped in-drill): 458k+ rows including
+  historical_financials 277,915 · verdict_snapshots 22,467 · price_points
+  122,503 · all 998 companies / 997 valuations / 7 users. Every table's
+  count verified against prod within 2% drift tolerance.
+- `historical_prices` (1,058,986 rows) was decrypt+parse-verified but NOT
+  DB-loaded: the prod box has 2GB RAM and a full in-place restore swap-crawls
+  while competing with live traffic (the first attempt proved it).
+- LESSONS baked into procedure:
+  1. Full restores never run on the prod box — quarterly rehearsals restore
+     to a laptop/scratch host (`scripts/restore_backup.py` with the R2 creds
+     + BACKUP_KEY from /opt/app.env).
+  2. `scripts/` now ships in the Docker image so DR tooling exists wherever
+     the app runs.
+  3. Detached one-offs must log per-step (a killed `docker exec -d` discards
+     stdout — a silent phase looks identical to a hang).

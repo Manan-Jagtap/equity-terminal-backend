@@ -23,6 +23,7 @@ RUN pip install -r requirements.txt
 COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini scheduler.py ./
+COPY scripts ./scripts
 COPY deploy/aws/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
