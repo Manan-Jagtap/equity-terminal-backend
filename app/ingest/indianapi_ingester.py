@@ -1104,7 +1104,17 @@ def _identity_ok(stock, ticker: str, co_bse: str | None = None) -> bool:
         return True
     nse = _norm_sym(prof.get("exchangeCodeNse"))
     if nse:
-        return nse == tk
+        if nse == tk:
+            return True
+        # Corporate-action allow-list: an ISIN-CONTINUOUS rename can present a
+        # different NSE symbol than our ticker. Accept ONLY the explicitly
+        # verified alias for this ticker — never a general fuzzy match — so the
+        # contamination guard stays fully closed for every other name. A
+        # new-ISIN demerger (e.g. TATAMOTORS→TMCV) carries no alias and stays
+        # blocked by design.
+        from app.corporate_events import verified_vendor_alias
+        alias = verified_vendor_alias(ticker)
+        return bool(alias) and nse == _norm_sym(alias)
     bse_ret, bse_have = _norm_sym(prof.get("exchangeCodeBse")), _norm_sym(co_bse)
     if bse_ret and bse_have:
         return bse_ret == bse_have
