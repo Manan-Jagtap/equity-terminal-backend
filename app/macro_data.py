@@ -34,7 +34,8 @@ REPO = "policy_repo_rate"
 CPI_2012 = "consumer_price_index_2012_100"
 CPI_2024 = "consumer_price_index_2024_100"
 WPI = "wholesale_price_index_2011_12_100"
-IIP = "index_of_industrial_production"
+IIP = "index_of_industrial_production"            # DBIE seed, 2011-12 base
+IIP_2022_23 = "index_of_industrial_production_2022_23"   # MoSPI MCP, new base
 USDINR = "exchange_rate_of_indian_rupee_vis_vis_us_dollar_month_end"
 FX_RESERVES = "foreign_exchange_reserves_us_million"
 M3 = "m3"
@@ -325,9 +326,12 @@ def macro_summary(db) -> dict:
     wy = _yoy(block(WPI))
     if wy is not None:
         out["wpi_yoy"] = {"pct": round(wy * 100, 2), "as_of": _latest(block(WPI))[0]}
-    iy = _yoy(block(IIP))
+    # IIP: prefer the current 2022-23 base (MoSPI, fresher), fall back to the
+    # DBIE-seed 2011-12 base. YoY is base-invariant so the % stays comparable.
+    iip = block(IIP_2022_23) or block(IIP)
+    iy = _yoy(iip)
     if iy is not None:
-        out["iip_yoy"] = {"pct": round(iy * 100, 2), "as_of": _latest(block(IIP))[0]}
+        out["iip_yoy"] = {"pct": round(iy * 100, 2), "as_of": _latest(iip)[0]}
 
     u = block(USDINR)
     d, v = _latest(u)
@@ -384,10 +388,14 @@ def macro_summary(db) -> dict:
 #   "level"  → show the latest value
 #   "yoy"    → show YoY % change (for index series: CPI, WPI, IIP, M3, credit)
 #   "level_bn" → divide by 1000 (₹mn→bn / $mn→bn), show level
+# new-base slug → old-base fallback (a rebase is a level break; the card
+# prefers the fresher new base but degrades to the DBIE seed if it's absent).
+_REBASE_FALLBACK = {IIP_2022_23: IIP}
+
 DASHBOARD = [
     ("Growth & activity", [
         (GDP_REAL, "Real GDP", "₹ cr", "yoy"),
-        (IIP, "Industrial production (IIP)", "index", "yoy"),
+        (IIP_2022_23, "Industrial production (IIP)", "index", "yoy"),
         ("oecd_cli_india", "Leading indicator (OECD)", "index", "level"),
         (GST_COLLECTIONS, "GST collections", "₹ cr", "level"),
         (EWAY_BILLS, "E-way bills", "mn", "level"),
@@ -446,6 +454,12 @@ def dashboard(db) -> dict:
         rows = []
         for slug, label, unit, tf in items:
             pts = series(db, slug)
+            # Rebase fallback: a new-base slug is preferred once populated, but
+            # if its source is briefly down the DBIE-seed old base keeps the
+            # card alive rather than showing 'awaiting'. YoY is base-invariant.
+            if not pts and slug in _REBASE_FALLBACK:
+                slug = _REBASE_FALLBACK[slug]
+                pts = series(db, slug)
             meta = seed.get(slug) or ov.get(slug) or {}
             src = None
             if slug in ACTIVITY_META:
