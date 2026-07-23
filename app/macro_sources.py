@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import calendar
 import datetime as _dt
+import json
 import logging
 import os
 import re
@@ -31,6 +32,155 @@ from app import macro_data
 log = logging.getLogger("macro_sources")
 
 TE_BASE = "https://api.tradingeconomics.com"
+
+# ── MoSPI MCP — the ministry's official, KEYLESS data server ────────────────
+# https://mcp.mospi.gov.in speaks MCP (JSON-RPC 2.0 over HTTP + SSE framing).
+# NO AI is involved on our side: we call the `get_data` tool exactly like any
+# REST endpoint and parse JSON rows — MCP here is just the transport the
+# ministry chose. MIT-licensed, no key, no registration (validated 23 Jul
+# 2026: CPI base-2012 All-India 156 monthly rows; IIP 2022-23 base monthly;
+# WPI headline index). This supersedes the key-gated MOSPI_CPI_URL fetcher
+# below, which stays as a manual fallback. Kill-switch: MOSPI_MCP=0.
+MOSPI_MCP_URL = os.getenv("MOSPI_MCP_URL", "https://mcp.mospi.gov.in")
+
+_MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
+
+# New-base slugs (a base change is a LEVEL BREAK — never append a new-base
+# index into an old-base series; each base gets its own slug and the catalog
+# picks new slugs up automatically).
+IIP_2022_23 = "index_of_industrial_production_2022_23"
+
+
+def _mcp_get_data(dataset: str, filters: dict, timeout: int = 45) -> dict | None:
+    """One stateless `tools/call get_data` against the MoSPI MCP server.
+    Returns the decoded data payload dict, or None on any failure (logged)."""
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "get_data",
+                       "arguments": {"dataset": dataset, "filters": filters}}}
+    try:
+        r = requests.post(MOSPI_MCP_URL, json=body, timeout=timeout,
+                          headers={"Accept": "application/json, text/event-stream"})
+        r.raise_for_status()
+        # SSE framing: the reply is one `data: {...}` line.
+        payload = None
+        for line in r.text.splitlines():
+            if line.startswith("data: "):
+                payload = json.loads(line[6:])
+                break
+        if payload is None:                      # plain-JSON fallback
+            payload = r.json()
+        content = ((payload.get("result") or {}).get("content") or [])
+        text = content[0].get("text", "") if content else ""
+        out = json.loads(text) if text else None
+        if not isinstance(out, dict) or "data" not in out:
+            log.warning("MoSPI MCP %s: no data in reply (%s)", dataset, str(out)[:120])
+            return None
+        return out
+    except Exception as e:
+        log.warning("MoSPI MCP %s failed: %s: %s", dataset, type(e).__name__, str(e)[:120])
+        return None
+
+
+def _month_iso(year, month_name) -> str | None:
+    """Month-END iso date — the DBIE seed's convention; using month-start here
+    would store the same month twice under two dates."""
+    m = _MONTHS.get(str(month_name or "").strip().lower())
+    if not m or not year:
+        return None
+    return f"{int(year):04d}-{m:02d}-{calendar.monthrange(int(year), m)[1]:02d}"
+
+
+def fetch_mospi_mcp(db) -> int:
+    """Refresh CPI / IIP / WPI monthly points from the MoSPI MCP server into
+    the overlay. Keyless; each series fails independently and silently keeps
+    the last-good points (the DBIE seed + overlay history carries on)."""
+    if os.getenv("MOSPI_MCP", "").strip() in ("0", "false", "no"):
+        return 0
+    updates: dict[str, dict] = {}
+
+    # CPI, base 2012 (continues the DBIE CPI_2012 series; published to Dec-2025,
+    # after which the 2024 base takes over). All-India (99) · General group (0)
+    # · Combined sector (3).
+    j = _mcp_get_data("CPI", {"base_year": "2012", "series": "Current",
+                              "state_code": "99", "group_code": "0",
+                              "sector_code": "3", "limit": "36"})
+    if j:
+        pts = []
+        for r in j.get("data") or []:
+            iso, v = _month_iso(r.get("year"), r.get("month")), r.get("index")
+            if iso and v is not None:
+                try:
+                    pts.append([iso, float(v)])
+                except (TypeError, ValueError):
+                    pass
+        if pts:
+            updates[macro_data.CPI_2012] = {"name": "CPI (2012=100, All India)",
+                                            "freq": "M", "points": sorted(pts)}
+
+    # CPI, base 2024 (the current series, 2026+). Same grammar attempted; the
+    # upstream occasionally 400s while the new base stabilises — skip honestly.
+    j = _mcp_get_data("CPI", {"base_year": "2024", "series": "Current",
+                              "state_code": "99", "group_code": "0",
+                              "sector_code": "3", "limit": "36"})
+    if j:
+        pts = []
+        for r in j.get("data") or []:
+            iso, v = _month_iso(r.get("year"), r.get("month")), r.get("index")
+            if iso and v is not None:
+                try:
+                    pts.append([iso, float(v)])
+                except (TypeError, ValueError):
+                    pass
+        if pts:
+            updates[macro_data.CPI_2024] = {"name": "CPI (2024=100, All India)",
+                                            "freq": "M", "points": sorted(pts)}
+
+    # IIP, base 2022-23 (NEW slug — never appended to the old-base IIP series).
+    # type=General filters server-side to the headline row per month; the
+    # client-side guard below stays as belt-and-braces.
+    j = _mcp_get_data("IIP", {"frequency": "Monthly", "base_year": "2022-23",
+                              "type": "General", "limit": "36"})
+    if j:
+        pts = []
+        for r in j.get("data") or []:
+            if (r.get("type") or "").strip() != "General":
+                continue
+            iso, v = _month_iso(r.get("year"), r.get("month")), r.get("index")
+            if iso and v is not None:
+                try:
+                    pts.append([iso, float(v)])
+                except (TypeError, ValueError):
+                    pass
+        if pts:
+            updates[IIP_2022_23] = {"name": "IIP (2022-23=100)", "freq": "M",
+                                    "points": sorted(pts)}
+
+    # WPI headline (majorgroup == "Wholesale price index"). Rows are the full
+    # commodity tree month-by-month; 200 rows ≈ the newest month, whose first
+    # row is the headline — one fresh point per weekly run keeps the series
+    # current on top of the DBIE seed.
+    j = _mcp_get_data("WPI", {"limit": "200"})
+    if j:
+        pts = []
+        for r in j.get("data") or []:
+            if (r.get("majorgroup") or "").strip().lower() != "wholesale price index":
+                continue
+            iso, v = _month_iso(r.get("year"), r.get("month")), r.get("index_value")
+            if iso and v is not None:
+                try:
+                    pts.append([iso, float(v)])
+                except (TypeError, ValueError):
+                    pass
+        if pts:
+            updates[macro_data.WPI] = {"name": "WPI (2011-12=100)", "freq": "M",
+                                       "points": sorted(pts)}
+
+    if not updates:
+        log.warning("MoSPI MCP: no series parsed this run")
+        return 0
+    n = macro_data.write_overlay(db, updates)
+    log.info("MoSPI MCP: wrote %d new points across %d series", n, len(updates))
+    return n
 
 # TE indicator → (our slug, kind). "level" merges into the DBIE slug;
 # "own" gets a te_* slug of its own.
@@ -269,14 +419,16 @@ def fetch_oecd_cli(db) -> int:
 
 def refresh_all(db) -> dict:
     te = fetch_tradingeconomics(db)
-    mo = fetch_mospi(db)
+    mcp = fetch_mospi_mcp(db)          # keyless official primary (CPI/IIP/WPI)
+    mo = fetch_mospi(db)               # legacy key-gated fallback
     act = fetch_activity(db)
     cli = fetch_oecd_cli(db)
     configured_act = [env.lower() for slug, env in _ACTIVITY_ENV.items()
                       if os.getenv(f"ACTIVITY_{env}_URL", "").strip()]
-    return {"tradingeconomics_points": te, "mospi_points": mo,
+    return {"tradingeconomics_points": te, "mospi_mcp_points": mcp, "mospi_points": mo,
             "activity_points": act, "oecd_cli_points": cli,
-            "keys": {"tradingeconomics": bool(os.getenv("TRADINGECONOMICS_KEY", "").strip()),
+            "keys": {"mospi_mcp": os.getenv("MOSPI_MCP", "").strip() not in ("0", "false", "no"),
+                     "tradingeconomics": bool(os.getenv("TRADINGECONOMICS_KEY", "").strip()),
                      "mospi": bool(os.getenv("MOSPI_KEY", "").strip()),
                      "activity_sources": configured_act}}
 
