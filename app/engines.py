@@ -144,7 +144,11 @@ def fcff_dcf(co: Dict, a: Dict) -> Dict:
     # only needs g/ROIC (~30%). Reusing the explicit rate forever understated the
     # terminal FCFF by 2–3×, which was the dominant reason intrinsics came out
     # far below market price. (This matches the client DCF, which already does it.)
-    mature_roic = SP.params(a.get("_valuation_sector")).get("mature_roic") or 0.12
+    # VAL-02: an evidence-earned compounder terminal ROIC (derive.py, strictly
+    # gated + one-sided) overrides the sector default — a proven franchise fades
+    # halfway to sector instead of surrendering its entire return advantage.
+    mature_roic = (a.get("terminal_roic")
+                   or SP.params(a.get("_valuation_sector")).get("mature_roic") or 0.12)
     term_rr = max(0.0, min(g_t / mature_roic, 0.75)) if mature_roic else a["reinvest_rate"]
     fcff_terminal = nopat * (1 + g_t) * (1 - term_rr)
     tv = fcff_terminal / (wacc - g_t) if g_t < wacc else 0.0

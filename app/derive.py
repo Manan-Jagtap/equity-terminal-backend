@@ -349,6 +349,32 @@ def _derive_nonfinancial(statements, vs):
     drivers["fade_years"] = (f"CAP {fade_years}y (ROIC {_pct(roic_used)} vs sector "
                              f"{_pct(p['mature_roic'])}{', cyclical-capped' if cyclical else ''})")
 
+    # ── VAL-02 (nonfin analog of FIX-17): evidence-earned compounder terminal
+    # ROIC. The terminal value fades EVERY business to the sector's mature ROIC,
+    # which prices DMART/HUL-class franchises as if their return advantage dies
+    # completely in perpetuity — the residual compounder level-bias both the
+    # valuation audit and groundtruth cross-check flagged. A franchise that has
+    # PROVEN a durable, well-above-sector operating ROIC earns a terminal that
+    # fades only HALFWAY to sector. Strictly gated + one-sided + bounded:
+    #   · non-cyclical only (a cyclical's "moat" is the cycle),
+    #   · roic_q ≥ 1.4 (well above the 1.25 fade tier — clearly earned),
+    #   · ≥6y of statements (durability, not one good print),
+    #   · terminal margin not in structural decline (≥0.9× current),
+    #   · lift capped at 1.5× sector mature ROIC and 0.40 absolute,
+    #   · never set below the sector default (one-sided by construction).
+    terminal_roic = None
+    if (not cyclical and len(ebit) >= 6
+            and p.get("mature_roic") and roic_used >= 1.4 * p["mature_roic"]
+            and terminal_ebit_margin >= 0.9 * ebit_margin):
+        cand = min(0.5 * roic_used + 0.5 * p["mature_roic"],
+                   1.5 * p["mature_roic"], 0.40)
+        if cand > p["mature_roic"]:
+            terminal_roic = round(cand, 4)
+            drivers["terminal_roic"] = (
+                f"earned compounder terminal {_pct(terminal_roic)} — fades halfway "
+                f"to sector {_pct(p['mature_roic'])} (own {_pct(roic_used)} ≥1.4×, "
+                f"{len(ebit)}y history, stable margins); capped 1.5×sector / 40%")
+
     return {
         "beta": p["beta"], "risk_free": SP.RISK_FREE, "erp": SP.ERP,
         "rev_growth": round(rev_growth, 4),
@@ -360,6 +386,7 @@ def _derive_nonfinancial(statements, vs):
         "cost_debt": round(cost_debt, 4),
         "fade_years": fade_years,
         "terminal_growth": p["terminal_growth"],
+        "terminal_roic": terminal_roic,   # VAL-02: earned compounder terminal (None = sector default)
         # RI fields unused for non-financials but kept for a uniform dict:
         "forecast_roe": 0.15, "terminal_roe": p["mature_roe"], "payout": 0.25,
         "_drivers": drivers, "_valuation_sector": vs,
