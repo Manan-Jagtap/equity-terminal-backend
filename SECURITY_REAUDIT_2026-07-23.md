@@ -46,9 +46,9 @@ This is a **re-audit** of [`SECURITY_AUDIT.md`](SECURITY_AUDIT.md) (2026-07-19, 
 - **Fix (shipped):** a standing daily scheduler job (`run_usage_prune`, 03:15 UTC) makes retention self-enforcing regardless of admin activity. Optionally (not done): a tighter per-IP cap on anonymous `/api/telemetry`.
 
 ### SEC-13 — No `pip-audit`/`npm audit` gate in CI (hygiene)
-- **Severity:** S4 **Effort:** XS · **Status: Open (recommendation)**
-- **Evidence:** the 2026-07-19 audit recommended a dependency-CVE gate; CI still has none. Low urgency because deps are now pinned and the one known CVE (`requests`) is fixed — but a gate is what catches the *next* one.
-- **Fix:** add `pip-audit -r requirements.txt` (backend) and `npm audit --audit-level=high` (frontend) as non-blocking CI steps.
+- **Severity:** S4 **Effort:** XS · **Status: Fixed**
+- **Evidence:** the 2026-07-19 audit recommended a dependency-CVE gate; CI had none.
+- **Fix (shipped):** backend CI runs `pip-audit -r requirements.txt` (non-blocking report — a new transitive advisory must not hard-block an unrelated hotfix; pinned deps make the fix a deliberate edit). Frontend CI (equity-terminal repo) blocks the merge on a high in **production** deps (`npm audit --omit=dev --audit-level=high`) plus a non-blocking full-tree report; the two dev/build-tool highs present at audit time (`brace-expansion`, `vite`) were cleared (`vite` 8.0.14→8.1.5; build + bundle budget + parity re-verified).
 
 ### Minor hygiene (no action required)
 - CSP `style-src 'unsafe-inline'` — common for React inline styles; low risk given `script-src 'self'`.
