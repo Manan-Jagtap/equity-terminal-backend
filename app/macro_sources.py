@@ -100,10 +100,17 @@ def fetch_dbnomics(db) -> int:
         doc = ((r.json().get("series") or {}).get("docs") or [{}])[0]
         pts = []
         for period, val in zip(doc.get("period") or [], doc.get("value") or []):
-            if val is None or len(str(period)) < 7:
+            # DBnomics encodes missing observations as the string "NA" (not
+            # null) — float("NA") would abort the whole series, so skip any
+            # value that is null, "NA", or otherwise non-numeric per-point.
+            if val is None or str(val).strip().upper() in ("NA", "") or len(str(period)) < 7:
+                continue
+            try:
+                fv = float(val)
+            except (TypeError, ValueError):
                 continue
             y, m = int(str(period)[:4]), int(str(period)[5:7])
-            pts.append([f"{y:04d}-{m:02d}-{calendar.monthrange(y, m)[1]:02d}", float(val)])
+            pts.append([f"{y:04d}-{m:02d}-{calendar.monthrange(y, m)[1]:02d}", fv])
         if not pts:
             log.warning("DBnomics: IMF India CPI came back empty")
             return 0

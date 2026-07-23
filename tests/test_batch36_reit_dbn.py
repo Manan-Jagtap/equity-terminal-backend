@@ -66,6 +66,35 @@ def test_dbnomics_fetch_mocked(monkeypatch):
     db.close()
 
 
+def test_dbnomics_skips_NA_observations(monkeypatch):
+    """DBnomics encodes missing observations as the string 'NA' (live IMF
+    India-CPI series carried one). float('NA') used to abort the whole leg,
+    leaving dbn_imf_cpi_2010_100 empty — each bad point must be skipped, not
+    fatal, and the good points still land."""
+    from app.database import SessionLocal, engine, Base
+    from app import models  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+    from app import macro_sources as MS
+
+    # Collision-proof dates: the overlay DB persists across the test session
+    # and write_overlay counts only net-new points, so reuse of a real month
+    # would spuriously report 0 written. Sentinel 2099 months never collide.
+    class _R:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"series": {"docs": [{"period": ["2099-05", "2099-06", "2099-07"],
+                                         "value": ["NA", 194.2, 196.0]}]}}
+    monkeypatch.setattr(MS.requests, "get", lambda *a, **k: _R())
+    db = SessionLocal()
+    n = MS.fetch_dbnomics(db)
+    assert n == 2                                  # the two numeric points only
+    from app import macro_data
+    pts = dict(macro_data.series(db, MS.DBN_IMF_CPI))
+    assert pts.get("2099-07-31") == 196.0
+    assert "2099-05-31" not in pts                 # the 'NA' month dropped
+    db.close()
+
+
 def test_dbnomics_kill_switch(monkeypatch):
     from app import macro_sources as MS
     monkeypatch.setenv("DBNOMICS", "0")
