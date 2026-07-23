@@ -27,6 +27,16 @@ COPY scripts/restore_backup.py ./scripts/restore_backup.py
 COPY deploy/aws/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# SEC-11: ship the AWS ap-south-1 RDS CA bundle so DB TLS can run verify-full
+# (encrypted AND the server identity checked — closes the theoretical in-VPC
+# MITM). Fetched at build time over HTTPS from AWS's official truststore
+# (TLS-verified by the build CA store); always current, survives AWS CA
+# rotation. DORMANT until switched on with:
+#   DB_SSL_VERIFY=full  RDS_CA_BUNDLE=/srv/certs/rds-ap-south-1-bundle.pem
+# Rehearsed 24 Jul 2026: verify-full connected to the live RDS with this bundle.
+RUN mkdir -p /srv/certs && python -c "import urllib.request; urllib.request.urlretrieve('https://truststore.pki.rds.amazonaws.com/ap-south-1/ap-south-1-bundle.pem', '/srv/certs/rds-ap-south-1-bundle.pem')" \
+    && test -s /srv/certs/rds-ap-south-1-bundle.pem
+
 # Non-root runtime user
 RUN useradd -r -u 10001 terminal && chown -R terminal /srv
 USER terminal
