@@ -594,10 +594,15 @@ def usage_summary(days: int = 30, db: Session = Depends(get_db),
              .filter(models.UsageEvent.created_at >= cutoff)
              .group_by(models.UsageEvent.event)
              .order_by(_f.count(models.UsageEvent.id).desc()).limit(20).all())
+    # Vendor-quota block (owner watches the IndianAPI burn from /admin —
+    # matters most around plan-change dates).
+    from app import api_budget as B
+    quota = {"month_used": B.month_usage(db), "month_budget": B.budget(),
+             "remaining": B.remaining(db)}
     return {"window_days": days, "events_total": base.count(), "pruned": pruned,
             "daily_active_users": [{"date": str(d), "users": int(n)} for d, n in dau],
             "top_events": [{"event": e, "n": int(n)} for e, n in top],
-            "retention_days": RETENTION_DAYS}
+            "retention_days": RETENTION_DAYS, "vendor_quota": quota}
 
 
 @router.get("/feedback")

@@ -81,6 +81,40 @@ def _mcp_get_data(dataset: str, filters: dict, timeout: int = 45) -> dict | None
         return None
 
 
+# ── DBnomics — free global aggregator (IMF/WB/OECD…), the CROSS-CHECK leg ────
+# "Data that argues with itself": the IMF's India CPI lands in its OWN slug
+# (never merged into the MoSPI series) so the dashboard can show two
+# independent sources of the same economy. Keyless; kill-switch DBNOMICS=0.
+DBNOMICS_URL = os.getenv("DBNOMICS_URL", "https://api.db.nomics.world/v22")
+DBN_IMF_CPI = "dbn_imf_cpi_2010_100"
+
+
+def fetch_dbnomics(db) -> int:
+    """IMF India CPI (monthly, 2010=100) via DBnomics into its own slug."""
+    if os.getenv("DBNOMICS", "").strip() in ("0", "false", "no"):
+        return 0
+    try:
+        r = requests.get(f"{DBNOMICS_URL}/series/IMF/CPI/M.IN.PCPI_IX",
+                         params={"observations": 1}, timeout=30)
+        r.raise_for_status()
+        doc = ((r.json().get("series") or {}).get("docs") or [{}])[0]
+        pts = []
+        for period, val in zip(doc.get("period") or [], doc.get("value") or []):
+            if val is None or len(str(period)) < 7:
+                continue
+            y, m = int(str(period)[:4]), int(str(period)[5:7])
+            pts.append([f"{y:04d}-{m:02d}-{calendar.monthrange(y, m)[1]:02d}", float(val)])
+        if not pts:
+            log.warning("DBnomics: IMF India CPI came back empty")
+            return 0
+        return macro_data.write_overlay(db, {DBN_IMF_CPI: {
+            "name": "CPI — IMF cross-check (2010=100)", "freq": "M",
+            "points": sorted(pts)[-240:]}})
+    except Exception as e:
+        log.warning("DBnomics fetch failed: %s: %s", type(e).__name__, str(e)[:120])
+        return 0
+
+
 def _month_iso(year, month_name) -> str | None:
     """Month-END iso date — the DBIE seed's convention; using month-start here
     would store the same month twice under two dates."""
@@ -420,12 +454,13 @@ def fetch_oecd_cli(db) -> int:
 def refresh_all(db) -> dict:
     te = fetch_tradingeconomics(db)
     mcp = fetch_mospi_mcp(db)          # keyless official primary (CPI/IIP/WPI)
+    dbn = fetch_dbnomics(db)           # IMF cross-check leg (own slug)
     mo = fetch_mospi(db)               # legacy key-gated fallback
     act = fetch_activity(db)
     cli = fetch_oecd_cli(db)
     configured_act = [env.lower() for slug, env in _ACTIVITY_ENV.items()
                       if os.getenv(f"ACTIVITY_{env}_URL", "").strip()]
-    return {"tradingeconomics_points": te, "mospi_mcp_points": mcp, "mospi_points": mo,
+    return {"tradingeconomics_points": te, "mospi_mcp_points": mcp, "dbnomics_points": dbn, "mospi_points": mo,
             "activity_points": act, "oecd_cli_points": cli,
             "keys": {"mospi_mcp": os.getenv("MOSPI_MCP", "").strip() not in ("0", "false", "no"),
                      "tradingeconomics": bool(os.getenv("TRADINGECONOMICS_KEY", "").strip()),

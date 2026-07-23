@@ -489,10 +489,19 @@ def dashboard(db) -> dict:
 
 def write_overlay(db, updates: dict[str, dict]) -> int:
     """Merge {slug: {name, freq, points:[[iso,val],…]}} into the KV overlay.
-    Returns points written. Used by API fetchers and the admin xlsx upload."""
+    Returns points written. Used by API fetchers and the admin xlsx upload.
+
+    DATA-11: `cur` MUST be a DEEP COPY. Mutating the loaded row.value's nested
+    dicts in place made SQLAlchemy's change detection compare the new payload
+    against the already-mutated original (old == new), so the UPDATE was
+    silently skipped and every overlay write after the first INSERT was LOST —
+    the function still 'returned points written'. flag_modified is the
+    belt-and-braces on top."""
+    import copy
+    from sqlalchemy.orm.attributes import flag_modified
     from app import models
     row = db.query(models.KVStore).filter_by(key=UPDATES_KEY).first()
-    cur = (row.value or {}).get("series", {}) if row else {}
+    cur = copy.deepcopy((row.value or {}).get("series", {})) if row else {}
     n = 0
     for slug, ser in updates.items():
         dst = cur.setdefault(slug, {"name": ser.get("name") or slug,
@@ -508,6 +517,7 @@ def write_overlay(db, updates: dict[str, dict]) -> int:
                "updated_at": _dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"}
     if row:
         row.value = payload
+        flag_modified(row, "value")
     else:
         db.add(models.KVStore(key=UPDATES_KEY, value=payload))
     db.commit()

@@ -77,10 +77,16 @@ def owner_of(key: str) -> str | None:
 
 
 def _upsert(db, key: str, value):
+    # DATA-11: a caller that mutated the LOADED dict in place and handed it
+    # back would defeat SQLAlchemy's change detection (old == new → UPDATE
+    # silently skipped — the write_overlay lost-update bug). flag_modified
+    # forces the write regardless of equality.
+    from sqlalchemy.orm.attributes import flag_modified
     from app import models
     row = db.query(models.KVStore).filter_by(key=key).first()
     if row:
         row.value = value
+        flag_modified(row, "value")
     else:
         db.add(models.KVStore(key=key, value=value))
 
