@@ -29,6 +29,7 @@ onepager_out/
 pytest-cache-files-*/
 tests/
 scripts/
+!scripts/restore_backup.py
 .env
 .env.*
 *.log
