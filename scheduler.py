@@ -614,6 +614,30 @@ def run_data_integrity():
 schedule.every().sunday.at("03:00").do(run_data_integrity)
 
 
+def run_usage_prune():
+    """SEC-12 / DPDP data-minimisation: drop UsageEvent rows past the retention
+    window. The prune previously ran ONLY when an admin opened the usage page,
+    so on a box whose admin rarely visits, anonymous POST /api/telemetry writes
+    accumulated unbounded. A standing daily job makes retention self-enforcing
+    regardless of admin activity."""
+    from app.database import SessionLocal
+    from app.telemetry_routes import prune_usage_events
+    db = SessionLocal()
+    try:
+        n = prune_usage_events(db)
+        log.info(f"usage-event prune: removed {n} rows past retention")
+    except Exception as e:
+        log.error(f"usage-event prune failed: {e}")
+        record_job_error(e)
+    finally:
+        db.close()
+
+
+# Usage-telemetry retention prune — daily 03:15 UTC (8:45am IST), between the
+# NSE-flows job (02:30) and the encrypted backup (04:00).
+schedule.every().day.at("03:15").do(run_usage_prune)
+
+
 # ── Coverage self-heal: automatic stub backfill + targeted re-ingests ────────
 # The audit found ~145 un-ingested stubs (NO DATA) plus a handful of names whose
 # stored equity column is misfiled (absurd MoS, LOW-CONF gated). Owner mandate:
