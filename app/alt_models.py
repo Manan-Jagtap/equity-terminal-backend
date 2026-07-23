@@ -337,6 +337,66 @@ def _rev_list(statements) -> list[float]:
     return out
 
 
+import re as _re
+
+# Listed REITs / InvITs: units entitle the holder to mandatory distributions
+# (≥90% of net distributable cash flows under SEBI regs), so the honest model
+# is a DISTRIBUTION yield, not an FCFF DCF on development-style economics.
+# Name tokens keep developers (Anant Raj, DLF…) out — they carry none of these.
+_REIT_NAME_RE = _re.compile(
+    r"\breit\b|\binvit\b|office parks|business parks|select trust|realty trust",
+    _re.IGNORECASE)
+# Required distribution yield for Indian REITs/InvITs (observed trading band
+# ~7.5-9%; conservative mid) and a contracted-escalation growth assumption.
+_REIT_REQ_YIELD = 0.085
+_REIT_DIST_GROWTH = 0.03
+
+
+def is_reit(co: dict) -> bool:
+    return bool(_REIT_NAME_RE.search(co.get("name") or ""))
+
+
+def reit_value(co: dict, a: dict) -> dict | None:
+    """Distribution-yield value for a listed REIT/InvIT: normalised distribution
+    per unit ÷ (required yield − escalation growth). EARNED — needs ≥2 years of
+    REAL distributions (a fresh listing like Knowledge Realty Trust abstains
+    honestly until it has a payout record). MEDIUM confidence by design."""
+    if not is_reit(co):
+        return None
+    units = co.get("shares")
+    if not units or units <= 0:
+        return None
+    divs = []
+    for y in sorted((co.get("statements") or {}), key=lambda x: int(x)):
+        d = ((co["statements"][y] or {}).get("CF") or {}).get("dividends")
+        if d is not None and abs(d) > 0:
+            divs.append(abs(float(d)))
+    if len(divs) < 2:
+        return None                                # no payout record → abstain
+    import statistics
+    norm_dist = statistics.median(divs[-3:])       # smooth a lumpy final year
+    dpu = norm_dist / units
+    spread = _REIT_REQ_YIELD - _REIT_DIST_GROWTH
+    intrinsic = dpu * (1 + _REIT_DIST_GROWTH) / spread
+    if intrinsic <= 0:
+        return None
+    return {
+        "intrinsic": intrinsic, "method": "Distribution yield (REIT)",
+        "components": [
+            {"label": f"Normalised distribution ₹{norm_dist:,.0f}cr / {units:,.1f}cr units "
+                      f"= DPU ₹{dpu:.2f}", "value": dpu},
+            {"label": f"÷ ({_REIT_REQ_YIELD*100:.1f}% required yield − "
+                      f"{_REIT_DIST_GROWTH*100:.0f}% escalation growth)", "value": intrinsic},
+        ],
+        "note": (f"REIT/InvIT distribution-yield value: median distribution of the last "
+                 f"{min(3, len(divs))} years (₹{norm_dist:,.0f}cr) per unit, capitalised at a "
+                 f"{_REIT_REQ_YIELD*100:.1f}% required yield less {_REIT_DIST_GROWTH*100:.0f}% "
+                 "contracted-escalation growth. SEBI mandates ≥90% NDCF payout, so the "
+                 "distribution IS the economics — an FCFF DCF mis-frames these. "
+                 "MEDIUM confidence."),
+    }
+
+
 def young_company_value(co: dict, a: dict) -> dict | None:
     """Survival-adjusted value for a young / loss-making / near-zero-ROE company
     the DCF/RI can't touch. Project revenue to a mature TARGET margin, capitalise
@@ -493,6 +553,11 @@ def alternative_intrinsic(co: dict, a: dict) -> dict | None:
         # Divide by the LIVE share count, never the preset constant — a stale
         # hand-seeded count doubled the per-share fair value (DAT-01).
         return sotp_value(ticker, co.get("shares"))
+    # REITs/InvITs: mandatory-distribution vehicles — a yield model, never an
+    # FCFF DCF. Checked before the fee/young archetypes (cheap, specific).
+    reit = reit_value(co, a)
+    if reit:
+        return reit
     # FIX-16: earned archetype models for the permanent-abstention cohort. Each
     # returns None unless the name meets its input requirements, so abstention
     # remains for genuinely un-valuable names (no forced calls on thin data).
