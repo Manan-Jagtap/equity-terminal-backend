@@ -928,9 +928,11 @@ def company_detail(ticker: str, db: Session = Depends(get_db)):
             analyst = _consensus_block(db, co, data.get("price"))
         except Exception:
             analyst = None
+        from app.corporate_events import for_ticker as _ca_event
         return {"company": _public(data), "assumptions": a,
                 "recommendation": rec, "sensitivity": sens, "analyst": analyst,
-                "sentiment": _safe_sentiment(db, ticker)}
+                "sentiment": _safe_sentiment(db, ticker),
+                "corporate_event": _ca_event(ticker)}
     except Exception as e:
         # SEC-10: never surface the raw exception string to clients (it can leak
         # DB/driver internals). The real detail goes to the self-owned error log;
