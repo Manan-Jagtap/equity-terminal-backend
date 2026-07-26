@@ -58,7 +58,16 @@ def run_integrity_sweep(db) -> dict:
         m = snap_by.get(co.id)
         if m is not None:
             if not (m.price and 0 < m.price <= 200_000):
-                _flag(findings, tk, "price_absurd", "P1", m.price)
+                # Severity must track USER-VISIBLE harm. A never-onboarded stub
+                # (no shares, verdict NO DATA) shows the user nothing, so a 0.0
+                # price there is a COVERAGE gap, not data corruption — CCAVENUE
+                # sat red as a P1 on exactly this. A name that HAS data but a
+                # broken price is the real P1: it can feed a wrong MoS.
+                _onboarded = bool(co.shares_outstanding and co.shares_outstanding > 0)
+                if _onboarded:
+                    _flag(findings, tk, "price_absurd", "P1", m.price)
+                else:
+                    _flag(findings, tk, "price_absent_not_onboarded", "P2", m.price)
             elif m.as_of is not None:
                 age = (today - m.as_of.date()).days
                 if age > STALE_PRICE_DAYS:
@@ -74,8 +83,13 @@ def run_integrity_sweep(db) -> dict:
                                ("roe", v.roe, -5, 3)):
             if val is not None and not (lo <= val <= hi):
                 _flag(findings, tk, f"{k}_out_of_band", "P2", val)
-        if v.mos is not None and abs(v.mos) > 5 and conf not in ("low",):
-            # An absurd MoS is tolerable ONLY under the LOW-CONF gate.
+        # An absurd MoS is tolerable ONLY when the name is GATED — and the gate
+        # the user actually sees is the VERDICT, not the confidence field. LICI
+        # (verdict LOW CONF, confidence "medium") was reported as ungated while
+        # the product correctly showed a no-call: a false P1 that turned the
+        # whole sweep red. Gate = low confidence OR a non-committal verdict.
+        _gated = conf in ("low",) or verdict in ("LOW CONF", "NO CALL", "NO DATA")
+        if v.mos is not None and abs(v.mos) > 5 and not _gated:
             _flag(findings, tk, "mos_absurd_ungated", "P1", v.mos)
         if verdict in ("BUY", "ACCUMULATE"):
             if v.mos is not None and v.mos < 0:
