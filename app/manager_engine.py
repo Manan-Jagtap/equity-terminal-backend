@@ -68,6 +68,25 @@ LEDGER_GAPS = [
 # recorded before a gate existed stays exactly as the engine emitted it that day —
 # graded honestly, gate and all. New rules bind forward from their effective date.
 LEDGER_NOTES = [
+    {"effective": "2026-07-26",
+     "change": ("CORR-6 + CORR-8 (valuation LEVEL correction). Two methodology "
+                "changes materially lower most non-financial intrinsics, so every "
+                "verdict recorded from this date reflects a more conservative "
+                "engine than earlier entries. (a) CORR-6: the explicit DCF stage "
+                "now charges reinvestment of g/ROIC when the derived historical "
+                "rate is lower — previously 79% of the universe was credited "
+                "growth without the capital that funds it. (b) CORR-8: the equity "
+                "risk premium moves 5.0% -> 6.5%; 5.0% was a mature-market number "
+                "and India carries a country-risk premium on top, so the old value "
+                "systematically under-discounted every non-financial. Independent "
+                "ground truth corroborated the direction: 246 of 314 scored names "
+                "sat ABOVE their target band. Measured effect: within-band "
+                "accuracy 15.3% -> 31.5%. DISCLOSED, NOT BACKFILLED — pre-"
+                "2026-07-26 entries are graded exactly as the engine recorded them "
+                "and are NOT recomputed. Knowingly accepted cost: two names "
+                "(TANLA, POWERICA) each moved one step further from the "
+                "independent verdict, against the usual 0-hard-break bar; owner-"
+                "approved trade for +43 names entering their target band.")},
     {"effective": "2026-07-22",
      "change": ("FIX-19: the ledger now enforces the valuation-contract eligibility "
                 "gate — a name whose engine methods disagree beyond tolerance, whose "

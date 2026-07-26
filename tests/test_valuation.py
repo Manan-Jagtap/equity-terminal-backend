@@ -127,13 +127,19 @@ def test_distribution_sector_and_precedence():
 
 
 def test_cost_of_equity_in_sane_band():
-    # Band floor 9.5%: the calibration deliberately runs ultra-defensive FMCG
-    # (CONSUMER β 0.58) to Ke ≈ 9.8% — Rf 6.9% + ~290bps equity premium, which
-    # is Damodaran-consistent for a 0.5-0.6 beta staple. Anything below 9.5%
-    # or above 14.5% would signal a mis-calibrated beta/ERP, not a design choice.
+    # CORR-8/8b: two premiums now. Non-financials carry the India ERP (6.5% =
+    # mature-market base + country risk, Damodaran-consistent); financials keep
+    # 5.0% (regulated, deposit-funded — the ground truth put BANK at 4/8 within
+    # band on 5.0% vs 0/8 on 6.5%). Bands widen accordingly: CONSUMER β0.58 →
+    # ~10.7%, METAL β1.30 → ~15.4% (a high-beta Indian cyclical genuinely costs
+    # that). Outside these bands would signal a mis-calibrated beta/ERP.
+    from app.sector_params import ERP_FIN
+    _FIN = {"BANK", "NBFC", "INSURANCE"}
     for code in ("IT_SERVICES", "BANK", "NBFC", "METAL", "CONSUMER"):
-        ke = cost_of_equity(params(code)["beta"])
-        assert 0.095 <= ke <= 0.145, f"{code} Ke={ke}"
+        is_fin = code in _FIN
+        ke = cost_of_equity(params(code)["beta"], ERP_FIN if is_fin else None)
+        lo, hi = (0.095, 0.145) if is_fin else (0.100, 0.160)
+        assert lo <= ke <= hi, f"{code} Ke={ke} outside [{lo},{hi}]"
 
 
 # ── Independent valuation ───────────────────────────────────────────────────
