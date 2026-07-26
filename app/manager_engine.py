@@ -68,6 +68,29 @@ LEDGER_GAPS = [
 # recorded before a gate existed stays exactly as the engine emitted it that day —
 # graded honestly, gate and all. New rules bind forward from their effective date.
 LEDGER_NOTES = [
+    {"effective": "2026-07-27",
+     "change": ("CORR-1 + CORR-3a/b/c (valuation LEVEL correction, second pass). "
+                "Near-term growth is now EARNED from return-on-capital quality: a "
+                "business that does not out-earn its sector's mature ROIC has its "
+                "stage-1 revenue growth capped at 10% (approximately India's "
+                "long-run NOMINAL GDP growth) instead of the flat 18% every "
+                "non-cyclical previously received. Names at or above the quality "
+                "threshold are UNCHANGED. Evidence: on the 314-name independent "
+                "calibration set, 104 names (33%) sat pinned at exactly the old "
+                "18% clamp and were the worst-calibrated cohort in the book — "
+                "median intrinsic 1.73x the independent target-band midpoint and "
+                "only 23% within band, against 1.23-1.32x and 36-44% for every "
+                "name below the cap. Also reclassified names the keyword "
+                "classifier mis-bucketed (31 pharma companies were being valued "
+                "on IT_SERVICES economics; payments/fintech fee businesses were "
+                "priced as lenders; ports/rail/express were priced as factories). "
+                "Measured effect: within-band accuracy 33.0% -> 38.5%, zero hard "
+                "breaks. Direction is one-way: this only ever LOWERS an unearned "
+                "growth rate, so no verdict was inflated by it. Roughly 30% of "
+                "covered names see a lower fair value from this date (median "
+                "-17.5%) and about 14 change verdict. DISCLOSED, NOT BACKFILLED "
+                "- entries recorded before this date are graded exactly as the "
+                "engine emitted them and are NOT recomputed.")},
     {"effective": "2026-07-26",
      "change": ("CORR-6 + CORR-8 (valuation LEVEL correction). Two methodology "
                 "changes materially lower most non-financial intrinsics, so every "
