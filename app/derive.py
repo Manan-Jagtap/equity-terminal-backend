@@ -460,7 +460,11 @@ def _derive_financial(statements, vs):
             if _nv and _nv > 0 and _pv is not None:
                 _roe_hist.append(_pv / _nv)
     if len(_roe_hist) >= 4:
-        _ke = SP.RISK_FREE + p["beta"] * SP.ERP
+        # CORR-8b: this gate lives in _derive_financial, so it MUST use the
+        # financial ERP — otherwise raising the non-financial ERP would
+        # silently disqualify genuine ~15% bank franchises from the FIX-17
+        # lift because the 1.2x-Ke bar moved for a reason unrelated to them.
+        _ke = SP.RISK_FREE + p["beta"] * SP.ERP_FIN
         _franchise0 = median(sorted(_roe_hist)[len(_roe_hist) // 2:])
         # Lift ONLY a STABLE franchise in a mild dip — latest realized ROE within
         # 20% of its proven level. HDFC Bank (latest 0.130 vs franchise 0.154,
@@ -517,7 +521,8 @@ def _derive_financial(statements, vs):
                              f"payout {_pct(payout)})")
 
     return {
-        "beta": p["beta"], "risk_free": SP.RISK_FREE, "erp": SP.ERP,
+        # CORR-8b: financials use the financial-specific ERP (see sector_params).
+        "beta": p["beta"], "risk_free": SP.RISK_FREE, "erp": SP.ERP_FIN,
         "forecast_roe": round(forecast_roe, 4),
         "terminal_roe": round(terminal_roe, 4),
         "payout": round(payout, 4),

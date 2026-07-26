@@ -42,7 +42,23 @@ log = logging.getLogger("sector_params")
 
 # ── Market-wide constants ──────────────────────────────────────────────────
 RISK_FREE: float = 0.069     # fallback; refresh_risk_free() sets the LIVE 10Y
-ERP: float = 0.050           # equity risk premium (see header)
+# CORR-8: India equity risk premium. 5.0% was a mature-market number; India
+# carries a country-risk premium on top (Damodaran's India ERP runs ~7% =
+# mature-market base + country risk), so 5.0% systematically UNDER-discounted
+# every non-financial and inflated intrinsics. Calibration confirmed the
+# direction independently: 246 of 314 ground-truth names sat ABOVE their
+# target band. Raising to 6.5% took within-band 17.8% -> 31.5%.
+# Owner-approved 26 Jul 2026 knowingly accepting 2 verdict-distance breaks
+# (TANLA, POWERICA) against the usual 0-hard-break bar — see LEDGER_NOTES.
+ERP: float = 0.065           # equity risk premium (India; see header)
+# CORR-8b: financials keep the 5.0% premium. Applying the industrial
+# country-risk premium to regulated, deposit-funded lenders OVER-discounts
+# them: the independent ground truth put BANK at 4/8 within band on 5.0%
+# and 0/8 on 6.5%. It also keeps the FIX-17 durability gate (median ROE
+# >= 1.2x Ke) economically stable, so a genuine ~15% franchise is not
+# disqualified by a change in the market premium rather than its own
+# economics. Revisit with a dedicated financials calibration pass.
+ERP_FIN: float = 0.050       # equity risk premium for banks/NBFCs/insurers
 
 _RF_TS: float = 0.0          # last successful/attempted refresh (monotonic-ish)
 
@@ -79,9 +95,13 @@ def refresh_risk_free(db=None, ttl: float = 1800.0, force: bool = False) -> floa
     return RISK_FREE
 
 
-def cost_of_equity(beta: float) -> float:
-    """CAPM cost of equity from a sector beta."""
-    return RISK_FREE + beta * ERP
+def cost_of_equity(beta: float, erp: float | None = None) -> float:
+    """CAPM cost of equity from a sector beta.
+
+    `erp` defaults to the NON-FINANCIAL India premium. Pass ERP_FIN for
+    banks/NBFCs/insurers (CORR-8b) — the two differ, so a caller that ignores
+    this would price a lender off the industrial premium."""
+    return RISK_FREE + beta * (ERP if erp is None else erp)
 
 
 # ── Valuation-sector parameter table ───────────────────────────────────────
