@@ -557,6 +557,23 @@ def price_gates(verdict: str, mos, *, is_financial: bool, is_alt: bool,
     # structurally understates a premium compounder than a real overvaluation.
     if mos < -0.45 and high_roe and verdict == "AVOID":
         return "LOW CONF"
+    # DAT-13: COLLAPSED fair value — intrinsic below 10% of price. This is the
+    # symmetric twin of the "implausible upside" cliff above: a one-size sector
+    # model claiming a name is worth ~nothing is wrong more often than the
+    # market, exactly as one claiming a double is. Found live on 2026-07-27:
+    # ADANIGREEN published a bare AVOID at intrinsic 3.1 vs a price of 1,380
+    # (mos -0.998) — the model asserting the equity is worth 0.2% of its market
+    # price, which is not a bearish call but a broken number.
+    #
+    # Deliberately NOT limited to high_roe (unlike the -0.45 cliff): the names
+    # this catches are levered infra/realty developers where equity value is a
+    # thin residual after debt, so a small error in EV swings equity value by
+    # orders of magnitude. Those are precisely the names with ORDINARY returns.
+    #
+    # This is an abstention, not a reversal — the name stays uninvestable, the
+    # product just stops publishing a precise fair value it cannot support.
+    if mos <= -0.90:
+        return "LOW CONF"
     return verdict
 
 
