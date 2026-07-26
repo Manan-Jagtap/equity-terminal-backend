@@ -276,6 +276,35 @@ def _derive_nonfinancial(statements, vs):
     if not cyclical and roic_used >= 1.2 * p["mature_roic"] and rev_growth < 0.08:
         rev_growth = 0.08
         drivers["rev_growth"] += " → floored 8% (durable high-ROIC franchise)"
+    # CORR-1: the growth RATE is earned from quality, exactly as the RUNWAY is.
+    # `fade_years` below already tiers the horizon off roic_q with the stated
+    # principle "the runway is earned from QUALITY (ROIC durability), NOT current
+    # growth" — but the RATE ceiling was a flat 18% for every non-cyclical, so an
+    # ordinary business printing one strong year was extrapolated at a
+    # compounder's growth for N//2 years before any fade began.
+    #
+    # Measured on the 314-name calibration set: 104 names (33%) sat pinned at
+    # exactly the 18% clamp, and they were by far the worst-calibrated cohort —
+    # median intrinsic / ground-truth-band-midpoint x1.73 and only 23% within
+    # band, against x1.23–1.32 and 36–44% for every name below the cap.
+    #
+    # Economically this is the growth/moat link: growth is only defensible while
+    # returns exceed the cost of capital, so a name with no demonstrated return
+    # advantage is not assumed to outgrow the economy it operates in.
+    #
+    # Scope is deliberately narrow. Only names BELOW the roic_q threshold are
+    # touched; every name that out-earns its sector keeps the full 18%. Tightening
+    # the higher tiers as well scored better on the fixture (40.4%) but broke
+    # LUPIN — an ACCUMULATE at +8.7% MoS became a HOLD at -8.0% against a
+    # ground-truth BUY-zone — so that version was not taken.
+    #
+    # One-directional by design (the VAL-02 discipline): this only ever LOWERS an
+    # unearned rate — it never raises growth for anyone, so no valuation is
+    # inflated by it.
+    q_hi = _growth_ceiling(roic_used, p.get("mature_roic"))
+    if rev_growth > q_hi:
+        rev_growth = q_hi
+        drivers["rev_growth"] += f" → capped {_pct(q_hi)} (ROIC-earned growth)"
     # Ceiling 0.65 (was 0.80): the g/ROIC identity with a cyclically DEPRESSED
     # spot ROIC (capital-intensive names mid-build-out read ~sector ROIC) demanded
     # a ~80% reinvestment that these businesses don't actually run — UltraTech,
@@ -533,6 +562,28 @@ def _derive_financial(statements, vs):
         "reinvest_rate": 0.35, "debt_weight": 0.20, "cost_debt": 0.085,
         "_drivers": drivers, "_valuation_sector": vs,
     }
+
+
+# CORR-1: near-term growth is earned from return-on-capital quality.
+# 1.1 is the same roic_q threshold at which `fade_years` grants its first
+# horizon step-up, so the growth RATE and the growth RUNWAY key off one
+# consistent piece of evidence about the business.
+_GROWTH_ROIC_Q = 1.1
+_GROWTH_HI_EARNED = 0.18   # out-earns its sector's mature ROIC → unchanged
+_GROWTH_HI_BASE = 0.10     # ≈ India's long-run NOMINAL GDP growth
+
+
+def _growth_ceiling(roic_used: float, mature_roic: float | None) -> float:
+    """Max defensible near-term growth, earned from return-on-capital quality.
+
+    A business that does not out-earn its sector's mature ROIC has shown no
+    return advantage to defend growth with, so it is not assumed to outgrow
+    the economy it operates in. Names at or above the threshold are untouched.
+    """
+    if not mature_roic:
+        return _GROWTH_HI_EARNED
+    return (_GROWTH_HI_EARNED if roic_used / mature_roic >= _GROWTH_ROIC_Q
+            else _GROWTH_HI_BASE)
 
 
 def derive_assumptions(statements: dict, valuation_sector: str,
