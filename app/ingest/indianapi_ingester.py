@@ -804,7 +804,24 @@ def _build_insight(s, co, stock, debug=False):
 
     row = s.query(models.CompanyInsight).filter_by(company_id=co.id).first()
     if row:
-        row.ticker_id, row.data = tid, data
+        # DATA-12: MERGE the fresh blob over the stored one — never blind-replace.
+        # `data` above drops any field that came back empty, so a vendor endpoint
+        # that goes away silently produced a blob MISSING that key, and the old
+        # `row.data = data` then DELETED the last-good value. Observed live on
+        # 24 Jul 2026: the vendor began answering /documents with 404 "Endpoint
+        # not allowed" (plan change) and /historical_stats with "Not a valid
+        # script_code", so a full-universe refresh wiped stored documents for
+        # ~378 names and quarterly results for ~736 — the same purge-before-
+        # validate class as DATA-02 (statements), which _swap_statements already
+        # guards. Fresh keys win; keys absent this run keep their last-good value
+        # (stale-but-real beats deleted, and staleness is visible via as_of).
+        merged = dict(row.data or {})
+        merged.update(data)
+        row.ticker_id, row.data = tid, merged
+        # DATA-11: JSON column — force the UPDATE even if SQLAlchemy's identity
+        # comparison thinks nothing changed.
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(row, "data")
     else:
         s.add(models.CompanyInsight(company_id=co.id, ticker_id=tid, data=data))
 
