@@ -128,13 +128,31 @@ def fcff_dcf(co: Dict, a: Dict) -> Dict:
     nopat = 0.0
     m0 = a["ebit_margin"]
     m_term = a.get("terminal_ebit_margin", m0)         # margins mean-revert; glide
+    # CORR-6: growth must be PAID FOR. The explicit period applied a single
+    # historical `reinvest_rate` while revenue compounded at the full derived
+    # growth — so a name could grow 12% on 6.5% reinvestment when g/ROIC demands
+    # 75%. Measured on the 317-name calibration set: 79% of names reinvested
+    # LESS than g/ROIC, median shortfall 25pp — free growth, capitalised into
+    # every forecast year. The terminal value already enforced this link
+    # (term_rr = g/mature_roic); the explicit stage did not.
+    #
+    # One-sided by design (the VAL-02 discipline): we only ever RAISE
+    # reinvestment to the consistency floor, never lower it below the derived
+    # rate — so a genuinely capital-hungry name keeps its own higher rate and no
+    # valuation is inflated by this change.
+    _roic_ex = (a.get("roic_used") or a.get("terminal_roic")
+                or SP.params(a.get("_valuation_sector")).get("mature_roic") or 0.12)
     for t in range(1, N + 1):
         g = g1 if t <= N1 else g1 + (g_t - g1) * ((t - N1) / (N - N1))
         rev = rev * (1 + g)
         margin = m0 if N <= 1 else m0 + (m_term - m0) * ((t - 1) / (N - 1))
         ebit = rev * margin
         nopat = ebit * (1 - a["tax_rate"])
-        fcff = nopat * (1 - a["reinvest_rate"])
+        # Reinvestment consistency: funding year-t growth needs g_t / ROIC.
+        rr_t = a["reinvest_rate"]
+        if _roic_ex > 0 and g > 0:
+            rr_t = max(rr_t, min(g / _roic_ex, _REINVEST_CAP))
+        fcff = nopat * (1 - rr_t)
         disc = (1 + wacc) ** t
         pv += fcff / disc
         rows.append({"t": t, "rev": rev, "fcff": fcff, "pv": fcff / disc})
@@ -293,6 +311,11 @@ def _is_high_payout(co: Dict, a: Dict) -> bool:
 # The DCF/RI always leads at 0.55/0.65; the cross-check split is SECTOR-APPROPRIATE
 # (from the institutional-model study): capital-heavy businesses are valued on
 # EV/EBITDA, asset-light ones on P/E — so we weight the right multiple higher.
+# CORR-6: ceiling on the explicit-stage reinvestment consistency floor. A
+# hyper-growth name can genuinely reinvest most of NOPAT, but an uncapped
+# g/ROIC (g > ROIC) would drive FCFF deeply negative and understate value.
+_REINVEST_CAP = 0.90
+
 _BLEND_WEIGHTS = {
     "fin":    [("Residual Income", 0.65), ("Gordon Growth P/B", 0.20), ("P/E (sector)", 0.15)],
     # FIX-11: DCF leads harder (.55→.65) and the exit multiple is trusted less
