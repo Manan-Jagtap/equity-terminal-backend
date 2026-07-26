@@ -22,7 +22,17 @@ _CONGLOMERATES = {"RELIANCE", "ADANIENT", "BBTC", "TATAINVEST", "BAJAJHLDNG", "C
 _FEE_FINANCIALS = {"CRISIL", "ICRA", "CARERATNG", "BSE", "MCX", "IEX", "CDSL",
                    "CAMS", "KFINTECH", "NUVAMA", "ANGELONE", "360ONE", "POLICYBZR",
                    "PAYTM", "ABSLAMC", "UTIAMC", "HDFCAMC", "NAM-INDIA", "MFSL",
-                   "IIFL", "IIFLCAPS", "ANANDRATHI", "PRUDENT", "CDGL"}
+                   "IIFL", "IIFLCAPS", "ANANDRATHI", "PRUDENT", "CDGL",
+                   # CORR-3b: fintech/payments FEE businesses the vendor files
+                   # under "Consumer Financial Services", so they inherit the
+                   # NBFC archetype and get priced by BOOK-based Residual
+                   # Income — wrong by construction for a capital-light fee
+                   # annuity. Listed per-TICKER on purpose: a sector-hint on
+                   # "consumer financial services" would also swallow genuine
+                   # consumer lenders like BAJFINANCE.
+                   #   ZAGGLE — prepaid/spend-management SaaS
+                   #   STYL   — Seshaasai, payments & card manufacturing
+                   "ZAGGLE", "STYL"}
 
 # The GENERAL rule behind the ticker list: any capital-markets FEE business —
 # broking, wealth, asset management, exchanges/depositories, ratings, market
