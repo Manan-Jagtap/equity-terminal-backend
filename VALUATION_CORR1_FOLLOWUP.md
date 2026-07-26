@@ -166,3 +166,71 @@ entire cohort, with the terminal multiple inert, points at stage-1 forecast
 growth being extrapolated too aggressively off recent prints. That is the
 CORR-1 disease and is cross-sector, not MANUFACTURING-specific — it should be
 fixed once in the forecast, not per-archetype.
+
+---
+
+## CORR-1 — stage-1 growth must be earned from quality, 2026-07-27
+
+The cross-sector level bias the CORR-3c pass pointed at. Diagnosed on the
+314-name calibration set by grouping every name by its derived `rev_growth`:
+
+| stage-1 growth | n | median intrinsic / band-mid | within band |
+|---|---|---|---|
+| **at the 18% cap** | **104** | **x1.73** | **23%** |
+| 12–17.5% | 78 | x1.32 | 44% |
+| 8–12% | 94 | x1.26 | 36% |
+| < 8% | 38 | x1.23 | 37% |
+
+**A third of the universe sat pinned at exactly the 18% clamp, and that cohort
+was the disease.** Everything below the cap was calibrated roughly twice as
+well.
+
+Grouping by horizon confirmed it from the other side:
+
+| `fade_years` | n | median ratio | within band |
+|---|---|---|---|
+| 8 | 140 | x1.60 | 21% |
+| 10 | 69 | x1.39 | 32% |
+| 12 | 38 | x1.28 | 45% |
+| 15 | 67 | x1.23 | **55%** |
+
+Counter-intuitive until you recall `fade_years` is assigned from ROIC
+durability: the SHORT-horizon names are the ordinary ones, and they are the
+over-valued ones. The bias is **high growth granted to low-quality names**.
+
+### The inconsistency
+
+`fade_years` earns the growth RUNWAY from `roic_q`, on its own stated
+principle — *"the runway is earned from QUALITY (ROIC durability), NOT current
+growth"*. But the growth RATE ceiling was a flat 18% for every non-cyclical.
+The horizon asked for evidence; the rate did not.
+
+### Fix
+
+`_growth_ceiling(roic_used, mature_roic)` in `derive.py`, mirrored in
+`derive.js`, applied immediately after the existing symmetric 8% high-ROIC
+*floor*:
+
+- `roic_q >= 1.1` → **0.18, unchanged.** Every name that out-earns its sector
+  keeps the full rate.
+- below → **0.10**, ≈ India's long-run *nominal* GDP growth. A business with no
+  demonstrated return advantage is not assumed to outgrow the economy it
+  operates in.
+
+1.1 is deliberately the same threshold at which `fade_years` grants its first
+horizon step-up, so the rate and the runway key off one piece of evidence.
+One-directional: it only ever LOWERS an unearned rate.
+
+**Result: 33.0% → 38.5% within band (105 → 120 names), 0 hard breaks.**
+One soft abstention (TRAVELFOOD moves REDUCE → LOW CONF — the engine declining
+to call, not calling wrongly).
+
+### What was rejected, and why
+
+- **Tiering the higher bands too** (0.18/0.15/0.13, base 0.10) scored **40.4%**
+  but broke LUPIN: an ACCUMULATE at +8.7% MoS became a HOLD at −8.0% against a
+  ground-truth BUY-zone. Every graduated variant tried broke that same name.
+  Not taken — the standing bar is 0 hard breaks.
+- **base 0.09** scored +0.3pp better than 0.10 with 0 breaks, and was still not
+  taken: it has no economic anchor. 0.10 is nominal GDP; 0.09 is a fitted
+  constant. A test pins the 0.10 and records this.
