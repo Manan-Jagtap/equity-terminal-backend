@@ -91,6 +91,21 @@ def run_integrity_sweep(db) -> dict:
         _gated = conf in ("low",) or verdict in ("LOW CONF", "NO CALL", "NO DATA")
         if v.mos is not None and abs(v.mos) > 5 and not _gated:
             _flag(findings, tk, "mos_absurd_ungated", "P1", v.mos)
+        # The check above is STRUCTURALLY ONE-SIDED and cannot be fixed by moving
+        # its threshold. mos = intrinsic/price - 1 is unbounded above but floored
+        # at -1, so `abs(mos) > 5` can only ever fire on an INFLATED fair value.
+        # A fair value that COLLAPSES toward zero is just as absurd and was
+        # invisible: found live on 2026-07-27, ADANIGREEN published an ungated
+        # AVOID with intrinsic 3.1 against a price of 1,380 (mos -0.998) — the
+        # model asserting the equity is worth 0.2% of its market price, which is
+        # not a bearish call but a broken number. This direction matters more
+        # since CORR-1, which moves every unearned-growth name DOWNWARD.
+        #
+        # Threshold: intrinsic below 10% of price. A genuine "equity is nearly
+        # worthless" call is defensible, but it must be GATED (LOW CONF / NO
+        # CALL), never published as a bare fair value.
+        if v.mos is not None and v.mos <= -0.90 and not _gated:
+            _flag(findings, tk, "mos_collapsed_ungated", "P1", v.mos)
         if verdict in ("BUY", "ACCUMULATE"):
             if v.mos is not None and v.mos < 0:
                 _flag(findings, tk, "verdict_mos_incoherent", "P1", f"{verdict} @ mos {v.mos:.2f}")
