@@ -221,14 +221,19 @@ _RULES: list[tuple[str, str]] = [
     ("asset management", "NBFC"), ("capital markets", "NBFC"),
     ("non-banking finance", "NBFC"), ("financial services", "NBFC"),
     ("diversified financ", "NBFC"), ("credit", "NBFC"), ("financ", "NBFC"),
+    # Pharma / healthcare — MUST precede the IT block. These rules are
+    # first-match-wins over a lowercased substring, and the generic
+    # ("technology", "IT_SERVICES") swallows "BioTECHNOLOGY & Drugs" — the
+    # vendor's sector string for 31 live pharma names, every one of which was
+    # being valued on IT_SERVICES economics (mature_roic 0.30 vs pharma 0.18,
+    # inflating terminal value). Specific keywords must outrank generic ones.
+    ("pharmaceutical", "PHARMA"), ("pharma", "PHARMA"), ("drug manufacturer", "PHARMA"),
+    ("biotech", "PHARMA"), ("hospital", "PHARMA"), ("healthcare", "PHARMA"),
+    ("health care", "PHARMA"), ("diagnostic", "PHARMA"), ("medical", "PHARMA"),
     # IT
     ("information technology", "IT_SERVICES"), ("it services", "IT_SERVICES"),
     ("it consulting", "IT_SERVICES"), ("software", "IT_SERVICES"),
     ("internet", "IT_SERVICES"), ("technology", "IT_SERVICES"),
-    # Pharma / healthcare
-    ("pharmaceutical", "PHARMA"), ("pharma", "PHARMA"), ("drug manufacturer", "PHARMA"),
-    ("biotech", "PHARMA"), ("hospital", "PHARMA"), ("healthcare", "PHARMA"),
-    ("health care", "PHARMA"), ("diagnostic", "PHARMA"), ("medical", "PHARMA"),
     # Telecom
     ("telecom", "TELECOM"), ("communication", "TELECOM"), ("wireless", "TELECOM"),
     # Utilities / power
