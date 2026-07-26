@@ -48,6 +48,17 @@ jobs:
           python tests/gen_parity_cases.py /tmp/parityCases.json
           python tests/gen_derive_cases.py /tmp/deriveCases.json
 
+      # The valuation book is this product. Until now the calibration bar was a
+      # manual local command with a git-ignored baseline, so nothing stopped a
+      # change from quietly regressing accuracy. This fails the build on either
+      # failure mode the harness detects: a name moving FURTHER from the
+      # independent ground truth (hard break), or overall within-band accuracy
+      # falling below the committed baseline.
+      - name: Valuation calibration gate (no regression, no hard breaks)
+        env:
+          DATABASE_URL: "sqlite:////tmp/ci_calib.db"
+        run: python tests/calibration_check.py --baseline tests/calib_baseline.json
+
   backend-tests-postgres:
     # FIX-26 (TEST-01): prod is Postgres; run the real dialect. Catches the class
     # of bug found only in prod on migration day (pg8000 TLS, sequence resync,
