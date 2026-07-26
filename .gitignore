@@ -47,5 +47,9 @@ backend/
 
 # Calibration harness local artifacts (re-capturable via public API; see tests/calibration_check.py)
 tests/calibration_inputs.json
-tests/calib_baseline.json
 tests/_calib_replay.db
+# NOTE: tests/calib_baseline.json is deliberately NOT ignored. It is the shared
+# regression CONTRACT the CI gate compares against — while it was ignored the
+# "within-band not regressed" bar was a per-developer local file, so CI could
+# not enforce it and two machines could disagree about whether a change
+# regressed the book.
