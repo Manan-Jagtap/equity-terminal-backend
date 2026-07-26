@@ -200,6 +200,28 @@ TICKER_OVERRIDES: dict[str, str] = {
     "ITC": "TOBACCO",
     "GODFRYPHLP": "TOBACCO",
     "VSTIND": "TOBACCO",
+    # CORR-3c: MANUFACTURING is DEFAULT_SECTOR, so every name the classifier
+    # can't place lands there and inherits factory economics (mature_roic 0.15,
+    # 28x exit P/E, capital-intensive reinvestment). 16 of the 42 MANUFACTURING
+    # names in the calibration set are not manufacturers at all. These are the
+    # ones whose real archetype ALREADY EXISTS and is unambiguous from the
+    # business — same pattern as REDINGTON above.
+    #
+    # Logistics / transport infrastructure — the vendor sends the bare string
+    # "Services", which no keyword can place.
+    "ADANIPORTS": "LOGISTICS",   # ports & SEZ
+    "CONCOR": "LOGISTICS",       # container rail
+    "BLUEDART": "LOGISTICS",     # express parcel
+    "JSWINFRA": "LOGISTICS",     # port infrastructure
+    "TVSSCS": "LOGISTICS",       # supply-chain solutions
+    # NOT moved: MHRIL / WONDERLA (vendor "Recreational Activities"). They are
+    # plainly not manufacturers, but CONSUMER_DISC is the RICHER archetype
+    # (mature_roic 0.18 / exit P/E 30 vs 0.15 / 28), and both already value
+    # ABOVE their target band — the move took MHRIL x2.72 -> x3.19 and
+    # WONDERLA x1.85 -> x2.06. Their error is DCF-level (see the CORR-3c note
+    # in VALUATION_CORR1_FOLLOWUP.md: all 42 MANUFACTURING names price off
+    # FCFF DCF and the exit multiple never binds), not the label —
+    # relabelling into a richer archetype would only deepen it.
 }
 
 

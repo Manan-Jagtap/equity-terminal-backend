@@ -104,3 +104,65 @@ derive.js 48/48) since `engines.py`/`sector_params.py` are parity-locked.
 **Harness note:** the replay needs Python ≥3.10 (the app uses PEP-604 unions).
 A local 3.9 venv reports 515 replay errors and a false 0.0% — use a 3.13
 interpreter (CI runs 3.13).
+
+---
+
+## CORR-3c — MANUFACTURING (catch-all archetype), 2026-07-27
+
+**Starting point:** 9/42 within band, the worst archetype in the set.
+
+**What MANUFACTURING actually is.** It is `DEFAULT_SECTOR`, so every name the
+keyword classifier cannot place lands there and inherits factory economics.
+Raw vendor sectors across the 42: Misc. Fabricated Products (8), Services (6),
+Constr.-Supplies & Fixtures (6), Electronic Instr. & Controls (5), Fabricated
+Plastic & Rubber (4), Rental & Leasing (3), Business Services (2), Unknown (2),
+Recreational Activities (2), and one each of Containers & Packaging,
+Diversified, Furniture & Fixtures, Semiconductors. Roughly 38% are not
+manufacturers.
+
+**Shipped:** five per-ticker pins for names whose real archetype already exists
+and is unambiguous — ADANIPORTS, CONCOR, BLUEDART, JSWINFRA, TVSSCS →
+LOGISTICS. Same failure mode as REDINGTON: the vendor sends the bare string
+`"Services"`, which no keyword can place. TVSSCS improves x2.11 → x1.66;
+the rest are flat-to-marginal. **Overall within-band is unchanged at 33.4%** —
+this is a correctness fix (sector labels, peer sets, sector screens), not a
+calibration win, and is reported as such.
+
+**Deliberately NOT shipped:** MHRIL and WONDERLA (vendor "Recreational
+Activities"). They are plainly not manufacturers, but CONSUMER_DISC is the
+*richer* archetype (mature_roic 0.18 / exit P/E 30 vs 0.15 / 28) and both
+already value ABOVE band, so relabelling made them worse: MHRIL x2.72 → x3.19,
+WONDERLA x1.85 → x2.06. Pinned by a test so a later "completion" of the
+reclassification has to be deliberate.
+
+### The real disease is not classification
+
+Reclassification moved within-band by exactly zero, so the cohort was measured
+directly:
+
+- **30 ABOVE / 9 IN BAND / 3 BELOW**, median intrinsic / band-midpoint **x1.77**.
+- **All 42 price off `primary_method = "FCFF DCF"`.** The exit multiple never
+  binds for a single one of them.
+
+That last point was confirmed by sweep, not assumed: exit_pe 28 → 24 → 22 → 20
+→ 18 (with exit_ev_ebitda tracking down) left within-band at **33.4% at every
+step**. MANUFACTURING's "rich 28x P/E" — the thing the comment at
+`sector_params.py:147` blames for commodity-cyclicals falling through — is
+inert for this cohort. Any future fix aimed at the exit multiple here is
+aimed at nothing.
+
+Terminal growth *is* live: tg 0.050 → 0.040 → 0.035 moves MFG 9 → 10 → 11/42
+and overall 33.4% → 33.8% → 34.1%. Beta adds nothing independent of it
+(beta 1.20/tg 0.035 == beta 1.00/tg 0.035).
+
+**That lever was deliberately left alone.** A 3.5% *perpetual nominal* growth
+rate for Indian industrials, against a ~6.5% risk-free and ~10% nominal GDP,
+implies permanent real decline. It would buy +0.7pp on this fixture by
+asserting something untrue about the economy — curve-fitting to the
+calibration set, not a valuation fix.
+
+**Next lever for this cohort (unstarted):** a 74% median level bias across an
+entire cohort, with the terminal multiple inert, points at stage-1 forecast
+growth being extrapolated too aggressively off recent prints. That is the
+CORR-1 disease and is cross-sector, not MANUFACTURING-specific — it should be
+fixed once in the forecast, not per-archetype.
