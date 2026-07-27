@@ -771,6 +771,15 @@ def _build_companies_rows(db):
             "aum": facts.get(K.AUM), "gnpa": facts.get(K.GNPA), "nnpa": facts.get(K.NNPA),
             "crar": facts.get(K.CRAR), "nim": facts.get(K.NIM), "roa": facts.get(K.ROA),
             "price": price,
+            # Market capitalisation, in the same crore unit the company page
+            # shows. Derived here rather than stored: price moves intraday, so a
+            # persisted mcap would be stale the moment a tick lands. Exposed
+            # because the screener previously had NO size field at all — any
+            # "top N by market cap" analysis silently fell back to the API's
+            # default (attractiveness-ranked) order and produced a biased sample
+            # that looked plausible.
+            "mcap": (price * co.shares_outstanding / 1e7)
+                    if (price and co.shares_outstanding) else None,
             # INDEPENDENT model (headline)
             **apply_value_suppression(
                 {"intrinsic": m["intrinsic"], "mos": m["mos"]},
