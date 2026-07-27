@@ -526,6 +526,11 @@ ALT_METHODS = {"Sum-of-the-Parts", "EV + VNB Appraisal", "P/EV Appraisal",
                "Combined-ratio P/B"}
 
 
+# DAT-13: a fair value below 10% of price. Shared by price_gates() (intraday)
+# and recommend() (batch + company detail) so the two can never drift apart.
+_COLLAPSED_MOS = -0.90
+
+
 def price_gates(verdict: str, mos, *, is_financial: bool, is_alt: bool,
                 high_roe: bool) -> str:
     """VAL-03: the PRICE-DEPENDENT plausibility gates in ONE place, applied by
@@ -572,7 +577,7 @@ def price_gates(verdict: str, mos, *, is_financial: bool, is_alt: bool,
     #
     # This is an abstention, not a reversal — the name stays uninvestable, the
     # product just stops publishing a precise fair value it cannot support.
-    if mos <= -0.90:
+    if mos <= _COLLAPSED_MOS:
         return "LOW CONF"
     return verdict
 
@@ -926,6 +931,31 @@ def recommend(co: Dict, a: Dict) -> Dict:
                         "note": f"A ±1% move in the discount rate / growth swings the value "
                                 f"{_swing*100:.0f}% — confidence capped to MEDIUM.",
                         "good": False, "bad": False})
+    # DAT-13: COLLAPSED fair value — intrinsic below 10% of price. The symmetric
+    # twin of the "implausible upside" cliff: a one-size sector model claiming a
+    # name is worth almost nothing is wrong more often than the market, exactly
+    # as one claiming a double is.
+    #
+    # This lives HERE, not only in price_gates(). price_gates is wired into the
+    # intraday MoS refresh alone — neither the batch store nor this function
+    # called it — so a copy of this rule that lives only there is inert on every
+    # path a user actually sees. Measured on the live book 2026-07-27: 62 names
+    # had a fair value under 10% of price and 40 published a bare AVOID (SOBHA
+    # at mos -0.949, plus BHEL, MCX, NYKAA, POLICYBZR, IFCI, LINDEINDIA).
+    #
+    # An abstention, not a reversal: the name stays uninvestable, the product
+    # just stops quoting a precise number it cannot support.
+    if (mos is not None and mos <= _COLLAPSED_MOS
+            and verdict not in ("NO DATA", "NO CALL")):
+        verdict = "LOW CONF"
+        reliable = False
+        _gate = "collapsed_value"
+        reasons.append({"label": "Conviction", "score": 40,
+                        "note": ("Fair value is under 10% of the market price — a model "
+                                 "valuing a business at almost nothing is more often broken "
+                                 "than right (thin equity residual behind heavy debt), so "
+                                 "this is a no-call, not a precise valuation."),
+                        "good": False, "bad": True})
     if _gate == "clean" and verdict in ("LOW CONF", "NO DATA", "NO CALL"):
         _gate = "abstain"
 
