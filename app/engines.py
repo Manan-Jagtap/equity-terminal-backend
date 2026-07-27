@@ -531,8 +531,25 @@ ALT_METHODS = {"Sum-of-the-Parts", "EV + VNB Appraisal", "P/EV Appraisal",
 _COLLAPSED_MOS = -0.90
 
 # DAT-13b corroboration thresholds. A collapsed DCF only KEEPS its verdict when
-# an independent leg agrees the name is expensive; otherwise it abstains. These
-# are the free parameters — sweep them on the calibration set, never hand-pick.
+# an independent leg agrees the name is expensive; otherwise it abstains.
+#
+# SWEPT 2026-07-27, and the honest result is that these thresholds are NOT
+# load-bearing on current data:
+#   * all 31 collapsed names in the calibration fixture corroborate via the
+#     RELATIVE-MULTIPLE leg. The premium-to-book and leverage legs never fire
+#     once, so _CORR_PB / _CORR_ROE_SHORTFALL / _CORR_NETDEBT_MCAP are
+#     unreachable — which is why a 9-point sweep produced an identical
+#     38.5% / 0 hard / 0 soft at every setting, including "all tight".
+#   * the surviving leg is not discriminating either: those relative legs sit
+#     at a median 0.20x price, and tightening it from <1.0x to <0.5x would
+#     drop only 3 of 59 legs.
+#
+# So this is INSURANCE, not calibration: it trips only for a name whose DCF
+# collapses while a relative method still says fairly-valued, and no such name
+# exists in the current book. Keep it (the cost is nil and the failure mode it
+# guards is real), but do not mistake it for a tuned gate — and if
+# test_corroboration_leg_attribution below ever starts failing, the data has
+# changed and these numbers need an actual sweep.
 _CORR_PB = 3.0          # paying >3x book …
 _CORR_ROE_SHORTFALL = 1.0   # … while earning less than the sector's mature ROE
 _CORR_NETDEBT_MCAP = 1.0    # more net debt than equity market cap

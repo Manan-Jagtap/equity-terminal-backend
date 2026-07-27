@@ -89,3 +89,25 @@ def test_engine_still_carries_the_raw_number():
     i = src.index("value_suppressed = True")
     window = src[i:i + 600]
     assert 'mos = None' not in window and 'iv = None' not in window
+
+
+def test_corroboration_leg_attribution_is_documented():
+    """Pins the swept finding: only the relative-multiple leg fires today.
+
+    If premium-to-book or leverage ever starts corroborating a real name, the
+    thresholds beside them stop being unreachable insurance and become live
+    free parameters — at which point they need an actual sweep, not the
+    hand-picked values they carry now. This test is the tripwire for that.
+    """
+    import inspect
+    from app import engines
+    src = inspect.getsource(engines)
+    assert "SWEPT 2026-07-27" in src, (
+        "the sweep finding must stay documented beside the thresholds — "
+        "they look calibrated and are not")
+
+
+def test_thresholds_are_still_the_swept_values():
+    from app import engines
+    assert (engines._CORR_PB, engines._CORR_ROE_SHORTFALL,
+            engines._CORR_NETDEBT_MCAP) == (3.0, 1.0, 1.0)
