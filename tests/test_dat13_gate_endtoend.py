@@ -46,7 +46,8 @@ for tk in ("SOBHA", "PRESTIGE", "MARUTI"):
     r = engines.recommend(d, a)
     s.close()
     out[tk] = {"mos": r.get("mos"), "verdict": r.get("verdict"),
-               "reliable": r.get("reliable")}
+               "reliable": r.get("reliable"),
+               "value_suppressed": bool(r.get("value_suppressed"))}
 print("RESULT " + json.dumps(out))
 """
 
@@ -64,14 +65,22 @@ def live():
     return json.loads(line[0][len("RESULT "):])
 
 
-def test_collapsed_name_abstains_through_recommend(live):
-    """SOBHA: mos ~-0.96. THE regression — it read AVOID in production."""
+def test_collapsed_name_is_handled_through_recommend(live):
+    """SOBHA: mos ~-0.96. THE regression — it read a bare AVOID in production.
+
+    DAT-13b superseded the blanket abstention: a collapsed value whose
+    direction is CORROBORATED keeps its verdict and suppresses the number
+    instead, because 23 such AVOIDs agreed with independent ground truth.
+    Either outcome is acceptable here — what must never happen again is a
+    bare, unflagged call carrying a meaningless point estimate.
+    """
     r = live.get("SOBHA")
     if not r:
         pytest.skip("SOBHA not in fixture")
     assert r["mos"] <= -0.90, "fixture drifted; pick another collapsed name"
-    assert r["verdict"] == "LOW CONF"
-    assert r["reliable"] is False
+    assert r["value_suppressed"] or r["verdict"] == "LOW CONF", (
+        "a collapsed fair value must either suppress the number (corroborated) "
+        "or abstain (uncorroborated) — never publish it bare")
 
 
 @pytest.mark.parametrize("tk", ["PRESTIGE", "MARUTI"])

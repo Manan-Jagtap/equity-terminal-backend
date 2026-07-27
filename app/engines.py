@@ -530,6 +530,49 @@ ALT_METHODS = {"Sum-of-the-Parts", "EV + VNB Appraisal", "P/EV Appraisal",
 # and recommend() (batch + company detail) so the two can never drift apart.
 _COLLAPSED_MOS = -0.90
 
+# DAT-13b corroboration thresholds. A collapsed DCF only KEEPS its verdict when
+# an independent leg agrees the name is expensive; otherwise it abstains. These
+# are the free parameters — sweep them on the calibration set, never hand-pick.
+_CORR_PB = 3.0          # paying >3x book …
+_CORR_ROE_SHORTFALL = 1.0   # … while earning less than the sector's mature ROE
+_CORR_NETDEBT_MCAP = 1.0    # more net debt than equity market cap
+
+
+def collapse_corroborated(co, a, f, components):
+    """Does an INDEPENDENT leg agree this name is expensive?
+
+    A collapsed FCFF DCF (equity a thin residual behind heavy debt) is not a
+    number we publish — but the DIRECTION is often right, and on the 314-name
+    ground-truth set 23 such names had their AVOID corroborated independently.
+    Keeping that call requires evidence that does NOT come from the collapsed
+    model itself; without it we abstain exactly as before.
+
+    Returns (bool, reason_or_None).
+    """
+    price = co.get("price")
+    if not price or price <= 0:
+        return False, None
+    # (a) a RELATIVE multiple leg — computed off forward metrics, independent of
+    #     the DCF's terminal value — also lands below the market price.
+    for c in (components or []):
+        if c.get("method") in ("Exit Multiple", "P/E (sector)"):
+            val = c.get("value")
+            if val is not None and 0 < val < price:
+                return True, f"{c['method']} also values it below the market price"
+    # (b) paying a premium to book for sub-par returns.
+    pb, roe = (f or {}).get("pb"), (f or {}).get("roe")
+    mature_roe = SP.params(a.get("_valuation_sector")).get("mature_roe")
+    if (pb is not None and roe is not None and mature_roe
+            and pb > _CORR_PB and roe < _CORR_ROE_SHORTFALL * mature_roe):
+        return True, (f"{pb:.1f}x book while earning {roe*100:.0f}% ROE "
+                      f"vs the sector's {mature_roe*100:.0f}%")
+    # (c) the leverage that makes equity a thin residual in the first place.
+    nd, sh = co.get("net_debt"), co.get("shares")
+    if nd and sh and nd > _CORR_NETDEBT_MCAP * price * sh:
+        return True, "net debt exceeds the entire equity market value"
+    return False, None
+
+
 
 def price_gates(verdict: str, mos, *, is_financial: bool, is_alt: bool,
                 high_roe: bool) -> str:
@@ -945,21 +988,47 @@ def recommend(co: Dict, a: Dict) -> Dict:
     #
     # An abstention, not a reversal: the name stays uninvestable, the product
     # just stops quoting a precise number it cannot support.
+    value_suppressed = False
     if (mos is not None and mos <= _COLLAPSED_MOS
             and verdict not in ("NO DATA", "NO CALL")):
-        verdict = "LOW CONF"
-        reliable = False
-        _gate = "collapsed_value"
-        reasons.append({"label": "Conviction", "score": 40,
-                        "note": ("Fair value is under 10% of the market price — a model "
-                                 "valuing a business at almost nothing is more often broken "
-                                 "than right (thin equity residual behind heavy debt), so "
-                                 "this is a no-call, not a precise valuation."),
-                        "good": False, "bad": True})
+        _ok, _why = collapse_corroborated(co, a, f, b.get("components"))
+        if _ok:
+            # DAT-13b: KEEP the call, suppress the number. The point estimate is
+            # not meaningful (a 5% EV error moves a thin equity residual by
+            # multiples), but an independent leg agrees on direction, so
+            # abstaining would throw away a corroborated call — 23 of these
+            # agreed with independent ground truth.
+            #
+            # `intrinsic`/`mos` are deliberately NOT nulled here: the batch, the
+            # calibration harness and the integrity sweep all need the raw
+            # figure. Suppression is a PRESENTATION contract, enforced at the
+            # API boundary (see public_valuation()).
+            value_suppressed = True
+            conf = {**conf, "level": "low",
+                    "score": min(conf.get("score") or 0.5, 0.5)} if isinstance(conf, dict) else conf
+            _gate = "value_suppressed"
+            reasons.append({"label": "Fair value", "score": 35,
+                            "note": ("Equity value here is a thin residual behind heavy debt, "
+                                     "so the point estimate is not meaningful and is not "
+                                     f"published. The direction is corroborated — {_why}."),
+                            "good": False, "bad": True})
+        else:
+            # Uncorroborated collapse — nothing independent backs the direction,
+            # so we abstain rather than launder a broken number into a call.
+            verdict = "LOW CONF"
+            reliable = False
+            _gate = "collapsed_value"
+            reasons.append({"label": "Conviction", "score": 40,
+                            "note": ("Fair value is under 10% of the market price and no "
+                                     "independent method corroborates it — a model valuing a "
+                                     "business at almost nothing is more often broken than "
+                                     "right, so this is a no-call."),
+                            "good": False, "bad": True})
     if _gate == "clean" and verdict in ("LOW CONF", "NO DATA", "NO CALL"):
         _gate = "abstain"
 
     return {"valuation": v, "fundamentals": f, "technicals": t, "mos": mos,
+            "value_suppressed": value_suppressed,
             "intrinsic": iv, "confidence": conf, "reliable": reliable,
             "reasons": reasons, "composite": composite, "verdict": verdict,
             # Blended fair value breakdown — the per-method values + weights the

@@ -314,6 +314,28 @@ app.add_middleware(
 )
 
 
+# DAT-13b: a collapsed fair value is a PRESENTATION contract. The engine keeps
+# the raw intrinsic on purpose (the batch writer, the calibration harness and
+# the integrity sweep all need it); every PUBLIC payload must strip it. All
+# surfaces route through this one helper deliberately — the standing risk in
+# this design is a surface that forgets, and a forgotten surface prints a fair
+# value we have already declared meaningless.
+VALUE_SUPPRESSED_GATE = "value_suppressed"
+FAIR_VALUE_NM = "not meaningful"
+
+
+def apply_value_suppression(payload: dict, suppressed) -> dict:
+    """Null the point estimate, keep the verdict. Idempotent; safe on any dict."""
+    if not suppressed:
+        return payload
+    for k in ("intrinsic", "mos", "blended"):
+        if k in payload:
+            payload[k] = None
+    payload["value_suppressed"] = True
+    payload["fair_value_note"] = FAIR_VALUE_NM
+    return payload
+
+
 @app.get("/api/health")
 def health(db: Session = Depends(get_db)):
     """Liveness + the trailing-hour error count + data-freshness signals (bare
@@ -750,7 +772,10 @@ def _build_companies_rows(db):
             "crar": facts.get(K.CRAR), "nim": facts.get(K.NIM), "roa": facts.get(K.ROA),
             "price": price,
             # INDEPENDENT model (headline)
-            "intrinsic": m["intrinsic"], "mos": m["mos"], "verdict": verdict,
+            **apply_value_suppression(
+                {"intrinsic": m["intrinsic"], "mos": m["mos"]},
+                m.get("gate_state") == VALUE_SUPPRESSED_GATE),
+            "verdict": verdict,
             "composite": m["composite"], "reliable": m["reliable"],
             "confidence": m["confidence"], "valuation_sector": m.get("valuation_sector"),
             "roe": m["roe"], "pb": m["pb"], "pe": m["pe"],
@@ -930,7 +955,9 @@ def company_detail(ticker: str, db: Session = Depends(get_db)):
             analyst = None
         from app.corporate_events import for_ticker as _ca_event
         return {"company": _public(data), "assumptions": a,
-                "recommendation": rec, "sensitivity": sens, "analyst": analyst,
+                "recommendation": apply_value_suppression(
+                    rec, rec.get("value_suppressed")),
+                "sensitivity": sens, "analyst": analyst,
                 "sentiment": _safe_sentiment(db, ticker),
                 "corporate_event": _ca_event(ticker)}
     except Exception as e:
@@ -965,7 +992,9 @@ def recompute(ticker: str, override: AssumptionOverride,
     sens = engines.sensitivity(data, a)
     a_public = {k: v for k, v in a.items() if not k.startswith("_")}
     return {"company": _public(data), "assumptions": a_public,
-            "recommendation": rec, "sensitivity": sens,
+            "recommendation": apply_value_suppression(
+                rec, rec.get("value_suppressed")),
+            "sensitivity": sens,
             "analyst": _consensus_block(db, co, data.get("price")),
             "sentiment": _safe_sentiment(db, ticker)}
 
