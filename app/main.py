@@ -778,7 +778,13 @@ def _build_companies_rows(db):
             # "top N by market cap" analysis silently fell back to the API's
             # default (attractiveness-ranked) order and produced a biased sample
             # that looked plausible.
-            "mcap": (price * co.shares_outstanding / 1e7)
+            # NB: shares_outstanding is stored IN CRORE, so price * shares is
+            # already crore — no divisor. The first version divided by 1e7 a
+            # second time and rendered every company as 0 cr. Its test passed
+            # because it back-solved a share count from the target answer and
+            # then checked the arithmetic against itself; the sanity anchor
+            # below uses RELIANCE's REAL, externally-checkable share count.
+            "mcap": (price * co.shares_outstanding)
                     if (price and co.shares_outstanding) else None,
             # INDEPENDENT model (headline)
             **apply_value_suppression(
