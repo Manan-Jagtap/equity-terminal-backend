@@ -146,7 +146,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--write-baseline", metavar="PATH")
     ap.add_argument("--baseline", metavar="PATH", default="tests/calib_baseline.json")
-    ap.add_argument("--fixture", default="tests/calibration_inputs.json")
+    # Default None so load_fixture() picks the COMMITTED .gz — a gitignored raw
+    # json must never silently shadow what CI reads (see _calib_replay docstring).
+    ap.add_argument("--fixture", default=None,
+                    help="explicit fixture path; default = the committed .gz")
     ap.add_argument("--cohort", default="", help="comma-separated tickers to attribute separately")
     args = ap.parse_args()
 

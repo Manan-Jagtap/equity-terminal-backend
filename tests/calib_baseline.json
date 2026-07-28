@@ -3010,6 +3010,13 @@
 "agree_dist": 0,
 "agree_abstain": false
 },
+"RELIANCE": {
+"intrinsic": 1547.7855885327574,
+"verdict": "HOLD",
+"mos": 0.2084522084109599,
+"in_target_band": false,
+"in_agree_band": null
+},
 "RESPONIND": {
 "intrinsic": 48.77154881258742,
 "verdict": "AVOID",
@@ -4004,7 +4011,7 @@
 },
 "summary": {
 "within_band": 120,
-"target_n": 312,
+"target_n": 313,
 "agree_in": 98,
 "agree_n": 198
 }
