@@ -10,17 +10,35 @@ the book, with only 9 AVOIDs. A silent no-op, not a visible error.
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-CRORE = 1e7
+# shares_outstanding is stored IN CRORE, so price * shares is already crore.
 
 
-def _mcap(price, shares):
-    return (price * shares / CRORE) if (price and shares) else None
+def _mcap(price, shares_cr):
+    return (price * shares_cr) if (price and shares_cr) else None
 
 
-def test_unit_is_crore():
-    """SOBHA renders as approximately 14,711 cr at a 1,376 price."""
-    shares = 14711 * CRORE / 1376.0          # implied share count
-    assert round(_mcap(1376.0, shares)) == 14711
+def test_matches_a_real_company_not_a_back_solved_one():
+    """RELIANCE: ~1,350 crore shares — a real, externally verifiable count.
+
+    The FIRST version of this test derived the share count FROM the expected
+    answer and then checked the arithmetic against itself, so it passed while
+    the field rendered every company on the platform as 0 cr. A unit test whose
+    input is solved backwards from its own assertion tests nothing.
+    """
+    mcap_cr = _mcap(1281.0, 1350.0)
+    assert 1_600_000 < mcap_cr < 1_900_000, f"{mcap_cr:,.0f} cr is not RELIANCE-scale"
+
+
+def test_no_spurious_divisor():
+    """Guards the actual defect: a second division into crore."""
+    import inspect
+    from app import main
+    src = inspect.getsource(main)
+    i = src.index('"mcap"')
+    assert "/ 1e7" not in src[i:i + 200], (
+        "shares_outstanding is already in crore — dividing again yields 0 cr "
+        "for every company"
+    )
 
 
 def test_missing_inputs_yield_none_not_zero():
