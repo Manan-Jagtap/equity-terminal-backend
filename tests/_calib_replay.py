@@ -11,18 +11,32 @@ from app import models
 _LOADED = False
 _BETA = {}    # ticker -> frozen calc beta
 
-def load_fixture(path="tests/calibration_inputs.json"):
-    """The raw 3MB json is gitignored; the COMMITTED artefact is the .gz
-    (649kB) so the harness survives a laptop loss. Raw wins when present
-    (fresh captures), else fall back to the committed .gz transparently."""
+def load_fixture(path=None):
+    """The COMMITTED .gz is authoritative; the raw 3MB json is an opt-in override.
+
+    This order is INVERTED from the original. Raw-json-wins was deliberate (it
+    let a fresh capture take effect without re-gzipping), but the failure mode
+    is silent: the raw file is gitignored, so a STALE local copy shadows the
+    committed artefact and local scores diverge from CI with no warning.
+
+    Found 2026-07-28 — a 21 July raw fixture (515 names) was shadowing a .gz
+    that had been updated to 516, and every calibration number quoted that day
+    came from a file CI never sees. Same disease as the git-ignored baseline
+    fixed earlier the same day, in the same subsystem.
+
+    Pass an explicit path for a fresh capture; the default is now what CI reads.
+    """
     import os, gzip
-    if os.path.exists(path):
+    if path:                                   # explicit override, caller's risk
         return json.load(open(path))
-    gz = path + ".gz"
+    gz = "tests/calibration_inputs.json.gz"
     if os.path.exists(gz):
         with gzip.open(gz, "rt") as fh:
             return json.load(fh)
-    raise FileNotFoundError(f"{path}(.gz) — re-capture via the public API "
+    raw = "tests/calibration_inputs.json"
+    if os.path.exists(raw):
+        return json.load(open(raw))
+    raise FileNotFoundError(f"{gz} — re-capture via the public API "
                             f"(see calibration-harness notes)")
 
 def build_db(fixture):
