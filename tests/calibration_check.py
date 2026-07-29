@@ -112,8 +112,17 @@ def run_replay(fixture, universe):
             continue
         try:
             rec = R.score_name(tk, e)
+            # A name whose value comes from an ALT MODEL (conglomerate SOTP,
+            # holdco stakes, insurer P/EV, REIT) emits components with no
+            # `method` — the blend legs are segment marks, not computed legs.
+            # Those names are graded against HAND-SEEDED inputs (see
+            # alt_models.PRESETS_AS_OF), so "is the engine accurate?" and "do we
+            # agree with whoever typed the segment marks?" are different
+            # questions and must not be reported as one number.
+            _c = rec.get("components") or (rec.get("valuation") or {}).get("components") or []
             scores[tk] = {"intrinsic": rec.get("intrinsic"),
-                          "verdict": rec.get("verdict"), "mos": rec.get("mos")}
+                          "verdict": rec.get("verdict"), "mos": rec.get("mos"),
+                          "alt_model": bool(_c) and all(c.get("method") is None for c in _c)}
         except Exception as ex:  # noqa: BLE001 — record, don't abort the sweep
             errored.append((tk, str(ex)[:80]))
     return scores, missing, errored
@@ -130,6 +139,7 @@ def score(scores, targets, agree):
             rec["in_target_band"] = bool(t["lo"] <= iv <= t["hi"])
         else:
             rec["in_target_band"] = None
+        rec["alt_model"] = bool(s.get("alt_model"))
         a = agree.get(tk)
         if a and iv is not None and a["my_lo"] is not None and a["my_hi"] is not None:
             rec["in_agree_band"] = bool(a["my_lo"] <= iv <= a["my_hi"])
@@ -173,6 +183,18 @@ def main():
         print(f"  replay errors: {len(errored)} -> " + "; ".join(f"{t}:{m}" for t, m in errored[:6]))
     pct = 100.0 * len(in_band) / max(1, len(tgt_names))
     print(f"\nWITHIN-BAND (correction targets): {len(in_band)}/{len(tgt_names)} = {pct:.1f}%")
+    # Split computed vs preset-driven. Conflating them hides that ~5% of the
+    # book is scored against hand-seeded segment marks rather than a valuation
+    # the engine derived, so a move in the headline can come from either.
+    _alt = [tk for tk in tgt_names if scored[tk].get("alt_model")]
+    if _alt:
+        _cmp = [tk for tk in tgt_names if tk not in _alt]
+        _ain = [tk for tk in _alt if scored[tk]["in_target_band"]]
+        _cin = [tk for tk in _cmp if scored[tk]["in_target_band"]]
+        print(f"   computed      {len(_cin)}/{len(_cmp)} = {_pct(len(_cin), len(_cmp)):.1f}%")
+        print(f"   preset-driven {len(_ain)}/{len(_alt)} = {_pct(len(_ain), len(_alt)):.1f}%"
+              f"  (alt models — hand-seeded inputs: {', '.join(sorted(_alt)[:8])}"
+              f"{' …' if len(_alt) > 8 else ''})")
     print(f"AGREE in-band (do-not-break set):  {len(in_agr)}/{len(agr_names)}")
 
     if args.write_baseline:
