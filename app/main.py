@@ -322,7 +322,13 @@ app.add_middleware(
 # surfaces route through this one helper deliberately — the standing risk in
 # this design is a surface that forgets, and a forgotten surface prints a fair
 # value we have already declared meaningless.
-VALUE_SUPPRESSED_GATE = "value_suppressed"
+# Gates that mean "the engine withheld its point estimate". The screener reads
+# the PERSISTED gate_state, so every gate that sets value_suppressed=True in
+# engines.recommend() must appear here or the screener keeps showing a number
+# the company page has already withdrawn — the stored-vs-live split again.
+# test_suppressing_gates_contract pins this against engines.py.
+SUPPRESSING_GATES = frozenset({"value_suppressed", "high_dispersion"})
+VALUE_SUPPRESSED_GATE = "value_suppressed"   # kept: DAT-13b's own gate name
 FAIR_VALUE_NM = "not meaningful"
 
 
@@ -791,7 +797,7 @@ def _build_companies_rows(db):
             # INDEPENDENT model (headline)
             **apply_value_suppression(
                 {"intrinsic": m["intrinsic"], "mos": m["mos"]},
-                m.get("gate_state") == VALUE_SUPPRESSED_GATE),
+                m.get("gate_state") in SUPPRESSING_GATES),
             "verdict": verdict,
             "composite": m["composite"], "reliable": m["reliable"],
             "confidence": m["confidence"], "valuation_sector": m.get("valuation_sector"),
