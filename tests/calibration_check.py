@@ -181,20 +181,31 @@ def main():
               + (" ..." if len(missing) > 12 else ""))
     if errored:
         print(f"  replay errors: {len(errored)} -> " + "; ".join(f"{t}:{m}" for t, m in errored[:6]))
-    pct = 100.0 * len(in_band) / max(1, len(tgt_names))
-    print(f"\nWITHIN-BAND (correction targets): {len(in_band)}/{len(tgt_names)} = {pct:.1f}%")
+    # THE CLAIM is computed valuations only. Names driven by an ALT MODEL
+    # (conglomerate SOTP, holdco stakes, insurer P/EV, REIT) are scored against
+    # HAND-SEEDED segment marks from alt_models.py, so their hit rate measures
+    # agreement with the seed author, not engine accuracy. Blending the two
+    # produced a single figure that could move for either reason, with nothing
+    # to say which — and the two cohorts are materially different (39.1% vs
+    # 21.4% when first split on 2026-07-28). They are reported side by side and
+    # only the computed figure is claimed or gated.
+    _alt = {tk for tk in tgt_names if scored[tk].get("alt_model")}
+    _cmp = [tk for tk in tgt_names if tk not in _alt]
+    in_band_cmp = [tk for tk in _cmp if scored[tk]["in_target_band"]]
+    pct = _pct(len(in_band_cmp), len(_cmp))
+    print(f"\nWITHIN-BAND (computed valuations — THE CLAIM): "
+          f"{len(in_band_cmp)}/{len(_cmp)} = {pct:.1f}%")
+    if _alt:
+        _ain = [tk for tk in _alt if scored[tk]["in_target_band"]]
+        print(f"   tracked, NOT claimed: preset-driven {len(_ain)}/{len(_alt)} = "
+              f"{_pct(len(_ain), len(_alt)):.1f}%  (alt models, hand-seeded inputs: "
+              f"{', '.join(sorted(_alt)[:8])}{' …' if len(_alt) > 8 else ''})")
+        print(f"   blended (for reference only): {len(in_band)}/{len(tgt_names)} = "
+              f"{_pct(len(in_band), len(tgt_names)):.1f}%")
     # Split computed vs preset-driven. Conflating them hides that ~5% of the
     # book is scored against hand-seeded segment marks rather than a valuation
     # the engine derived, so a move in the headline can come from either.
-    _alt = [tk for tk in tgt_names if scored[tk].get("alt_model")]
-    if _alt:
-        _cmp = [tk for tk in tgt_names if tk not in _alt]
-        _ain = [tk for tk in _alt if scored[tk]["in_target_band"]]
-        _cin = [tk for tk in _cmp if scored[tk]["in_target_band"]]
-        print(f"   computed      {len(_cin)}/{len(_cmp)} = {_pct(len(_cin), len(_cmp)):.1f}%")
-        print(f"   preset-driven {len(_ain)}/{len(_alt)} = {_pct(len(_ain), len(_alt)):.1f}%"
-              f"  (alt models — hand-seeded inputs: {', '.join(sorted(_alt)[:8])}"
-              f"{' …' if len(_alt) > 8 else ''})")
+
     print(f"AGREE in-band (do-not-break set):  {len(in_agr)}/{len(agr_names)}")
 
     if args.write_baseline:
@@ -231,7 +242,11 @@ def main():
     hard_breaks.sort(key=lambda x: -x[2])
     soft_breaks.sort()
 
-    b_pct = 100.0 * len(b_in_band) / max(1, len(tgt_names))
+    # Gate the CLAIM. Alt membership is a property of the current engine, so the
+    # same ticker set filters both sides — a baseline written before the split
+    # has no alt_model flag of its own and must not be trusted for it.
+    b_in_band_cmp = [tk for tk in b_in_band if tk not in _alt]
+    b_pct = _pct(len(b_in_band_cmp), len(_cmp))
     print(f"\nvs baseline: within-band {b_pct:.1f}% -> {pct:.1f}%  "
           f"(+{len(gained_band)} / -{len(lost_band)})")
 
