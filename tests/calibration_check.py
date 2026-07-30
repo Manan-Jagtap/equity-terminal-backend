@@ -181,6 +181,29 @@ def main():
               + (" ..." if len(missing) > 12 else ""))
     if errored:
         print(f"  replay errors: {len(errored)} -> " + "; ".join(f"{t}:{m}" for t, m in errored[:6]))
+    # Targets that ARE in the fixture and still do not score. Three distinct
+    # causes, only one of which is ever a bug — printed together because it took
+    # five runs on 2026-07-28 to separate them, and the denominator shrinks
+    # silently either way:
+    #   * band  — target_lo/hi blank: a DELIBERATE "uncomparable" abstention by
+    #             the ground-truth reviewer (BHEL, MINDSPACE, NAUKRI). Correct.
+    #   * value — the replay produced no intrinsic. Currently a negative primary
+    #             DCF, which blended_value() refuses to blend (AWFIS,
+    #             GODREJPROP). Defensible, but it removes them from the claim.
+    #   * both  — no band AND no value.
+    _unscoreable = []
+    for tk in targets:
+        if tk not in scored:
+            continue                            # already reported as a gap
+        t = targets[tk]
+        no_band = t["lo"] is None or t["hi"] is None
+        no_val = scored[tk].get("intrinsic") is None
+        if no_band or no_val:
+            _unscoreable.append((tk, "both" if (no_band and no_val)
+                                 else "band" if no_band else "value"))
+    if _unscoreable:
+        print(f"  targets present but UNSCOREABLE: {len(_unscoreable)} -> "
+              + ", ".join(f"{tk}({why})" for tk, why in sorted(_unscoreable)))
     # THE CLAIM is computed valuations only. Names driven by an ALT MODEL
     # (conglomerate SOTP, holdco stakes, insurer P/EV, REIT) are scored against
     # HAND-SEEDED segment marks from alt_models.py, so their hit rate measures
