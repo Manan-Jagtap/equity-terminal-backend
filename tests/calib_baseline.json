@@ -437,11 +437,11 @@
 "in_agree_band": null
 },
 "AWFIS": {
-"intrinsic": null,
-"verdict": "NO DATA",
-"mos": null,
+"intrinsic": 258.2795820168068,
+"verdict": "LOW CONF",
+"mos": -0.1030401735828901,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": null
 },
 "AWL": {
@@ -659,11 +659,11 @@
 "agree_abstain": false
 },
 "BHARTIARTL": {
-"intrinsic": null,
-"verdict": "NO DATA",
-"mos": null,
+"intrinsic": 1854.3884982059624,
+"verdict": "HOLD",
+"mos": -0.02672098976226189,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": true,
 "in_agree_band": null
 },
 "BHEL": {
@@ -1493,11 +1493,11 @@
 "in_agree_band": null
 },
 "GODREJPROP": {
-"intrinsic": null,
-"verdict": "NO DATA",
-"mos": null,
+"intrinsic": 831.6943057390725,
+"verdict": "LOW CONF",
+"mos": -0.6050084034293918,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": null
 },
 "GOLDIAM": {
@@ -1927,11 +1927,11 @@
 "in_agree_band": null
 },
 "INFY": {
-"intrinsic": 1518.9341184960272,
+"intrinsic": 1551.4807778506326,
 "verdict": "BUY",
-"mos": 0.38525683401370464,
+"mos": 0.4362902961031592,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": true,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -4534,8 +4534,8 @@
 }
 },
 "summary": {
-"within_band": 120,
-"target_n": 313,
+"within_band": 122,
+"target_n": 317,
 "agree_in": 98,
 "agree_n": 198
 }
