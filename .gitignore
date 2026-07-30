@@ -53,3 +53,8 @@ tests/_calib_replay.db
 # "within-band not regressed" bar was a per-developer local file, so CI could
 # not enforce it and two machines could disagree about whether a change
 # regressed the book.
+
+# Agent worktrees. `git add -A` from the repo root otherwise commits these as
+# embedded-repo gitlinks — three landed on main in PR #103 that way. They are
+# scratch checkouts, never part of the source tree.
+.claude/worktrees/
