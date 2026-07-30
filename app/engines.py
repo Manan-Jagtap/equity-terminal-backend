@@ -1018,6 +1018,57 @@ def recommend(co: Dict, a: Dict) -> Dict:
                         "note": f"A ±1% move in the discount rate / growth swings the value "
                                 f"{_swing*100:.0f}% — confidence capped to MEDIUM.",
                         "good": False, "bad": False})
+    value_suppressed = False
+    # DAT-15: SYMMETRIC dispersion gate — a PRESENTATION abstention, not a call.
+    #
+    # VAL-04 above only defends the BUY side: when the engine's own methods
+    # disagree it refuses a confident BUY, but it still PUBLISHES a precise fair
+    # value on the AVOID side. Ground truth 2026-07-30 shows that number is the
+    # unreliable half. Ten mid-caps were valued independently from financials
+    # alone (blind to the engine, each band cross-checked by an adversarial
+    # second pass); the engine's intrinsic sat 42–80% BELOW every band —
+    # DATAPATTNS 531 vs 2330–2600, KAYNES 440 vs 2150–2700, HEG 80 vs 250–300.
+    # The DIRECTION was right every time (price is above both), the MAGNITUDE
+    # was wrong by 2–6×. So we keep the call and withhold the number: the exact
+    # DAT-13b contract ("keep the call, suppress the number"), applied to a
+    # different cause of an unsupportable point estimate.
+    #
+    # Threshold 4.0, NOT the BUY side's 2.5, and it is not a free parameter:
+    # measured on the book, 2.5 fires on 47% of names at 19.5% precision (no
+    # better than the base rate); 3.0 trades 18 genuinely-below-band names
+    # against 18 in-band casualties; 4.0 fires on 74/504 (15%), of which 50 are
+    # direction-unanimous, and inside the ground-truth set suppresses 11 truly
+    # below-band names against 3 that were in band — a 3.7:1 favourable trade;
+    # 5.0 costs nothing but misses DATAPATTNS, OLECTRA and SANSERA.
+    #
+    # Two deliberate restrictions:
+    #   * unanimity — every WEIGHTED leg must itself sit below price. If the
+    #     legs straddle the price the direction isn't corroborated either, and
+    #     the honest answer there is a no-call (VAL-04's job), not a silent
+    #     withhold. All nine mid-caps are unanimous, so no correct AVOID is lost.
+    #   * `intrinsic`/`mos` stay RAW here, exactly as in DAT-13b — the batch,
+    #     the calibration harness and the integrity sweep all need the figure.
+    #     Nulling happens once, at the API boundary (apply_value_suppression).
+    #
+    # This is an HONESTY fix, explicitly NOT a level fix. The level error lives
+    # in the DCF (CORR-1's 0.10 growth ceiling binds on KAYNES/SYRMA/SANSERA;
+    # reinvest_rate 0.75 leaves FCFF at 25% of NOPAT), and must be fixed there
+    # under the harness — not smuggled in through the blend.
+    if (not alt and _disp is not None and _disp > 4.0
+            and verdict not in ("NO DATA", "NO CALL") and co.get("price")):
+        _wv = [c["value"] for c in (b.get("components") or [])
+               if c.get("value") and c["value"] > 0 and (c.get("weight") or 0) > 0]
+        if _wv and max(_wv) < co["price"]:          # every weighted leg agrees on direction
+            value_suppressed = True
+            _gate = "high_dispersion"
+            conf = ({**conf, "level": "low", "score": min(conf.get("score") or 0.5, 0.5)}
+                    if isinstance(conf, dict) else conf)
+            reasons.append({"label": "Fair value", "score": 35,
+                            "note": (f"The engine's own methods span {_disp:.1f}× for this name, so the "
+                                     "point estimate is not meaningful and is not published. Every "
+                                     "method still sits below the market price, so the direction "
+                                     "stands."), "good": False, "bad": True})
+
     # DAT-13: COLLAPSED fair value — intrinsic below 10% of price. The symmetric
     # twin of the "implausible upside" cliff: a one-size sector model claiming a
     # name is worth almost nothing is wrong more often than the market, exactly
@@ -1032,7 +1083,8 @@ def recommend(co: Dict, a: Dict) -> Dict:
     #
     # An abstention, not a reversal: the name stays uninvestable, the product
     # just stops quoting a precise number it cannot support.
-    value_suppressed = False
+    # (`value_suppressed` is initialised above DAT-15, which can already have
+    # set it — DAT-13 must never reset it back to False.)
     if (mos is not None and mos <= _COLLAPSED_MOS
             and verdict not in ("NO DATA", "NO CALL")):
         _ok, _why = collapse_corroborated(co, a, f, b.get("components"))
