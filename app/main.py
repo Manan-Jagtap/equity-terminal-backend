@@ -12,6 +12,8 @@ import time
 from collections import defaultdict, deque
 
 log = logging.getLogger("equity.main")
+from app.log_redact import install as _install_redaction  # SEC-14
+_install_redaction()
 
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware

@@ -28,6 +28,8 @@ import schedule, time, os, sys, logging
 sys.path.insert(0, os.path.dirname(__file__))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+from app.log_redact import install as _install_redaction  # SEC-14
+_install_redaction()
 log = logging.getLogger(__name__)
 from app.job_telemetry import record_job_error  # FIX-06: swallowed job failures -> errors_1h
 
