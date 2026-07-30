@@ -668,6 +668,33 @@ def recommend(co: Dict, a: Dict) -> Dict:
         alt = None
     method = alt["method"] if alt else b.get("primary_method")
 
+    # DAT-14: a negative primary DCF zeroes `iv` above, and until now recovery
+    # depended ENTIRELY on whether the name happened to have an alt_models
+    # preset. Confirmed 2026-07-28: of the 4 names universe-wide with a negative
+    # primary, ADANIENT and GODREJIND published verdicts purely because someone
+    # wrote them a SOTP entry, while AWFIS and GODREJPROP abstained because
+    # nobody had. The operative rule was "negative DCF AND no preset -> NO DATA",
+    # which is preset coverage masquerading as judgement.
+    #
+    # The override comment above states the real intent — dedicated models "for
+    # names the single-engine blend can't value" — and a negative-FCFF realty
+    # developer is exactly such a name. It just never got a preset. So the blend
+    # falls back to its own RELATIVE legs, which computed fine all along.
+    #
+    # Deliberately conservative: needs >= 2 positive relative legs (the existing
+    # min-2 triangulation discipline, so one stray multiple can't carry a name),
+    # and the result is forced to LOW CONF below — it is a no-call with a
+    # reference number, never a published conviction.
+    relative_only = False
+    if iv is None:
+        _rel = [c.get("value") for c in (b.get("components") or [])
+                if c.get("method") in ("Exit Multiple", "P/E (sector)")
+                and c.get("value") is not None and c.get("value") > 0]
+        if len(_rel) >= 2:
+            iv = sum(_rel) / len(_rel)
+            relative_only = True
+            method = "Relative multiples (primary DCF unusable)"
+
     # A synthetic (sentinel) price must never produce a margin of safety — the
     # ₹1.0 placeholder would fabricate an absurd +N×10⁴% MoS. No real price →
     # mos None → verdict NO DATA, which is the honest state.
@@ -1041,6 +1068,20 @@ def recommend(co: Dict, a: Dict) -> Dict:
                                      "business at almost nothing is more often broken than "
                                      "right, so this is a no-call."),
                             "good": False, "bad": True})
+    # DAT-14: relative-only values are a REFERENCE, never a conviction. Forced
+    # to LOW CONF regardless of what the composite scored, because the primary
+    # model failed outright for this name.
+    if relative_only and verdict not in ("NO DATA", "NO CALL"):
+        verdict = "LOW CONF"
+        reliable = False
+        _gate = "relative_only"
+        conf = ({**conf, "level": "low", "score": min(conf.get("score") or 0.5, 0.5)}
+                if isinstance(conf, dict) else conf)
+        reasons.append({"label": "Fair value", "score": 35,
+                        "note": ("The primary DCF is unusable for this name (negative free "
+                                 "cash flow), so this figure comes only from relative "
+                                 "multiples. Treated as a reference range, not a call."),
+                        "good": False, "bad": True})
     if _gate == "clean" and verdict in ("LOW CONF", "NO DATA", "NO CALL"):
         _gate = "abstain"
 
