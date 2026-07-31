@@ -60,3 +60,75 @@ Any band this codebase can compute is a band derived from this codebase. That
 is the circularity that makes the exercise worthless — it would move the
 headline up while destroying its meaning. This is research work; the engine
 cannot grade its own homework.
+
+## Reproducibility of the audit pass (measured 2026-07-31)
+
+The batch-4 audits were re-run against the *same* pass-1 bands. Nineteen names
+have two runs, which makes the audit's own reliability measurable rather than
+assumed. It splits sharply in two:
+
+| output | reproducible? | evidence |
+|---|---|---|
+| band endpoints | **yes** | median midpoint drift **3.6%**, max 12.1%, median band overlap 82% |
+| direction vs the engine | **yes** | 18 of 19 unchanged; only BRITANNIA moved (`below` → a marginal `hit`) |
+| `sound` / `methods_truly_independent` | **no** | flipped on **9 of 19** |
+
+The categorical self-assessment is close to a coin flip on borderline names,
+while the numbers it produces are stable. That matters because the original
+admission gate rode entirely on `methods_truly_independent` — the one output
+that does not reproduce. Two committed rows (AXISBANK, CIPLA) had been admitted
+on a single favourable roll and were removed; two names dropped in batch 4
+(DABUR, EICHERMOT) would have been admitted on a second roll.
+
+### The rule that replaced it
+
+**Union of concerns.** A name is admitted only if *no* audit run flagged
+non-independence, and the band is the envelope of every audit run intersected
+with pass 1.
+
+This is deliberately **monotone: it can only ever remove rows, never add one
+back on a favourable re-roll.** Re-rolling until a name passes is precisely how
+a benchmark gets quietly tuned toward the thing it is meant to grade. A false
+"independent" now requires *both* runs to miss the dependence, instead of one
+lucky draw.
+
+### What this does not undermine
+
+The level-bias conclusion is unaffected: it rests on the direction of the
+engine against the band, which reproduced 18 times out of 19. Large caps remain
+mixed (4 above, 4 hits, 11 below across the re-run set) against the mid-caps'
+10-below-out-of-10 — so the bias stays **cohort-specific**, and the blend clamp
+stays the prime suspect.
+
+### Standing requirement
+
+**Any new ground-truth row needs two audit passes, not one.** A single pass
+cannot distinguish a genuine independence defect from noise, and the whole
+value of this file is that its rows were not selected for agreeing with
+anything.
+
+### Disclosure: this correction moved the headline UP, and why that is not a win
+
+Within-band went **37.3% → 37.6%** after the correction. A method change that
+flatters the engine deserves suspicion, so here is the whole of it:
+
+| name | engine IV | change | effect |
+|---|---|---|---|
+| AXISBANK | 1,259.4 | row removed (band was 1,020–1,200) | removes a **miss** |
+| CIPLA | 1,152.1 | row removed (band was 1,050–1,210) | removes a **hit** |
+| BRITANNIA | 3,277.3 | band 3,300–3,850 → 3,250–3,900 | miss → **hit** |
+
+Net +1 in-band on a denominator two smaller. **None of it is the engine getting
+better** — it is two rows leaving and one band widening.
+
+The BRITANNIA hit is worth naming explicitly: it clears the new floor by **₹27
+on ₹3,250**, under 1%. Counted as a hit by the rule, it is a near-miss in
+substance, and it would flip back on any band redraw.
+
+The envelope rule widens bands, and wider bands are easier to land inside — the
+rule is conservative about *admitting rows* but permissive about *band width*.
+That asymmetry is deliberate: when two competent auditors say 3,300–3,850 and
+2,900–3,900, the honest band spans both. Reporting the narrower one would be
+false precision in the benchmark itself. But it does mean **within-band is not
+comparable across a method change**, and the 37.6% should not be read as
+progress against the 37.3%.
