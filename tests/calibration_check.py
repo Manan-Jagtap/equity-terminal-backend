@@ -229,6 +229,33 @@ def main():
     # book is scored against hand-seeded segment marks rather than a valuation
     # the engine derived, so a move in the headline can come from either.
 
+    # VINTAGE SPLIT — the targets are not one ruler. Measured 2026-07-31 on the
+    # 11 names covered by BOTH vintages, the 20-Jul whole-universe cross-check
+    # puts the median large cap at 0.42x its market price (ULTRACEMCO band
+    # 1,685-2,692 against a price of 11,850) while fresh multi-agent work puts
+    # it at 0.77x; 8 of the 11 bands are DISJOINT, median ratio 1.80x. Those are
+    # not two estimates of one quantity, so a single blended headline is not
+    # meaningful. The engine scores 38.9% against the old tranche and 15.8%
+    # against the fresh one — and the fresh tranche is the more careful of the
+    # two (two independent legs + two adversarial audit passes, none of which
+    # saw the engine's answer). Print both; never quote the blend alone.
+    def _vintage(tk):
+        c = targets[tk].get("cause") or ""
+        return ("FRESH" if ("independent 2026-07-3" in c
+                            or "independent 2026-07-28" in c) else "OLD")
+    _v = {"FRESH": [], "OLD": []}
+    for tk in _cmp:
+        _v[_vintage(tk)].append(tk)
+    print("   by target VINTAGE (different rulers — see comment):")
+    for k in ("OLD", "FRESH"):
+        b = _v[k]
+        if not b:
+            continue
+        h = [tk for tk in b if scored[tk]["in_target_band"]]
+        note = ("  <- 20 Jul cross-check; median band 0.42x market price"
+                if k == "OLD" else "  <- 2 independent legs + 2 audit passes")
+        print(f"     {k:<5} {len(h):>3}/{len(b):<3} = {_pct(len(h), len(b)):5.1f}%{note}")
+
     print(f"AGREE in-band (do-not-break set):  {len(in_agr)}/{len(agr_names)}")
 
     if args.write_baseline:
