@@ -132,3 +132,58 @@ That asymmetry is deliberate: when two competent auditors say 3,300–3,850 and
 false precision in the benchmark itself. But it does mean **within-band is not
 comparable across a method change**, and the 37.6% should not be read as
 progress against the 37.3%.
+
+## The targets file is TWO RULERS, not one (measured 2026-07-31)
+
+Eleven names are now covered by both the 20-Jul whole-universe cross-check and
+fresh multi-agent work. They do not agree, and not within noise:
+
+| | 20 Jul tranche | fresh work |
+|---|---|---|
+| band midpoint / market price, median | **0.42x** | **0.77x** |
+| bands DISJOINT between vintages | **8 of 11** | |
+| fresh/old midpoint ratio | median **1.80x**, max 4.46x (ULTRACEMCO) | |
+
+ULTRACEMCO carries a 20-Jul band of **1,685–2,692 against a price of 11,850**;
+TATASTEEL 25–42 against 187; JSWSTEEL 121–194 against 1,250. A claim that the
+median large cap is worth 42% of its market price is not a bearish view, it is
+a different quantity — most likely a no-growth earnings-power value, which is
+legitimately a fraction of price for a compounder but is **not** what the engine
+computes and therefore not a valid target for it.
+
+### Effect on the headline
+
+```
+OLD    117/301 = 38.9%
+FRESH    3/ 19 = 15.8%
+TOTAL  120/320 = 37.5%
+```
+
+316 of 341 rows are the old tranche, so **the 37.5% headline is largely a
+measurement against the weaker ruler.** Against the more careful tranche — two
+independent legs plus two adversarial audit passes, none of which saw the
+engine's answer — the engine lands in band **15.8%** of the time.
+
+The split now prints on every run of `tests/calibration_check.py`, so this
+cannot quietly revert to a single blended number.
+
+### Consequence for the blend redesign
+
+**Validate against the FRESH tranche only.** Tuning the blend to the mixed file
+would optimise the engine toward a ruler that says the median large cap is worth
+0.42x its price — it would look like progress and be the opposite.
+
+The fresh tranche also reconfirms the cohort finding it was built to test:
+
+- large caps: 5 below / 2 above / 3 in band — **mixed**
+- mid- and small-caps: **9 of 9 below**
+
+So the level bias is cohort-specific, and the blend clamp remains the suspect.
+
+### Honest note on the ≥50% audit-overlap gate
+
+TVSMOTOR was excluded because its two audit runs overlapped only 33%, against a
+54–100% range across the 19 reproducibility names. That threshold was chosen
+**after** seeing the distribution, which is post-hoc. It is applied uniformly
+(every retained row clears it) rather than as a one-off exclusion, and it is
+recorded here so the choice is visible rather than buried.
