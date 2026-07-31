@@ -301,7 +301,7 @@ def _derive_nonfinancial(statements, vs):
     # One-directional by design (the VAL-02 discipline): this only ever LOWERS an
     # unearned rate — it never raises growth for anyone, so no valuation is
     # inflated by it.
-    q_hi = _growth_ceiling(roic_used, p.get("mature_roic"))
+    q_hi = _growth_ceiling(company_roic, p.get("mature_roic"))
     if rev_growth > q_hi:
         rev_growth = q_hi
         drivers["rev_growth"] += f" → capped {_pct(q_hi)} (ROIC-earned growth)"
@@ -573,16 +573,34 @@ _GROWTH_HI_EARNED = 0.18   # out-earns its sector's mature ROIC → unchanged
 _GROWTH_HI_BASE = 0.10     # ≈ India's long-run NOMINAL GDP growth
 
 
-def _growth_ceiling(roic_used: float, mature_roic: float | None) -> float:
+def _growth_ceiling(company_roic: float | None, mature_roic: float | None) -> float:
     """Max defensible near-term growth, earned from return-on-capital quality.
 
     A business that does not out-earn its sector's mature ROIC has shown no
     return advantage to defend growth with, so it is not assumed to outgrow
     the economy it operates in. Names at or above the threshold are untouched.
+
+    Keys off the MEASURED company ROIC, never `roic_used`. `roic_used` is
+    `_clamp(0.6*own + 0.4*sector, sector, 0.50)` — floored at the sector value,
+    so `roic_used / mature_roic` is incapable of reading below 1.0. Feeding it
+    here broke the test in two ways, both one-directional (they only ever
+    DEPRESS a valuation), found 2026-07-31 on the fresh ground-truth tranche:
+
+      * a name whose own ROIC could not be COMPUTED fell back to the sector
+        value, scored exactly 1.00, and was capped at 10% — absence of evidence
+        read as evidence of failure. 41 names in the 2026-07-31 fixture.
+      * the 0.6/0.4 blend meant a name needed own ROIC >= 1.167x sector to clear
+        a threshold documented as 1.1x, so 21 names that genuinely DO out-earn
+        their sector were capped anyway.
+
+    Together that is 62 of the 264 capped names (23%) capped without having
+    shown the return shortfall the cap exists to punish. Unmeasured now keeps
+    the full ceiling: this rule fires on demonstrated under-earning, not on
+    missing data.
     """
-    if not mature_roic:
+    if not mature_roic or not company_roic:
         return _GROWTH_HI_EARNED
-    return (_GROWTH_HI_EARNED if roic_used / mature_roic >= _GROWTH_ROIC_Q
+    return (_GROWTH_HI_EARNED if company_roic / mature_roic >= _GROWTH_ROIC_Q
             else _GROWTH_HI_BASE)
 
 
