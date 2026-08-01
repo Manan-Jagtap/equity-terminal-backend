@@ -515,7 +515,7 @@
 "verdict": "LOW CONF",
 "mos": -0.5240378953737138,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": null,
 "agree_abstain": true
@@ -2553,7 +2553,7 @@
 "verdict": "HOLD",
 "mos": 0.013532044682679609,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "LTTS": {
@@ -3707,7 +3707,7 @@
 "verdict": "AVOID",
 "mos": -0.36082044372594335,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": true,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3717,7 +3717,7 @@
 "verdict": "LOW CONF",
 "mos": -0.7172799296091861,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "SJVN": {
@@ -3785,7 +3785,7 @@
 "verdict": "AVOID",
 "mos": -0.7444517841251455,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3965,7 +3965,7 @@
 "verdict": "AVOID",
 "mos": -0.7264709499021513,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -4566,8 +4566,8 @@
 }
 },
 "summary": {
-"within_band": 116,
-"target_n": 336,
+"within_band": 115,
+"target_n": 340,
 "agree_in": 96,
 "agree_n": 198
 }
