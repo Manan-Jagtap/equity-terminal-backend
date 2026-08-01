@@ -72,13 +72,22 @@ def agree_distance(eng_verdict, my_verdict):
 
 
 def load_targets():
-    """ticker -> {lo, hi, target_verdict, archetype, cause}"""
+    """ticker -> {lo, hi, target_verdict, archetype, cause, vintage}"""
     out = {}
     for r in csv.DictReader(open(TARGETS_CSV)):
+        # `vintage` is an EXPLICIT column. It used to be inferred by matching the
+        # cause string against a literal date ("independent 2026-07-3"), which
+        # silently misfiled every row added on a later date — 17 fresh rows read
+        # as OLD on 2026-08-01 and the split reported 3/19 instead of 20/36.
+        # A derived field that can be wrong without failing is worse than no
+        # field; the column is written at admission time by whoever adds the row.
+        vintage = (r.get("vintage") or "").strip().upper()
+        if vintage not in ("FRESH", "OLD"):
+            vintage = "FRESH" if (r.get("cause") or "").startswith("independent ") else "OLD"
         out[r["ticker"].upper()] = {
             "lo": _f(r["target_lo"]), "hi": _f(r["target_hi"]),
             "target_verdict": r["target_verdict"], "archetype": r["archetype"],
-            "cause": r.get("cause", ""),
+            "cause": r.get("cause", ""), "vintage": vintage,
         }
     return out
 
@@ -239,13 +248,9 @@ def main():
     # against the fresh one — and the fresh tranche is the more careful of the
     # two (two independent legs + two adversarial audit passes, none of which
     # saw the engine's answer). Print both; never quote the blend alone.
-    def _vintage(tk):
-        c = targets[tk].get("cause") or ""
-        return ("FRESH" if ("independent 2026-07-3" in c
-                            or "independent 2026-07-28" in c) else "OLD")
     _v = {"FRESH": [], "OLD": []}
     for tk in _cmp:
-        _v[_vintage(tk)].append(tk)
+        _v[targets[tk]["vintage"]].append(tk)
     print("   by target VINTAGE (different rulers — see comment):")
     for k in ("OLD", "FRESH"):
         b = _v[k]
@@ -271,6 +276,30 @@ def main():
         print(f"\nNO BASELINE at {args.baseline}; run --write-baseline first.")
         return 2
     base = json.load(open(args.baseline))["scored"]
+    # RE-SCORE the baseline's intrinsics against the CURRENT bands rather than
+    # trusting the `in_target_band` it stored. That stored flag was computed
+    # against whatever the bands were the day the baseline was written, so
+    # ANY target edit read as an engine regression: replacing 16 stale targets
+    # with better ones on 2026-08-01 tripped "WITHIN-BAND REGRESSED 37.4% ->
+    # 35.2%" while the engine had not changed by one rupee.
+    #
+    # The gate exists to catch the ENGINE getting worse. Holding the bands fixed
+    # on both sides is what makes the comparison mean that — otherwise improving
+    # the benchmark is punished, which is exactly backwards, and the cheapest way
+    # to pass the gate becomes "don't fix the targets".
+    _rescored = 0
+    for tk, r in base.items():
+        t = targets.get(tk)
+        iv = r.get("intrinsic")
+        if t and iv is not None and t.get("lo") is not None and t.get("hi") is not None:
+            was = r.get("in_target_band")
+            now = bool(t["lo"] <= iv <= t["hi"])
+            if was != now:
+                _rescored += 1
+            r["in_target_band"] = now
+    if _rescored:
+        print(f"  baseline re-scored against current bands: {_rescored} name(s) "
+              f"changed in-band status from a TARGET edit, not an engine change")
     b_in_band = {tk for tk, r in base.items() if r.get("in_target_band")}
     now_in_band = set(in_band)
     gained_band = sorted(now_in_band - b_in_band)

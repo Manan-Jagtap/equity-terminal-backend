@@ -187,3 +187,67 @@ TVSMOTOR was excluded because its two audit runs overlapped only 33%, against a
 **after** seeing the distribution, which is post-hoc. It is applied uniformly
 (every retained row clears it) rather than as a one-off exclusion, and it is
 recorded here so the choice is visible rather than buried.
+
+## Wave 1 (2026-08-01): +17 rows, and 16 of them REPLACED a 20-Jul target
+
+48 stratified names valued independently, each with **two** adversarial audit
+passes. 17 admitted (35%), matching the historical yield. Sixteen of the
+seventeen already had a 20-Jul row, and the replacements are the sharpest
+evidence yet that the two vintages are not measuring the same thing:
+
+| name | 20 Jul band | fresh band (2 audits) | ratio |
+|---|---|---|---|
+| KIMS | 77–105 | **410–560** | 5.3x |
+| PRESTIGE | 175–280 | **700–1050** | 3.8x |
+| KEI | 914–1236 | **2150–3000** | 2.4x |
+| ADANIENSOL | 173–234 | **400–520** | 2.2x |
+| JSWENERGY | 111–150 | **180–330** | 2.1x |
+| MARUTI | 4,383–7,591 | **10,000–11,400** | 1.9x |
+
+Not every replacement went up — PREMIERENE fell (447–928 → 400–600) and TCS
+barely moved (2,046–2,767 → 2,250–2,750) — so this is a *re-measurement*, not a
+uniform re-rating.
+
+Fresh tranche is now **39 rows** (36 scoreable). Engine within-band on it:
+**19.4%**, against 37.2% on the old tranche.
+
+### Why the drop-outs matter more than the admits
+
+31 of 48 were rejected, and the dominant reason was **dependence: 10 names**
+where an audit found the two "independent" legs were the same method restated.
+One name (AMBER) had two audit runs that overlapped **0%** — they shared no
+common value at all, which is the reproducibility gate doing exactly its job.
+AMBUJACEM produced a final band 8% wide and was dropped as false precision.
+
+The remaining 17 were lost to a session quota limit mid-run, not to any
+judgment about the name; their pass-1 valuations are cached and they were
+re-queued rather than abandoned.
+
+## Two harness defects this batch exposed
+
+### 1. `vintage` was inferred from a date string
+
+The split was derived by matching the cause text against the literal
+`"independent 2026-07-3"`. Every row added on a later date silently read as
+OLD — 17 fresh rows misfiled on the day they were written, and the split
+reported `FRESH 3/19` when the truth was `7/36`.
+
+It is now an **explicit `vintage` column**, written at admission time. A derived
+field that can be wrong without failing is worse than no field at all.
+
+### 2. The regression gate punished IMPROVING the benchmark
+
+`calib_baseline.json` stored `in_target_band` — a flag that depends on the
+engine *and* the targets. So editing a target registered as an engine
+regression: replacing 16 stale targets tripped
+`WITHIN-BAND REGRESSED 37.4% -> 35.2%` while the engine had not changed by one
+rupee.
+
+The gate now **re-scores the baseline's stored intrinsics against the current
+bands**, holding the bands fixed on both sides. Target edits no longer move it;
+engine changes still do — verified by injecting a synthetic engine improvement
+into a baseline copy, which correctly fired `REGRESSED 38.3% -> 35.2% (-12)`.
+
+This mattered beyond bookkeeping: under the old gate, **the cheapest way to pass
+CI was to leave bad targets in place.** A benchmark that penalises its own
+correction will drift toward whatever the engine already says.

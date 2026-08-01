@@ -81,7 +81,7 @@
 "verdict": "AVOID",
 "mos": -0.7345947728854835,
 "alt_model": false,
-"in_target_band": false,
+"in_target_band": true,
 "in_agree_band": null
 },
 "ADANIENT": {
@@ -121,12 +121,12 @@
 "agree_abstain": false
 },
 "AEROFLEX": {
-"intrinsic": 49.14336685510631,
+"intrinsic": 60.70600369329973,
 "verdict": "AVOID",
-"mos": -0.8795800861183379,
+"mos": -0.8512472342727279,
 "alt_model": false,
 "in_target_band": null,
-"in_agree_band": true,
+"in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
 },
@@ -149,9 +149,9 @@
 "in_agree_band": null
 },
 "AFFLE": {
-"intrinsic": 639.5158514267906,
+"intrinsic": 744.7639240551509,
 "verdict": "AVOID",
-"mos": -0.5787115603249073,
+"mos": -0.5093781791468044,
 "alt_model": false,
 "in_target_band": null,
 "in_agree_band": false,
@@ -217,9 +217,9 @@
 "agree_abstain": false
 },
 "AMAGI": {
-"intrinsic": 102.52383144321206,
+"intrinsic": 107.84573854969277,
 "verdict": "AVOID",
-"mos": -0.827211879256405,
+"mos": -0.8182426248425166,
 "alt_model": false,
 "in_target_band": null,
 "in_agree_band": false,
@@ -245,17 +245,17 @@
 "agree_abstain": false
 },
 "ANANTRAJ": {
-"intrinsic": 154.38805299716375,
+"intrinsic": 186.12893158449617,
 "verdict": "AVOID",
-"mos": -0.7385026202622565,
+"mos": -0.684740969538455,
 "alt_model": false,
 "in_target_band": false,
 "in_agree_band": null
 },
 "ANUP": {
-"intrinsic": 761.5456067361008,
+"intrinsic": 963.2952707146102,
 "verdict": "AVOID",
-"mos": -0.6482793244337239,
+"mos": -0.5551010203608857,
 "alt_model": false,
 "in_target_band": false,
 "in_agree_band": null
@@ -483,9 +483,9 @@
 "agree_abstain": false
 },
 "BAJAJCON": {
-"intrinsic": 279.0152425303964,
+"intrinsic": 292.30684278613046,
 "verdict": "LOW CONF",
-"mos": -0.48611245505037964,
+"mos": -0.46163211568997065,
 "alt_model": false,
 "in_target_band": null,
 "in_agree_band": true,
@@ -515,7 +515,7 @@
 "verdict": "LOW CONF",
 "mos": -0.5240378953737138,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": null,
 "agree_abstain": true
@@ -683,9 +683,9 @@
 "in_agree_band": null
 },
 "BLACKBUCK": {
-"intrinsic": 57.45560320151227,
+"intrinsic": 59.92995512823862,
 "verdict": "AVOID",
-"mos": -0.8991564665177494,
+"mos": -0.8948135934563606,
 "alt_model": false,
 "in_target_band": null,
 "in_agree_band": false,
@@ -703,9 +703,9 @@
 "agree_abstain": false
 },
 "BLS": {
-"intrinsic": 391.669909297089,
-"verdict": "ACCUMULATE",
-"mos": 0.6617306291772975,
+"intrinsic": 498.32000604242444,
+"verdict": "LOW CONF",
+"mos": 1.1142130082410882,
 "alt_model": false,
 "in_target_band": true,
 "in_agree_band": null
@@ -809,9 +809,9 @@
 "in_agree_band": null
 },
 "CARERATING": {
-"intrinsic": 634.1036232367171,
+"intrinsic": 725.7671610657296,
 "verdict": "LOW CONF",
-"mos": -0.6219723242895451,
+"mos": -0.5673261231276203,
 "alt_model": false,
 "in_target_band": null,
 "in_agree_band": false,
@@ -957,7 +957,7 @@
 "verdict": "BUY",
 "mos": 0.3706749716053866,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "COCHINSHIP": {
@@ -1021,9 +1021,9 @@
 "agree_abstain": false
 },
 "CRIZAC": {
-"intrinsic": 121.69927479635032,
+"intrinsic": 147.79252505395237,
 "verdict": "REDUCE",
-"mos": -0.34234382709348654,
+"mos": -0.20133734096756356,
 "alt_model": false,
 "in_target_band": true,
 "in_agree_band": null
@@ -1135,7 +1135,7 @@
 "verdict": "AVOID",
 "mos": -0.7253879538779978,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "DOMS": {
@@ -1257,9 +1257,9 @@
 "in_agree_band": null
 },
 "ENGINERSIN": {
-"intrinsic": 109.3581219263503,
+"intrinsic": 114.13124264767063,
 "verdict": "LOW CONF",
-"mos": -0.5252111234908597,
+"mos": -0.5044881576534944,
 "alt_model": false,
 "in_target_band": null,
 "in_agree_band": true,
@@ -1337,9 +1337,9 @@
 "agree_abstain": false
 },
 "FINCABLES": {
-"intrinsic": 478.3766999860161,
+"intrinsic": 507.37354987982866,
 "verdict": "AVOID",
-"mos": -0.5276691350848972,
+"mos": -0.49903875406809967,
 "alt_model": false,
 "in_target_band": true,
 "in_agree_band": null
@@ -1389,9 +1389,9 @@
 "in_agree_band": null
 },
 "FRACTAL": {
-"intrinsic": 392.60816833823804,
+"intrinsic": 442.8050290472627,
 "verdict": "AVOID",
-"mos": -0.5365541305102544,
+"mos": -0.47730032574247455,
 "alt_model": false,
 "in_target_band": false,
 "in_agree_band": null
@@ -1455,7 +1455,7 @@
 "verdict": "AVOID",
 "mos": -0.6723463644564476,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -1713,7 +1713,7 @@
 "verdict": "LOW CONF",
 "mos": -0.4627821651466741,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "HINDZINC": {
@@ -1721,7 +1721,7 @@
 "verdict": "REDUCE",
 "mos": -0.43696261600989866,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "HOMEFIRST": {
@@ -1735,9 +1735,9 @@
 "agree_abstain": false
 },
 "HONASA": {
-"intrinsic": 74.08746480213773,
+"intrinsic": 89.20591197096974,
 "verdict": "AVOID",
-"mos": -0.8376876661142781,
+"mos": -0.8045658626991571,
 "alt_model": false,
 "in_target_band": null,
 "in_agree_band": true,
@@ -1745,9 +1745,9 @@
 "agree_abstain": false
 },
 "HONAUT": {
-"intrinsic": 10401.074466053284,
+"intrinsic": 10508.015393992524,
 "verdict": "AVOID",
-"mos": -0.7280409343429656,
+"mos": -0.7252447275724272,
 "alt_model": false,
 "in_target_band": false,
 "in_agree_band": null
@@ -1775,7 +1775,7 @@
 "verdict": "LOW CONF",
 "mos": -0.586124784592581,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "IBULLSLTD": {
@@ -1883,9 +1883,9 @@
 "in_agree_band": null
 },
 "INDIAMART": {
-"intrinsic": 2063.1314379406626,
+"intrinsic": 2441.3305156874258,
 "verdict": "ACCUMULATE",
-"mos": 0.06898001965837443,
+"mos": 0.2649380910297543,
 "alt_model": false,
 "in_target_band": true,
 "in_agree_band": null
@@ -2173,7 +2173,7 @@
 "verdict": "AVOID",
 "mos": -0.650017236954054,
 "alt_model": false,
-"in_target_band": false,
+"in_target_band": true,
 "in_agree_band": null
 },
 "JSWINFRA": {
@@ -2427,9 +2427,9 @@
 "agree_abstain": false
 },
 "KRT": {
-"intrinsic": 19.325050558898866,
+"intrinsic": 32.003236621795665,
 "verdict": "AVOID",
-"mos": -0.8329005572079649,
+"mos": -0.7232750832529558,
 "alt_model": false,
 "in_target_band": false,
 "in_agree_band": null
@@ -2443,9 +2443,9 @@
 "in_agree_band": null
 },
 "LATENTVIEW": {
-"intrinsic": 187.715039061281,
+"intrinsic": 219.604637289101,
 "verdict": "AVOID",
-"mos": -0.3936852743498676,
+"mos": -0.2906826960946351,
 "alt_model": false,
 "in_target_band": false,
 "in_agree_band": null
@@ -2553,7 +2553,7 @@
 "verdict": "HOLD",
 "mos": 0.013532044682679609,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "LTTS": {
@@ -2663,12 +2663,12 @@
 "in_agree_band": null
 },
 "MAPMYINDIA": {
-"intrinsic": 471.3878586511919,
+"intrinsic": 561.6220121759386,
 "verdict": "AVOID",
-"mos": -0.5736168796968099,
+"mos": -0.49199763721592094,
 "alt_model": false,
 "in_target_band": null,
-"in_agree_band": true,
+"in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
 },
@@ -2705,7 +2705,7 @@
 "verdict": "AVOID",
 "mos": -0.5277359386762193,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "MASFIN": {
@@ -2915,9 +2915,9 @@
 "agree_abstain": false
 },
 "NAUKRI": {
-"intrinsic": 376.09171276939577,
+"intrinsic": 458.13600391651414,
 "verdict": "AVOID",
-"mos": -0.6844471093095642,
+"mos": -0.6156093435276971,
 "alt_model": false,
 "in_target_band": null,
 "in_agree_band": null
@@ -3237,7 +3237,7 @@
 "verdict": "REDUCE",
 "mos": -0.2180364378681309,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3267,7 +3267,7 @@
 "verdict": "REDUCE",
 "mos": -0.19327564068160505,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "PRESTIGE": {
@@ -3637,9 +3637,9 @@
 "agree_abstain": false
 },
 "SGMART": {
-"intrinsic": 142.48244203713094,
+"intrinsic": 172.43025796241005,
 "verdict": "AVOID",
-"mos": -0.788193188587586,
+"mos": -0.7436743600975025,
 "alt_model": false,
 "in_target_band": false,
 "in_agree_band": null
@@ -3661,17 +3661,17 @@
 "in_agree_band": null
 },
 "SHARDACROP": {
-"intrinsic": 633.8357168580812,
+"intrinsic": 666.125448016798,
 "verdict": "REDUCE",
-"mos": -0.287624931881898,
+"mos": -0.2513341410319775,
 "alt_model": false,
 "in_target_band": false,
 "in_agree_band": null
 },
 "SHARDAMOTR": {
-"intrinsic": 694.913714055468,
+"intrinsic": 727.4788648829045,
 "verdict": "REDUCE",
-"mos": -0.1942095152418043,
+"mos": -0.15644844053466542,
 "alt_model": false,
 "in_target_band": true,
 "in_agree_band": null
@@ -3707,7 +3707,7 @@
 "verdict": "AVOID",
 "mos": -0.36082044372594335,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": true,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3717,7 +3717,7 @@
 "verdict": "LOW CONF",
 "mos": -0.7172799296091861,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "SJVN": {
@@ -3785,7 +3785,7 @@
 "verdict": "AVOID",
 "mos": -0.7444517841251455,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3871,7 +3871,7 @@
 "verdict": "AVOID",
 "mos": -0.4625319539468733,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "SUNTECK": {
@@ -3965,7 +3965,7 @@
 "verdict": "AVOID",
 "mos": -0.7264709499021513,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -4051,9 +4051,9 @@
 "agree_abstain": false
 },
 "TECHNOE": {
-"intrinsic": 457.22402192142636,
+"intrinsic": 524.0989111650244,
 "verdict": "AVOID",
-"mos": -0.5486436111338338,
+"mos": -0.4826269386327498,
 "alt_model": false,
 "in_target_band": false,
 "in_agree_band": null
@@ -4159,14 +4159,14 @@
 "agree_abstain": false
 },
 "TRAVELFOOD": {
-"intrinsic": 661.7629414444632,
-"verdict": "LOW CONF",
-"mos": -0.4925130817143687,
+"intrinsic": 837.558452995805,
+"verdict": "REDUCE",
+"mos": -0.3577005728559777,
 "alt_model": false,
 "in_target_band": null,
 "in_agree_band": true,
-"agree_dist": null,
-"agree_abstain": true
+"agree_dist": 1,
+"agree_abstain": false
 },
 "TRIDENT": {
 "intrinsic": 6.674206022106576,
@@ -4331,7 +4331,7 @@
 "verdict": "LOW CONF",
 "mos": -0.5872643620270415,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "VEDL": {
@@ -4413,9 +4413,9 @@
 "in_agree_band": null
 },
 "VSTTILLERS": {
-"intrinsic": 2120.335360278771,
+"intrinsic": 2203.74220830016,
 "verdict": "AVOID",
-"mos": -0.5289818375069373,
+"mos": -0.5104535702194419,
 "alt_model": false,
 "in_target_band": false,
 "in_agree_band": null
@@ -4566,9 +4566,9 @@
 }
 },
 "summary": {
-"within_band": 123,
-"target_n": 334,
-"agree_in": 98,
+"within_band": 115,
+"target_n": 340,
+"agree_in": 96,
 "agree_n": 198
 }
 }
