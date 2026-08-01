@@ -36,7 +36,22 @@ def check_row(row: dict, today: _dt.date | None = None) -> dict:
     hist_age = (today - row["hist_date"]).days if row.get("hist_date") else None
     snap_age = (today - row["snapshot_date"]).days if row.get("snapshot_date") else None
 
-    if row.get("hist_close") is None:
+    # STALE_HISTORY reads as "our pipeline stopped" and sends you looking at the
+    # token, the backfill and the entitlement. For a name Dhan does not carry at
+    # all, that is a false lead: no retry can ever fix it. JBCHEPHARM sat in the
+    # alert list saying "Dhan history last updated 12d ago" through a credential
+    # rotation, a full backfill and an entitlement check, when the truth was that
+    # it is absent from the scrip master entirely.
+    #
+    # dhan_covered is TRI-STATE and None means "don't know" — if the scrip master
+    # failed to load we must NOT relabel the whole universe as uncovered, so an
+    # unknown falls through to the original staleness wording. Fail open.
+    covered = row.get("dhan_covered")
+    if covered is False:
+        flags.append({"code": "NO_DHAN_COVERAGE", "level": "warn",
+                      "message": ("Not in the Dhan scrip master — single-source on IndianAPI; "
+                                  "history cannot update and no retry will change that")})
+    elif row.get("hist_close") is None:
         flags.append({"code": "NO_HISTORY", "level": "warn",
                       "message": "No Dhan price history stored — single-source name"})
     elif hist_age is not None and hist_age > HIST_STALE_DAYS:
@@ -96,9 +111,25 @@ def _to_date(v) -> _dt.date | None:
         return None
 
 
+def _dhan_coverage_lookup():
+    """ticker -> bool, or None when the scrip master is unavailable.
+
+    Returning None (rather than an empty map) is load-bearing: an empty map
+    would mark EVERY name uncovered and turn one transient CSV failure into a
+    universe-wide relabelling. Callers must fail open on None."""
+    try:
+        from app.dhan import instruments
+        instruments._load()
+        eq = instruments._cache.get("eq")
+        return set(eq) if eq else None
+    except Exception:
+        return None
+
+
 def assemble_rows(db, tickers) -> list[dict]:
     """One row per ticker with the latest close each vendor holds."""
     from sqlalchemy import func
+    covered = _dhan_coverage_lookup()
     tset = {(t or "").upper() for t in tickers}
     cos = [c for c in db.query(models.Company).all() if (c.ticker or "").upper() in tset]
     snap = {m.company_id: m for m in db.query(models.MarketSnapshot).all()}
@@ -116,11 +147,19 @@ def assemble_rows(db, tickers) -> list[dict]:
     rows = []
     for co in cos:
         m, hp = snap.get(co.id), close_by.get(co.id)
-        rows.append({"ticker": (co.ticker or "").upper(),
+        tk = (co.ticker or "").upper()
+        # Mirror instruments.security_id()'s spelling fallbacks so a name is not
+        # called "uncovered" merely because of Dhan's '&'/'-' quirks.
+        if covered is None:
+            is_cov = None
+        else:
+            is_cov = any(c in covered for c in (tk, tk.replace("-", ""), tk.replace("&", "")))
+        rows.append({"ticker": tk,
                      "snapshot_price": m.price if m else None,
                      "snapshot_date": _to_date(m.as_of) if m else None,
                      "hist_close": hp.close if hp else None,
-                     "hist_date": _to_date(hp.date) if hp else None})
+                     "hist_date": _to_date(hp.date) if hp else None,
+                     "dhan_covered": is_cov})
     return rows
 
 
