@@ -16,6 +16,14 @@ from collections import Counter
 from . import client, instruments
 from .. import models
 
+# Post-close tolerance between IndianAPI's EOD snapshot and Dhan's close for the
+# SAME trading day. Both are meant to be the one official NSE close, so they
+# should agree to well under this; the headroom absorbs dividend/corporate-action
+# adjustment differences between vendors without tolerating a stale price (the
+# live cases were 7.5-7.6%). Deliberately NOT applied intraday — see the call
+# site, where an intraday mark against a full-day bar is a false positive.
+SAME_DAY_TOL = 0.03
+
 
 def backfill_ticker(db, co, years: int = 5, days: int | None = None):
     """Fetch Dhan daily history for one company and upsert new dates into
@@ -129,6 +137,28 @@ def sync_snapshots_from_history(db, tickers) -> dict:
             # direct exchange source, so on a >30% gap it wins regardless.
             diverged = (m.price and hp.close
                         and abs(hp.close - m.price) / m.price > 0.30)
+            # SAME-DAY divergence: the 30% bar above only catches catastrophic
+            # mis-resolution. It cannot see a STALE VALUE WEARING A FRESH
+            # TIMESTAMP, which the date check also misses because the date IS
+            # current. Found live 2026-08-01: IndianAPI's 31-Jul EOD run stamped
+            # as_of=31-Jul on BAJFINANCE at 1054.4 — exactly 29 July's close,
+            # two days old — while 31 July actually closed at 1141.2. The
+            # screener published a price 7.6% wrong (HYUNDAI, 7.5%, same shape).
+            #
+            # Only fires when BOTH vendors claim the SAME trading day AND the
+            # snapshot was taken at/after the 15:30 IST close, so an intraday
+            # mark is never compared against a full-day bar — that pairing
+            # differs for honest reasons and is what the 30% bar exists to
+            # tolerate. Post-close, both are meant to be the same official
+            # close, so any material gap is a vendor error and Dhan (the direct
+            # exchange feed) wins.
+            same_day = (m_date is not None and m_date == hist_date)
+            post_close = (isinstance(m.as_of, _dt2.datetime)
+                          and m.as_of.time() >= _dt2.time(10, 0))   # 15:30 IST
+            diverged_same_day = (
+                same_day and post_close and m.price and hp.close
+                and abs(hp.close - m.price) / m.price > SAME_DAY_TOL)
+            diverged = diverged or diverged_same_day
             if stale or diverged:
                 if diverged and not stale:
                     corrected.append((cid, m.price, hp.close))
