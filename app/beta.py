@@ -47,16 +47,49 @@ def regress(xs: list[float], ys: list[float]):
     return beta, r2, n
 
 
+R2_FLOOR = 0.30      # below this the regression does not override the prior at all
+
+
 def shrink(raw: float, r2: float, prior: float) -> float:
-    """Vasicek-style shrinkage toward the sector prior, weighted by fit. At
-    R²≥0.5 we trust the raw beta up to 80%; a poor fit collapses onto the prior."""
+    """Vasicek-style shrinkage toward the sector prior, weighted by fit.
+
+    A FLOOR at R2_FLOOR, not a ramp from zero. The old weight was `r2/0.5`, so a
+    fit explaining 21% of variance still took 43% of the raw beta — and once the
+    grid bug above was fixed and real coverage appeared (24 -> 981 names), the
+    median fit was exactly that: R² 0.215, with 92% of names below 0.40.
+
+    Measured against the 73-row fresh ground-truth tranche, per-name regression
+    betas were NET HARMFUL: median IV/band fell 0.682 -> 0.611 with no gain in
+    band hits, while holding beta flat cut dispersion from 4.5x to 2.7x and
+    raised hits from 11 to 14. A regression that explains under a third of the
+    variance is not evidence strong enough to move a discount rate, and moving it
+    anyway is what turned a risk estimate into noise injected at the WACC.
+
+    Above the floor the weight ramps as before and is still capped at 0.8, so a
+    genuinely well-fit liquid name keeps most of its measured beta.
+    """
+    if r2 < R2_FLOOR:
+        return round(max(BETA_FLOOR, min(BETA_CEIL, prior)), 3)
     w = max(0.0, min(0.8, r2 / 0.5))
     b = w * raw + (1 - w) * prior
     return round(max(BETA_FLOOR, min(BETA_CEIL, b)), 3)
 
 
 def _weekly_returns(index_by_date: dict, dates: list[str]):
-    """Returns sampled every STEP dates from an index-level dict, keyed by date."""
+    """Returns sampled every STEP dates from an index-level dict, keyed by date.
+
+    `dates` MUST be the shared sampling grid — pass the same list for the market
+    and for every stock. Sampling each series on its OWN date list silently
+    destroys the regression: `dates[::STEP]` picks every 5th element of whatever
+    list it is given, so a stock missing even one session lands on a different
+    grid from the market and the two share almost no dates.
+
+    Measured 2026-08-02: the MEDIAN name shared ZERO weekly points with the
+    market and only 24 of 997 cleared MIN_POINTS, so 97.6% of the universe
+    silently fell back to the sector prior while the code reported success.
+    Callers now build one grid from the market and evaluate both series on it;
+    a session a stock did not trade is simply skipped by the `p and c` guard.
+    """
     sampled = dates[::STEP]
     out = {}
     for i in range(1, len(sampled)):
@@ -141,7 +174,9 @@ def compute_all(db) -> dict:
         co = co_of.get(cid)
         if not co:
             continue
-        stock_wk = _weekly_returns(m, [d for d in mkt_dates if d in m])
+        # SAME grid as the market — see _weekly_returns. Previously this built a
+        # grid from the stock's own filtered dates, which almost never coincided.
+        stock_wk = _weekly_returns(m, mkt_dates)
         common = [d for d in mkt_wk if d in stock_wk]
         r = regress([mkt_wk[d] for d in common], [stock_wk[d] for d in common])
         # DAT-04: the shrinkage prior must be the CLASSIFIED valuation sector's
