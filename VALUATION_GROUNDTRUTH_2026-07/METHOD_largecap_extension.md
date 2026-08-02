@@ -331,3 +331,46 @@ never the readiness condition.
 **`SPEC_GROWTH_REINVEST_INCONSISTENCY.md` is unblocked.** Any candidate fix must
 move the below-cohort toward its bands *without* pushing the 21 above/in-band
 names out.
+
+### Wave 2 finished — 73 rows, and one committed row had to be WITHDRAWN
+
+All 178 wave-2 agents completed. Final: **25 admitted of 60**, fresh tranche
+**73 rows**.
+
+**ABBOTINDIA was removed after being committed.** Its earlier pass admitted it at
+21,000–25,000 on 92% audit overlap; a later audit pass flagged the two legs as
+non-independent. Union-of-concerns is monotone — a dependence flag from *any*
+run drops the name — so the row came out rather than being kept on the strength
+of the runs that liked it. That is the same discipline applied to AXISBANK and
+CIPLA, and it is the whole reason the rule was written to only ever remove.
+
+Two committed bands also tightened on the fuller evidence: BAJAJHFL 54–70 →
+54–66, SBICARD 380–500 → 380–540.
+
+### The overlap gate earned its keep
+
+Three names were rejected purely on audit-to-audit disagreement:
+
+| name | overlap |
+|---|---|
+| COFORGE | **0%** |
+| LINDEINDIA | **6%** |
+| AETHER | 48% |
+
+COFORGE's two audits shared no common value at all. Under the pre-fix maths a
+missing band could produce a fake 200% and pass; these three show the repaired
+gate rejecting real disagreement rather than rubber-stamping.
+
+### Final shape
+
+| | |
+|---|---|
+| fresh rows | **73** across 14 archetypes |
+| engine **below** band | 42 (median **0.58x** band midpoint) |
+| engine **in band** | 9 |
+| engine **above** band | 13 |
+| gated (no published IV) | 9 |
+
+**The control set is 22 names** — 13 above plus 9 in band. That is the population
+a blanket loosening of the growth ceiling would damage, and it is what makes the
+tranche able to separate a real fix from a general lift.
