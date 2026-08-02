@@ -251,3 +251,83 @@ into a baseline copy, which correctly fired `REGRESSED 38.3% -> 35.2% (-12)`.
 This mattered beyond bookkeeping: under the old gate, **the cheapest way to pass
 CI was to leave bad targets in place.** A benchmark that penalises its own
 correction will drift toward whatever the engine already says.
+
+## Wave 2 (2026-08-02): fresh tranche reaches 60 — but the mix is NOT yet fit for purpose
+
+12 admitted, taking the fresh tranche to **60 rows**, the number the growth/
+reinvestment spec asked for. The headline is met. The composition is not.
+
+**All 12 admitted names are from the capex-ramp stratum.** That is not because
+ramp names are easier to value — it is an artefact of *where the session quota
+ran out*. The pipeline processes names in order, so the 26 ramp names were
+audited first and the 34 control / archetype-fill names behind them lost their
+audits wholesale:
+
+| stratum | selected | actually attempted | admitted |
+|---|---|---|---|
+| capex-ramp | 26 | 25 | **12** (48%) |
+| control-inband | 18 | ~1 | 0 |
+| archetype-fill | 16 | 0 | 0 |
+
+Drop reasons among the names that *were* attempted: **12 dependence-flagged**
+(real rejections), AETHER at 48% audit-run overlap (just under the 50% gate),
+KRT declined by the valuer as an annuity-asset lessor it could not honestly
+value. Only 34 were lost to quota, and their pass-1 valuations are cached.
+
+### Why this blocks the fix rather than unblocking it
+
+The controls exist to catch **re-inflation**. CORR-1 was introduced *because*
+uncapped growth over-valued the ramp cohort; a tranche made almost entirely of
+undervalued ramp names would score any loosening of the growth ceiling as an
+improvement right up to the point where it re-broke everything else.
+
+So the current 60 rows can measure whether a fix moves the ramp cohort toward
+its band. They **cannot** yet tell whether it does so by re-introducing the
+defect CORR-1 was built to prevent. 60 is the row count, not the readiness
+condition.
+
+**Prerequisite before implementing any option in
+`SPEC_GROWTH_REINVEST_INCONSISTENCY.md`: resume wave 2 for the 34 quota-killed
+names so the control stratum is actually populated.**
+
+### Wave 2 completed — 70 rows, and the mix is now fit for purpose
+
+Resuming the quota-killed names populated the control stratum. Final wave-2
+yield, with every stratum genuinely attempted:
+
+| stratum | selected | admitted | dependence-dropped | still queued |
+|---|---|---|---|---|
+| capex-ramp | 26 | **13** (50%) | 12 | 0 |
+| control-inband | 18 | **6** (33%) | 12 | 0 |
+| archetype-fill | 16 | **3** | 2 | 10 |
+
+**Mature "control" names are HARDER to value independently than ramp names**, the
+opposite of what I expected: 12 of 18 controls failed the independence rule
+against 12 of 26 ramp names. A stable business's earnings and cash flows track
+each other closely, so two legs built on them are the same method restated —
+exactly what the rule is meant to reject. The ramp names, whose current earnings
+and asset base genuinely diverge, are easier to value from two real angles.
+
+### The tranche can now detect re-inflation
+
+70 fresh rows. Against them the engine sits:
+
+| | names |
+|---|---|
+| **below** band | **42** |
+| in band | 9 |
+| **above** band | **12** |
+| gated (no published IV) | 7 |
+
+Median engine / band-midpoint for the below cohort: **0.58x**. Worst:
+OLECTRA 0.25x, GRAVITA 0.27x, NEOGEN 0.32x, CGPOWER 0.33x.
+
+The 12 **above** plus 9 **in-band** names are the load-bearing part. They are
+what a blanket loosening of the growth ceiling would damage, and they are why
+this tranche can now distinguish "the fix works" from "everything moved up".
+That distinction was missing at 60 rows and is the reason the count alone was
+never the readiness condition.
+
+**`SPEC_GROWTH_REINVEST_INCONSISTENCY.md` is unblocked.** Any candidate fix must
+move the below-cohort toward its bands *without* pushing the 21 above/in-band
+names out.
