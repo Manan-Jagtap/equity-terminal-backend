@@ -291,7 +291,7 @@
 "verdict": "AVOID",
 "mos": -0.4912115042716052,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "ARTEMISMED": {
@@ -369,7 +369,7 @@
 "verdict": "AVOID",
 "mos": -0.8531820576595083,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -2387,7 +2387,7 @@
 "verdict": "AVOID",
 "mos": -0.5609655492125895,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "KPITTECH": {
@@ -3141,7 +3141,7 @@
 "verdict": "AVOID",
 "mos": -0.7387157397399522,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "PGHL": {
@@ -3477,7 +3477,7 @@
 "verdict": "LOW CONF",
 "mos": -0.7424317693818785,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "RVNL": {
@@ -3757,7 +3757,7 @@
 "verdict": "AVOID",
 "mos": -0.9624015416965956,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -4566,8 +4566,8 @@
 }
 },
 "summary": {
-"within_band": 115,
-"target_n": 340,
+"within_band": 111,
+"target_n": 342,
 "agree_in": 96,
 "agree_n": 198
 }
