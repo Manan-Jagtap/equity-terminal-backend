@@ -289,3 +289,45 @@ condition.
 **Prerequisite before implementing any option in
 `SPEC_GROWTH_REINVEST_INCONSISTENCY.md`: resume wave 2 for the 34 quota-killed
 names so the control stratum is actually populated.**
+
+### Wave 2 completed — 70 rows, and the mix is now fit for purpose
+
+Resuming the quota-killed names populated the control stratum. Final wave-2
+yield, with every stratum genuinely attempted:
+
+| stratum | selected | admitted | dependence-dropped | still queued |
+|---|---|---|---|---|
+| capex-ramp | 26 | **13** (50%) | 12 | 0 |
+| control-inband | 18 | **6** (33%) | 12 | 0 |
+| archetype-fill | 16 | **3** | 2 | 10 |
+
+**Mature "control" names are HARDER to value independently than ramp names**, the
+opposite of what I expected: 12 of 18 controls failed the independence rule
+against 12 of 26 ramp names. A stable business's earnings and cash flows track
+each other closely, so two legs built on them are the same method restated —
+exactly what the rule is meant to reject. The ramp names, whose current earnings
+and asset base genuinely diverge, are easier to value from two real angles.
+
+### The tranche can now detect re-inflation
+
+70 fresh rows. Against them the engine sits:
+
+| | names |
+|---|---|
+| **below** band | **42** |
+| in band | 9 |
+| **above** band | **12** |
+| gated (no published IV) | 7 |
+
+Median engine / band-midpoint for the below cohort: **0.58x**. Worst:
+OLECTRA 0.25x, GRAVITA 0.27x, NEOGEN 0.32x, CGPOWER 0.33x.
+
+The 12 **above** plus 9 **in-band** names are the load-bearing part. They are
+what a blanket loosening of the growth ceiling would damage, and they are why
+this tranche can now distinguish "the fix works" from "everything moved up".
+That distinction was missing at 60 rows and is the reason the count alone was
+never the readiness condition.
+
+**`SPEC_GROWTH_REINVEST_INCONSISTENCY.md` is unblocked.** Any candidate fix must
+move the below-cohort toward its bands *without* pushing the 21 above/in-band
+names out.
