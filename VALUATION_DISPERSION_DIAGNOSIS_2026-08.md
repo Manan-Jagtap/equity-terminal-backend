@@ -99,3 +99,79 @@ The growth/reinvestment coherence fix (PR #115) repaired a genuine incoherence �
 charging measured ramp capex while crediting only capped growth — and is
 defensible on its own terms. It moved the median 0.656 → 0.692. It was never
 going to close a dispersion problem, and this document is the reason why.
+
+---
+
+# Addendum — per-archetype decomposition, and why parameter work stops here
+
+## The engine weights its worst leg hardest
+
+Per-leg accuracy against the independent band midpoint (1.00 = dead on):
+
+| archetype | n | blend | DCF | exit | P/E | best leg |
+|---|---|---|---|---|---|---|
+| CAPITAL_GOODS | 14 | 0.47 | **0.39** | 1.18 | **0.96** | P/E |
+| CONSUMER | 12 | 0.76 | 0.64 | 1.51 | 1.18 | P/E |
+| AUTO | 9 | 0.53 | 0.44 | 0.96 | 1.05 | exit |
+| PHARMA | 8 | 0.75 | 0.69 | 0.99 | 1.12 | exit |
+| IT_SERVICES | 5 | 1.09 | **0.88** | 1.32 | 1.39 | **DCF** |
+| CHEMICALS | 5 | 0.82 | 0.73 | 1.35 | 1.09 | P/E |
+| NBFC | 5 | 0.55 | 0.53 | — | 0.75 | P/E |
+| METAL | 4 | 0.73 | 0.67 | 0.74 | 0.99 | P/E |
+| **ALL** | | | **0.65** | **1.18** | **1.07** | |
+
+**Shipped weights are DCF 0.65 / exit 0.20 / P/E 0.15** — 65% on the least
+accurate leg, 15% on the most accurate. IT_SERVICES is the sole archetype where
+the DCF is the best leg, and it is also the only archetype the engine values
+correctly overall (1.09x).
+
+## Two candidate fixes, both tested and both rejected
+
+**Re-weight toward P/E.** Driving the DCF to 0.25 and P/E to 0.60 lifts the
+median 0.675 → 0.771 and in-band 11 → 14 — but **dispersion barely moves (4.4x →
+4.0x)** and `above` rises 10 → 12. It is another level shift dressed as an
+accuracy fix, and it would gut a DCF-led engine on the evidence of 72 names.
+
+**Conservative variant** — hold the DCF at 0.65 and move weight from exit (1.18x,
+inflated) to P/E (1.07x) — yields **at most +1 in-band** with no dispersion
+change and no median improvement. Noise at this sample size.
+
+## A clean hypothesis, refuted
+
+A DCF is a *measurement* when the explicit period carries the value and an
+*extrapolation* when the terminal does — so DCF accuracy should decay as
+`tv_share` rises, and `tv_share` is already computed. **The data says the
+opposite:**
+
+| tv_share | n | DCF accuracy |
+|---|---|---|
+| <65% | 16 | 0.58x |
+| 65–75% | 13 | **0.34x** |
+| 75–85% | 19 | 0.51x |
+| **≥85%** | 17 | **0.84x** |
+
+Spearman(tv_share, DCF accuracy) = **+0.356** — accuracy *improves* with terminal
+share, and the buckets are non-monotonic besides. **There is no per-name signal
+that identifies when the DCF can be trusted.** It is unreliable everywhere, while
+P/E is stable at 1.03–1.17x across every bucket.
+
+## Why parameter work stops here
+
+Seven levers have now been tested and rejected on evidence: blend clamp, WACC,
+terminal growth, reinvestment, blend weights (twice), per-name beta, and
+tv_share-conditional weighting. Each either shifts the level without improving
+accuracy, or lands inside noise on n=72.
+
+**The 73-row tranche is exhausted.** Archetype cells are 4–14 names; any further
+tuning is fitting to individual companies. The two honest ways forward:
+
+1. **More ground truth** — 25–30 rows per failing archetype (CAPITAL_GOODS, AUTO,
+   NBFC) would make archetype-level conclusions statistically real rather than
+   suggestive.
+2. **A different class of intervention** — the evidence points at *per-archetype
+   models*, not per-archetype constants. CAPITAL_GOODS at DCF 0.39x / P/E 0.96x
+   is not a mis-set parameter; it is a business type the FCFF construction does
+   not describe well.
+
+Neither is a parameter change, and pretending otherwise would produce a number
+that looks better on 72 names and is worse everywhere else.
