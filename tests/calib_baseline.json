@@ -26,14 +26,6 @@
 "in_target_band": true,
 "in_agree_band": null
 },
-"ABBOTINDIA": {
-"intrinsic": 12006.887021345785,
-"verdict": "LOW CONF",
-"mos": -0.5756534009066696,
-"alt_model": false,
-"in_target_band": false,
-"in_agree_band": null
-},
 "ABCAPITAL": {
 "intrinsic": 280.1017211513655,
 "verdict": "AVOID",
@@ -3301,7 +3293,7 @@
 "verdict": "AVOID",
 "mos": -0.9859222858351921,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
