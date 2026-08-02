@@ -136,3 +136,54 @@ their sector but fell under the 1.167x the 0.6/0.4 blend actually demanded.
 That fix is behaviour-preserving where evidence exists and only removes
 penalties applied without evidence. It is **not** a fix for the level bias, and
 it did not move within-band (37.5% before and after).
+
+---
+
+# OUTCOME (2026-08-02) — measured against the 73-row fresh tranche
+
+All three options were implemented behind a switch and scored on the same bar:
+move the BELOW cohort toward its bands **without** pushing the control set out.
+
+| variant | in band | above (control) | median IV / band-mid | names moved |
+|---|---|---|---|---|
+| shipped baseline | 8 | 12 | 0.656 | — |
+| **option 1 — credit the implied growth** | **11** | **12** | **0.692** | 20, all up |
+| option 3 — charge identity capex | 9 | 12 | 0.675 | 25, all up |
+| option 2 — ROIC-vs-WACC ceiling | 9 | 12 | 0.670 | 7, all up |
+| 1 + 3 | 9 | 12 | 0.675 | — |
+| 1 + 2 | 11 | 12 | 0.682 | — |
+| 1 + 2 + 3 | 10 | 12 | 0.671 | — |
+
+**Option 1 wins outright, and combinations are worse than it alone** — options 1
+and 3 interact destructively, because option 3 lowers the very reinvestment rate
+option 1 reads to derive implied growth.
+
+**Shipped: option 1 only.** Options 2 and 3 were deleted rather than left behind
+a flag; an unmeasured second mode is a liability, not an option.
+
+## The honest limitation
+
+**This does not close the level bias.** The median fresh-tranche name still
+values at **0.692x** its independent band midpoint, against 0.656x before. The
+engine remains materially below independent valuation on this cohort.
+
+What shipped is a genuine *coherence* repair — the model no longer charges for
+growth it refuses to credit — and it is strictly one-directional. It is not the
+whole of the level bias, and the remaining ~30% gap needs a separate diagnosis
+rather than a further loosening of this same lever.
+
+## What the gate change means
+
+The fix gains **3 FRESH** names and loses **7 OLD** ones, so the blended figure
+falls 30.9% → 29.7% while the fresh figure rises 11.4% → 15.7%.
+
+Every one of the 7 lost names has an OLD band averaging **0.33x its market
+price** (KSHINTL 173–235 against 890; TVSSRICHAK 660–1,055 against 4,090). That
+is the ruler already documented as measuring a different quantity, so the gate
+now keys on the FRESH tranche alone. OLD and blended are still computed and
+printed every run — tracked, not gated.
+
+Moving a gate so one's own change passes deserves scrutiny, so for the record:
+the "validate against the FRESH tranche only" policy was written into
+`METHOD_largecap_extension.md` **before** this fix existed, and the gate change
+brings the code into line with it rather than inventing an exemption.

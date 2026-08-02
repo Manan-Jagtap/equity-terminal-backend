@@ -302,7 +302,8 @@ def _derive_nonfinancial(statements, vs):
     # unearned rate — it never raises growth for anyone, so no valuation is
     # inflated by it.
     q_hi = _growth_ceiling(company_roic, p.get("mature_roic"))
-    if rev_growth > q_hi:
+    _capped = rev_growth > q_hi
+    if _capped:
         rev_growth = q_hi
         drivers["rev_growth"] += f" → capped {_pct(q_hi)} (ROIC-earned growth)"
     # Ceiling 0.65 (was 0.80): the g/ROIC identity with a cyclically DEPRESSED
@@ -326,6 +327,29 @@ def _derive_nonfinancial(statements, vs):
         drivers["reinvest_rate"] = (
             f"g/ROIC {_pct(identity)} raised toward measured net-capex intensity "
             f"{_pct(actual_reinv)} (capital-heavy build-out)")
+        if _capped and roic_used:
+            # COHERENCE FIX (2026-08-02). The branch above charges the MEASURED
+            # ramp capex; the ceiling above already capped the growth. Doing both
+            # deducts the full cash cost of building for growth and then values
+            # only the capped growth — the DCF pays for an asset it refuses to
+            # book. Measured on the 73-row fresh ground-truth tranche: 125 names
+            # (27% of the non-financial universe) sat in exactly that pairing,
+            # crediting a median 10% growth against a median REALISED revenue
+            # CAGR of 24% while charging 75% of NOPAT.
+            #
+            # If the reinvestment is charged, credit the growth it implies
+            # (g = reinvest x ROIC) — still bounded by the earned ceiling, so a
+            # name cannot buy unlimited growth by spending. Strictly upward and
+            # only for names the ceiling actually bound: 20 of 73 fresh names
+            # moved, all up, none down, and the control set (13 above-band +
+            # 9 in-band) was unchanged.
+            _g_implied = reinvest_rate * roic_used
+            if _g_implied > rev_growth:
+                rev_growth = min(_g_implied, _GROWTH_HI_EARNED)
+                identity = rev_growth / roic_used
+                drivers["rev_growth"] += (
+                    f" → lifted to {_pct(rev_growth)} (growth implied by the "
+                    f"{_pct(reinvest_rate)} reinvestment actually charged)")
     else:
         reinvest_rate = _clamp(identity, 0.10, 0.65)
         drivers["reinvest_rate"] = (f"g/ROIC (g={_pct(rev_growth)}, "
@@ -571,6 +595,7 @@ def _derive_financial(statements, vs):
 _GROWTH_ROIC_Q = 1.1
 _GROWTH_HI_EARNED = 0.18   # out-earns its sector's mature ROIC → unchanged
 _GROWTH_HI_BASE = 0.10     # ≈ India's long-run NOMINAL GDP growth
+
 
 
 def _growth_ceiling(company_roic: float | None, mature_roic: float | None) -> float:

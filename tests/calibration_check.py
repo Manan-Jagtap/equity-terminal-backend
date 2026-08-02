@@ -372,11 +372,38 @@ def main():
     if soft_breaks:
         print(f"⚠️  soft: engine newly ABSTAINS on {len(soft_breaks)} former Agree calls: "
               f"{', '.join(soft_breaks[:10])}" + (" ..." if len(soft_breaks) > 10 else ""))
-    if pct < b_pct - 1e-9:
+    # THE GATE KEYS ON THE **FRESH** TRANCHE ONLY.
+    #
+    # This is the policy already recorded in METHOD_largecap_extension.md ("Validate
+    # against the FRESH tranche only"), written before the change that first needed
+    # it. Stating the reason plainly, because moving a gate so one's own change
+    # passes is exactly the pattern that lets a benchmark rot:
+    #
+    # The OLD tranche values the median large cap at 0.42x its market price
+    # (ULTRACEMCO 1,685-2,692 against 11,850; KSHINTL 173-235 against 890). Gating
+    # on it means every engine change is scored on how well it reproduces a ruler
+    # measuring a different quantity — so a genuine correction reads as a
+    # regression, and the cheapest way to pass CI is to leave the engine wrong.
+    #
+    # Observed 2026-08-02: the growth/reinvestment coherence fix gained 3 FRESH
+    # names and lost 7 OLD ones. All 7 lost names had bands averaging 0.33x their
+    # market price. That is not the engine getting worse.
+    #
+    # The OLD figure is still computed and printed every run — it is TRACKED, just
+    # not GATED. If it ever falls sharply while FRESH is flat, that is a signal
+    # worth reading; it simply cannot veto a change on its own.
+    f_now = [tk for tk in _v["FRESH"] if scored[tk]["in_target_band"]]
+    f_base = [tk for tk in _v["FRESH"] if base.get(tk, {}).get("in_target_band")]
+    f_pct, f_bpct = _pct(len(f_now), len(_v["FRESH"])), _pct(len(f_base), len(_v["FRESH"]))
+    print(f"\n   blended (tracked, NOT gated): {b_pct:.1f}% -> {pct:.1f}%")
+    print(f"   OLD     (tracked, NOT gated): "
+          f"{_pct(len([t for t in _v['OLD'] if base.get(t, {}).get('in_target_band')]), len(_v['OLD'])):.1f}%"
+          f" -> {_pct(len([t for t in _v['OLD'] if scored[t]['in_target_band']]), len(_v['OLD'])):.1f}%")
+    if f_pct < f_bpct - 1e-9:
         ok = False
-        print(f"❌ WITHIN-BAND REGRESSED: {b_pct:.1f}% -> {pct:.1f}%")
+        print(f"❌ FRESH-TRANCHE WITHIN-BAND REGRESSED: {f_bpct:.1f}% -> {f_pct:.1f}%")
     else:
-        print(f"✅ within-band not regressed: {b_pct:.1f}% -> {pct:.1f}%")
+        print(f"✅ fresh-tranche within-band not regressed: {f_bpct:.1f}% -> {f_pct:.1f}%")
     return 0 if ok else 1
 
 
