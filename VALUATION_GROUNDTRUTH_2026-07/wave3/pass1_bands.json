@@ -1,7 +1,17 @@
 {
  "as_of": "2026-08-02",
  "audits_done": {
+  "AADHARHFC": 2,
+  "ACE": 2,
+  "AIIL": 2,
+  "APTUS": 2,
+  "AZAD": 2,
   "BDL": 2,
+  "BEML": 2,
+  "BHEL": 2,
+  "CANFINHOME": 2,
+  "CGCL": 2,
+  "CHOICEIN": 2,
   "COCHINSHIP": 2,
   "IFCI": 2,
   "M&MFIN": 2,
@@ -909,6 +919,11 @@
   }
  },
  "dependence_flagged": [
+  "ACE",
+  "AZAD",
+  "BHEL",
+  "CANFINHOME",
+  "CGCL",
   "IFCI"
  ],
  "n": 64
