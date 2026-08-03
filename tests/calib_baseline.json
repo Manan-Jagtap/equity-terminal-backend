@@ -2561,7 +2561,7 @@
 "verdict": "REDUCE",
 "mos": -0.30455596651585215,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "LUMAXTECH": {
@@ -2705,7 +2705,7 @@
 "verdict": "AVOID",
 "mos": -0.375719252371135,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3165,7 +3165,7 @@
 "verdict": "AVOID",
 "mos": -0.794230215945555,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3887,7 +3887,7 @@
 "verdict": "AVOID",
 "mos": -0.7566596868358377,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -4558,8 +4558,8 @@
 }
 },
 "summary": {
-"within_band": 99,
-"target_n": 355,
+"within_band": 98,
+"target_n": 358,
 "agree_in": 93,
 "agree_n": 198
 }
