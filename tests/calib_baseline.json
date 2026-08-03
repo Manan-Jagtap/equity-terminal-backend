@@ -335,7 +335,7 @@
 "verdict": "LOW CONF",
 "mos": -0.5722881139562156,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "ASTERDM": {
@@ -553,7 +553,7 @@
 "verdict": "REDUCE",
 "mos": -0.40501886214179955,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -815,7 +815,7 @@
 "verdict": "LOW CONF",
 "mos": -0.7974358287769518,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": null,
 "agree_abstain": true
@@ -933,7 +933,7 @@
 "verdict": "AVOID",
 "mos": -0.5535361622593775,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "CLEAN": {
@@ -1007,7 +1007,7 @@
 "verdict": "AVOID",
 "mos": -0.7744585564425007,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -1193,7 +1193,7 @@
 "verdict": "LOW CONF",
 "mos": -0.6418078004233606,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "ELLEN": {
@@ -1323,7 +1323,7 @@
 "verdict": "AVOID",
 "mos": -0.5769168202231065,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -4558,8 +4558,8 @@
 }
 },
 "summary": {
-"within_band": 102,
-"target_n": 351,
+"within_band": 99,
+"target_n": 355,
 "agree_in": 93,
 "agree_n": 198
 }
