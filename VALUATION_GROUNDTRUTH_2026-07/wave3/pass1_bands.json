@@ -43,13 +43,23 @@
   "MANAPPURAM": 2,
   "MASFIN": 2,
   "MINDACORP": 2,
+  "MOTHERSON": 2,
   "PAISALO": 2,
   "PIRAMALFIN": 2,
-  "POONAWALLA": 1,
+  "PNBHOUSING": 2,
+  "POONAWALLA": 2,
+  "PRICOLLTD": 2,
+  "SBFC": 2,
+  "SHRIPISTON": 2,
+  "SONACOMS": 2,
   "SUNDARMFIN": 2,
+  "SUPRAJIT": 2,
   "SUPREMEIND": 2,
+  "SWARAJENG": 2,
   "THERMAX": 1,
-  "TIMKEN": 2
+  "TIMKEN": 2,
+  "TVSSRICHAK": 2,
+  "VARROC": 2
  },
  "bands": {
   "AADHARHFC": {
@@ -971,7 +981,11 @@
   "KIRLOSENG",
   "LUMAXTECH",
   "MANAPPURAM",
-  "PAISALO"
+  "PAISALO",
+  "POONAWALLA",
+  "PRICOLLTD",
+  "SUPRAJIT",
+  "TVSSRICHAK"
  ],
  "n": 64
 }

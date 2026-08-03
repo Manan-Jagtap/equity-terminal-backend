@@ -3183,7 +3183,7 @@
 "verdict": "AVOID",
 "mos": -0.3433594712874014,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 1,
 "agree_abstain": false
@@ -3563,7 +3563,7 @@
 "verdict": "AVOID",
 "mos": -0.6866906484271021,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3759,7 +3759,7 @@
 "verdict": "AVOID",
 "mos": -0.8152721405617385,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3913,7 +3913,7 @@
 "verdict": "LOW CONF",
 "mos": -0.518276972458015,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "SYNGENE": {
@@ -4558,8 +4558,8 @@
 }
 },
 "summary": {
-"within_band": 98,
-"target_n": 358,
+"within_band": 97,
+"target_n": 361,
 "agree_in": 93,
 "agree_n": 198
 }
