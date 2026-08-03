@@ -37,6 +37,7 @@
   "JTEKTINDIA": 2,
   "KIRLOSBROS": 2,
   "KIRLOSENG": 2,
+  "LMW": 2,
   "LUMAXIND": 2,
   "LUMAXTECH": 2,
   "M&MFIN": 2,
@@ -56,9 +57,13 @@
   "SUPRAJIT": 2,
   "SUPREMEIND": 2,
   "SWARAJENG": 2,
-  "THERMAX": 1,
+  "TEGA": 2,
+  "THERMAX": 2,
+  "TIINDIA": 2,
   "TIMKEN": 2,
+  "TITAGARH": 2,
   "TVSSRICHAK": 2,
+  "USHAMART": 2,
   "VARROC": 2
  },
  "bands": {
@@ -985,6 +990,7 @@
   "POONAWALLA",
   "PRICOLLTD",
   "SUPRAJIT",
+  "TITAGARH",
   "TVSSRICHAK"
  ],
  "n": 64

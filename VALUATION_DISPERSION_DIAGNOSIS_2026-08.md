@@ -175,3 +175,65 @@ tuning is fitting to individual companies. The two honest ways forward:
 
 Neither is a parameter change, and pretending otherwise would produce a number
 that looks better on 72 names and is worse everywhere else.
+
+---
+
+# WAVE 3 COMPLETE (2026-08-03) — the archetype signals held
+
+All 64 wave-3 names audited. Fresh tranche **105 rows**. The three target
+archetypes grew enough to make per-archetype leg accuracy testable rather than
+suggestive:
+
+| archetype | n before → after | DCF | exit | P/E | best leg |
+|---|---|---|---|---|---|
+| **CAPITAL_GOODS** | 14 → **22** | **0.41** | 1.29 | **0.99** | P/E |
+| **AUTO** | 9 → **20** | 0.50 | **1.16** | 1.19 | **exit** |
+| **NBFC** | 5 → **17** | 0.57 | — | **0.86** | P/E |
+| IT_SERVICES | 5 | **0.88** | 1.32 | 1.39 | **DCF** |
+| **ALL** | 104 | **0.65** | **1.29** | **1.10** | |
+
+Engine weights remain **DCF 0.65 / exit 0.20 / P/E 0.15** — still heaviest on
+the least accurate leg, now measured on 104 rows rather than 72.
+
+## What survived the larger samples
+
+**CAPITAL_GOODS DCF is immovable: 0.39 → 0.39 → 0.41** across n=14, 18 and 22,
+against a P/E leg that is essentially exact (0.96 → 0.99 → 0.99). Three
+independent sample sizes, same answer. The FCFF construction does not describe
+capital-intensive businesses, and this is now the hardest single finding in the
+investigation.
+
+**AUTO's anomaly held.** It is the only archetype where the EXIT multiple beats
+P/E, and that survived more than doubling the sample (n=9 → 20). Every other
+cohort prefers P/E. That single fact is what distinguishes "re-weight globally"
+from "weight per archetype" — and it is the evidence a global re-weight never
+had.
+
+**NBFC improved but stays worst.** DCF 0.53 → 0.57, P/E 0.75 → 0.86 at n=17.
+The residual-income path fails in the *same direction* as FCFF, just less
+severely. That localises nothing: the cause sits upstream of both models, in
+shared inputs.
+
+**IT_SERVICES remains the sole archetype the DCF describes** (0.88, best leg)
+and the only one the engine values correctly overall (1.09).
+
+## Dispersion, at n=104
+
+p90/p10 **3.9x** (was 4.5x at n=72); median IV/band-mid **0.675**. Engine
+against the bands: **76 below, 15 in band, 13 above**.
+
+Dispersion narrowed slightly with more data but the diagnosis is unchanged — the
+error is scatter, not offset, and no global lever addresses scatter.
+
+## What the wave cost, and the gates that earned it
+
+64 names valued, ~190 audit agents. **32 names admitted, 26 dependence-flagged,
+plus a handful on band width or audit-run overlap.** Roughly 45% of everything
+audited was rejected — nearly all of it because two supposedly independent legs
+turned out to be one method restated. Those 26 rows would have entered the
+benchmark looking like corroboration.
+
+The dependence rate rose as batches reached smaller, thinly-disclosed companies
+(50% → 58% → 20% → 40% → 64% admit across batches), which is why the wave
+yielded ~32 rows rather than the 64 it was sized for. Stated at the time rather
+than presented as a shortfall afterwards.

@@ -2493,7 +2493,7 @@
 "verdict": "AVOID",
 "mos": -0.8488765175464208,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -4089,7 +4089,7 @@
 "verdict": "AVOID",
 "mos": -0.8310819503872954,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -4275,7 +4275,7 @@
 "verdict": "AVOID",
 "mos": -0.6524070854409743,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "UTLSOLAR": {
@@ -4558,8 +4558,8 @@
 }
 },
 "summary": {
-"within_band": 97,
-"target_n": 361,
+"within_band": 96,
+"target_n": 363,
 "agree_in": 93,
 "agree_n": 198
 }
