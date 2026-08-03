@@ -2595,7 +2595,7 @@
 "verdict": "AVOID",
 "mos": -0.5023404182356157,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3845,7 +3845,7 @@
 "verdict": "AVOID",
 "mos": -0.5579575648984715,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -4559,7 +4559,7 @@
 },
 "summary": {
 "within_band": 101,
-"target_n": 345,
+"target_n": 347,
 "agree_in": 93,
 "agree_n": 198
 }
