@@ -5,7 +5,7 @@
 "verdict": "AVOID",
 "mos": -0.43275361583577654,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -273,7 +273,7 @@
 "verdict": "REDUCE",
 "mos": -0.17119581129716716,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": true,
 "in_agree_band": true,
 "agree_dist": 1,
 "agree_abstain": false
@@ -335,7 +335,7 @@
 "verdict": "LOW CONF",
 "mos": -0.5722881139562156,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "ASTERDM": {
@@ -553,7 +553,7 @@
 "verdict": "REDUCE",
 "mos": -0.40501886214179955,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -627,7 +627,7 @@
 "verdict": "AVOID",
 "mos": -0.887253846136255,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -815,7 +815,7 @@
 "verdict": "LOW CONF",
 "mos": -0.7974358287769518,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": null,
 "agree_abstain": true
@@ -913,7 +913,7 @@
 "verdict": "AVOID",
 "mos": -0.8342587404024079,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -933,7 +933,7 @@
 "verdict": "AVOID",
 "mos": -0.5535361622593775,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "CLEAN": {
@@ -1007,7 +1007,7 @@
 "verdict": "AVOID",
 "mos": -0.7744585564425007,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -1193,7 +1193,7 @@
 "verdict": "LOW CONF",
 "mos": -0.6418078004233606,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "ELLEN": {
@@ -1323,7 +1323,7 @@
 "verdict": "AVOID",
 "mos": -0.5769168202231065,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -2493,7 +2493,7 @@
 "verdict": "AVOID",
 "mos": -0.8488765175464208,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -2561,7 +2561,7 @@
 "verdict": "REDUCE",
 "mos": -0.30455596651585215,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "LUMAXTECH": {
@@ -2705,7 +2705,7 @@
 "verdict": "AVOID",
 "mos": -0.375719252371135,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3165,7 +3165,7 @@
 "verdict": "AVOID",
 "mos": -0.794230215945555,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3183,7 +3183,7 @@
 "verdict": "AVOID",
 "mos": -0.3433594712874014,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 1,
 "agree_abstain": false
@@ -3563,7 +3563,7 @@
 "verdict": "AVOID",
 "mos": -0.6866906484271021,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3759,7 +3759,7 @@
 "verdict": "AVOID",
 "mos": -0.8152721405617385,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3887,7 +3887,7 @@
 "verdict": "AVOID",
 "mos": -0.7566596868358377,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": true,
 "agree_dist": 0,
 "agree_abstain": false
@@ -3913,7 +3913,7 @@
 "verdict": "LOW CONF",
 "mos": -0.518276972458015,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "SYNGENE": {
@@ -4089,7 +4089,7 @@
 "verdict": "AVOID",
 "mos": -0.8310819503872954,
 "alt_model": false,
-"in_target_band": null,
+"in_target_band": false,
 "in_agree_band": false,
 "agree_dist": 0,
 "agree_abstain": false
@@ -4275,7 +4275,7 @@
 "verdict": "AVOID",
 "mos": -0.6524070854409743,
 "alt_model": false,
-"in_target_band": true,
+"in_target_band": false,
 "in_agree_band": null
 },
 "UTLSOLAR": {
@@ -4558,8 +4558,8 @@
 }
 },
 "summary": {
-"within_band": 101,
-"target_n": 347,
+"within_band": 96,
+"target_n": 363,
 "agree_in": 93,
 "agree_n": 198
 }
