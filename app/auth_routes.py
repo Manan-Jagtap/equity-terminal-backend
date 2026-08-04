@@ -104,17 +104,19 @@ def signup(body: SignupBody, request: Request, db: Session = Depends(get_db)):
         # the /resend-code path already enforces). The 30-min pending window plus
         # this cooldown caps sends at ~1/min/address regardless of source IP.
         existing = _get_pending(db, email)
-        if existing and time.time() - (existing.get("sent_at") or 0) < 60 \
-                and time.time() <= (existing.get("expires") or 0):
+        newest = _newest_entry(existing)
+        if newest and time.time() - (newest.get("sent_at") or 0) < 60 \
+                and time.time() <= (newest.get("expires") or 0):
             _record_event(db, request, "signup_pending", email, None)
             return {"pending_verification": True, "email": email}
         code = f"{secrets.randbelow(1000000):06d}"
-        _put_pending(db, email, {
+        # APPEND — see _add_pending_entry. Replacing here is what allowed a
+        # second signup to swap the password behind the victim's code.
+        _add_pending_entry(db, email, {
             "name": name,
             "password_hash": hash_password(body.password),
             "code_sha": hashlib.sha256(code.encode()).hexdigest(),
             "expires": time.time() + 30 * 60,
-            "attempts": 0,
             "sent_at": time.time(),
         })
         try:
@@ -159,12 +161,59 @@ def _pending_key(email: str) -> str:
     return f"pending_signup:{email}"
 
 
+# A pending record holds a LIST of entries, one per signup POST, each carrying
+# the password submitted WITH that entry's code.
+#
+# It used to be a single flat dict replaced wholesale by every POST, while
+# verify created the account from whatever password_hash was CURRENTLY stored.
+# That let a second signup hijack a first: attacker POSTs for victim@x.com >60s
+# into the victim's 30-minute window, the record is overwritten with the
+# attacker's password and a fresh code, the victim receives that code, types it,
+# and the account is created under the ATTACKER's password.
+#
+# "First writer wins" does not fix it — it reverses it. An attacker who seeds the
+# record first turns the victim's own signup into a no-op, and the victim then
+# types the attacker's code. Picking a winner between two writers cannot work
+# when the loser is the one holding the mailbox.
+#
+# Binding the password to the code does fix it: the victim types the code from
+# the mail they requested, and that code carries their own password. The
+# attacker's entry still exists and is simply never used.
+_MAX_PENDING_ENTRIES = 3          # bound the list; oldest dropped first
+
+
+def _normalise_pending(v):
+    """Accept both shapes. Records written before this change are flat dicts."""
+    if not v:
+        return None
+    if isinstance(v, dict) and "entries" in v:
+        return v
+    if isinstance(v, dict) and v.get("code_sha"):
+        return {"entries": [v], "attempts": v.get("attempts") or 0}
+    return None
+
+
 def _get_pending(db: Session, email: str) -> dict | None:
     row = db.query(models.KVStore).filter_by(key=_pending_key(email)).first()
-    return row.value if row else None
+    return _normalise_pending(row.value) if row else None
 
 
-def _put_pending(db: Session, email: str, value: dict) -> None:
+def _newest_entry(p) -> dict | None:
+    es = (p or {}).get("entries") or []
+    return max(es, key=lambda e: e.get("sent_at") or 0) if es else None
+
+
+def _add_pending_entry(db: Session, email: str, entry: dict) -> None:
+    """Append an entry, never replace. Expired entries are dropped on the way in."""
+    p = _get_pending(db, email) or {"entries": [], "attempts": 0}
+    now = time.time()
+    live = [e for e in p["entries"] if (e.get("expires") or 0) > now]
+    live.append(entry)
+    p["entries"] = live[-_MAX_PENDING_ENTRIES:]
+    _put_pending_raw(db, email, p)
+
+
+def _put_pending_raw(db: Session, email: str, value: dict) -> None:
     row = db.query(models.KVStore).filter_by(key=_pending_key(email)).first()
     if row:
         row.value = value
@@ -187,23 +236,32 @@ class VerifyBody(BaseModel):
 def verify_signup(body: VerifyBody, request: Request, db: Session = Depends(get_db)):
     email = (body.email or "").strip().lower()
     p = _get_pending(db, email)
-    if not p or time.time() > (p.get("expires") or 0):
+    now = time.time()
+    live = [e for e in ((p or {}).get("entries") or []) if (e.get("expires") or 0) > now]
+    if not p or not live:
         _del_pending(db, email)
         raise HTTPException(400, "Code expired or not found — sign up again")
+    # Attempts are counted PER ADDRESS, so extra entries cannot buy extra guesses.
     if (p.get("attempts") or 0) >= 5:
         _del_pending(db, email)
         _record_event(db, request, "verify_lockout", email, None)
         raise HTTPException(429, "Too many attempts — sign up again")
     given = hashlib.sha256((body.code or "").strip().encode()).hexdigest()
-    if not secrets.compare_digest(given, p.get("code_sha") or ""):
+    # THE FIX: the account is created from the password submitted alongside the
+    # code that was actually entered — not from whoever POSTed most recently.
+    match = next((e for e in live
+                  if secrets.compare_digest(given, e.get("code_sha") or "")), None)
+    if match is None:
         p["attempts"] = (p.get("attempts") or 0) + 1
-        _put_pending(db, email, p)
+        p["entries"] = live
+        _put_pending_raw(db, email, p)
         raise HTTPException(400, "Incorrect code")
     # Same duplicate guard as signup (covers a parallel signup racing this one).
     if db.query(models.User).filter_by(email=email).first():
         _del_pending(db, email)
         raise HTTPException(400, "An account with this email already exists")
-    resp = _create_user(db, request, email, p.get("name") or "", p["password_hash"])
+    resp = _create_user(db, request, email,
+                        match.get("name") or "", match["password_hash"])
     _del_pending(db, email)
     return resp
 
@@ -218,13 +276,18 @@ def resend_code(body: ResendBody, request: Request, db: Session = Depends(get_db
     rate-limited to one send per 60s per address."""
     email = (body.email or "").strip().lower()
     p = _get_pending(db, email)
-    if p and mailer.configured() and time.time() - (p.get("sent_at") or 0) >= 60 \
-            and time.time() <= (p.get("expires") or 0):
+    newest = _newest_entry(p)
+    if p and newest and mailer.configured() \
+            and time.time() - (newest.get("sent_at") or 0) >= 60 \
+            and time.time() <= (newest.get("expires") or 0):
         code = f"{secrets.randbelow(1000000):06d}"
-        p["code_sha"] = hashlib.sha256(code.encode()).hexdigest()
-        p["sent_at"] = time.time()
+        # Re-issue a code for the NEWEST entry only, carrying that entry's
+        # password. A resend must never adopt some other writer's password, and
+        # must not create a second live entry — it replaces the code in place.
+        newest["code_sha"] = hashlib.sha256(code.encode()).hexdigest()
+        newest["sent_at"] = time.time()
         p["attempts"] = 0
-        _put_pending(db, email, p)
+        _put_pending_raw(db, email, p)
         try:
             mailer.send_email(
                 email, "Your EquityVerdict verification code",

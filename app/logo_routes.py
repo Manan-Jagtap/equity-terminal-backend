@@ -51,8 +51,20 @@ def logo(ticker: str, db: Session = Depends(get_db)):
     for url in (f"https://www.livemint.com/lm-img/markets/logo/{tid}.png",
                 f"{BASE}/logo/{tid}.png"):
         try:
-            from app import vendor_meter; vendor_meter.tick()  # FIX-07
-            r = requests.get(url, headers={"X-API-Key": KEY, "x-api-key": KEY}, timeout=15)
+            # SEND THE CREDENTIAL ONLY TO THE VENDOR HOST. This loop used to
+            # attach the paid IndianAPI key to BOTH requests, so every logo
+            # cache miss handed the key to www.livemint.com — an unrelated third
+            # party that has no need for it and never asked. A public CDN image
+            # needs no authentication at all.
+            _vendor = url.startswith(BASE)
+            hdrs = {"X-API-Key": KEY, "x-api-key": KEY} if _vendor else {}
+            # ...and only a VENDOR call may tick the vendor meter. Counting the
+            # CDN fetch inflated our own quota tally against a request IndianAPI
+            # never saw, which is part of why the internal meter read far above
+            # the vendor dashboard.
+            if _vendor:
+                from app import vendor_meter; vendor_meter.tick()  # FIX-07
+            r = requests.get(url, headers=hdrs, timeout=15)
             ct = r.headers.get("content-type", "")
             if r.status_code == 200 and "image" in ct and r.content:
                 _CACHE[t] = (r.content, ct or "image/png")
