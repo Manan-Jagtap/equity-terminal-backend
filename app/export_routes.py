@@ -1,3 +1,4 @@
+from app.valuation_public import is_suppressed_row, is_suppressed_rec, NM_CELL
 """
 app/export_routes.py — Excel workbook exports (openpyxl).
 
@@ -178,10 +179,15 @@ def export_screener(db: Session = Depends(get_db)):
         price = price_by.get(co.id)
         if v is None or price is None:
             continue
+        # DAT-13b/DAT-15: the STORED row keeps the raw figure by design, so this
+        # surface must ask the gate. Without this the workbook published a fair
+        # value the JSON API had already withdrawn — measured live on 111 of 997
+        # names, e.g. ADANIGREEN 64.36 / -95.45% against "n/m" on the site.
+        _sup = is_suppressed_row(v)
         ws.append([
             co.ticker, co.name, co.sector, v.valuation_sector,
-            _num(price, 2), _num(v.intrinsic, 2),
-            _num(v.mos * 100 if v.mos is not None else None, 1),
+            _num(price, 2), NM_CELL if _sup else _num(v.intrinsic, 2),
+            NM_CELL if _sup else _num(v.mos * 100 if v.mos is not None else None, 1),
             v.verdict, _num(v.composite, 1),
             _num(v.pe, 2), _num(v.pb, 2),
             _num(v.roe * 100 if v.roe is not None else None, 1),
@@ -191,8 +197,11 @@ def export_screener(db: Session = Depends(get_db)):
     for row in ws.iter_rows(min_row=2):
         for j, fmt in ((5, PS), (6, PS), (7, '0.0'), (9, '0.0'),
                        (10, NUMX), (11, NUMX), (12, '0.0'), (13, PS)):
-            if row[j - 1].value is not None:
-                row[j - 1].number_format = fmt
+            cell_ = row[j - 1]
+            # a suppressed cell holds the n/m TEXT — a numeric format on it
+            # would render as a stray 0 in some spreadsheet apps
+            if cell_.value is not None and not isinstance(cell_.value, str):
+                cell_.number_format = fmt
     return _xlsx_response(wb, "screener.xlsx")
 
 
@@ -219,7 +228,11 @@ def _summary_sheet(ws, co, price, rec, analyst, fair_value, quarter=None, concal
     # Headline fair value = the app's blended estimate (matches the one-pager
     # and the product UI). The pure-DCF model value is shown alongside, linked
     # live to the model sheet, so the two never silently disagree.
-    blended = _num((rec or {}).get("intrinsic"), 2)
+    # Same contract as the screener and the JSON API: when the engine withheld
+    # the point estimate, no cell may carry it — not the headline, not the MoS,
+    # not the "reconciliation" cells on the model sheets.
+    _sup = is_suppressed_rec(rec)
+    blended = NM_CELL if _sup else _num((rec or {}).get("intrinsic"), 2)
     r = 4
     _band(ws, r, "VERDICT & FAIR VALUE"); r += 1
     rows = [
@@ -229,7 +242,8 @@ def _summary_sheet(ws, co, price, rec, analyst, fair_value, quarter=None, concal
         ("DCF model value (Rs)", fair_value, PS, F_VAL,
          "computed live on the model sheet" if linked else None),
         ("Margin of safety",
-         _num((rec or {}).get("mos"), 4) if (rec or {}).get("mos") is not None else None,
+         NM_CELL if _sup else
+         (_num((rec or {}).get("mos"), 4) if (rec or {}).get("mos") is not None else None),
          PCT, F_VAL, None),
         ("Composite score", _num((rec or {}).get("composite"), 1), '0.0', F_VAL, None),
         ("Primary method", (rec or {}).get("primary_method") or v.get("method"), None, F_VAL, None),

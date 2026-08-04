@@ -327,21 +327,18 @@ app.add_middleware(
 # engines.recommend() must appear here or the screener keeps showing a number
 # the company page has already withdrawn — the stored-vs-live split again.
 # test_suppressing_gates_contract pins this against engines.py.
-SUPPRESSING_GATES = frozenset({"value_suppressed", "high_dispersion"})
-VALUE_SUPPRESSED_GATE = "value_suppressed"   # kept: DAT-13b's own gate name
-FAIR_VALUE_NM = "not meaningful"
-
-
-def apply_value_suppression(payload: dict, suppressed) -> dict:
-    """Null the point estimate, keep the verdict. Idempotent; safe on any dict."""
-    if not suppressed:
-        return payload
-    for k in ("intrinsic", "mos", "blended"):
-        if k in payload:
-            payload[k] = None
-    payload["value_suppressed"] = True
-    payload["fair_value_note"] = FAIR_VALUE_NM
-    return payload
+# Moved to app/valuation_public.py so surfaces OUTSIDE main.py can reach it.
+# Living here is why export_routes.py, the one-pager and compare_routes.py each
+# published the withheld figure: they could not import it without a cycle, so
+# they simply did not suppress. Re-exported for the existing call sites.
+from app.valuation_public import (  # noqa: E402
+    SUPPRESSING_GATES,
+    VALUE_SUPPRESSED_GATE,
+    FAIR_VALUE_NM,
+    apply_value_suppression,
+    is_suppressed_rec,
+    is_suppressed_row,
+)
 
 
 @app.get("/api/health")
@@ -1058,6 +1055,10 @@ def company_onepager(ticker: str, db: Session = Depends(get_db)):
             data = build_company(db, co)
             a = effective_assumptions(db, co, data)
             rec = engines.recommend(data, a)
+            # DAT-13b/DAT-15: the PDF is the most forwardable surface there is —
+            # it leaves the product entirely. Suppress before anything reads the
+            # figure, so legacy.py cannot recompute a MoS from a withheld value.
+            apply_value_suppression(rec, is_suppressed_rec(rec))
             intrinsic = rec.get("intrinsic")
         except Exception:
             pass

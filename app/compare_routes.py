@@ -1,3 +1,4 @@
+from app.valuation_public import is_suppressed_row, FAIR_VALUE_NM
 """
 app/compare_routes.py — side-by-side company comparison.
 
@@ -56,12 +57,19 @@ def compare(tickers: str = Query(..., description="comma-separated, e.g. TCS,INF
         m = fr.get("metrics", {})
         g = lambda key: (m.get(key) or {}).get("value")
 
+        _sup = is_suppressed_row(v)
         items.append({
             "ticker": co.ticker, "name": co.name, "sector": co.sector, "type": co.type,
             "price": price,
             "market_cap": (price * co.shares_outstanding) if (price and co.shares_outstanding) else None,
-            # Model valuation
-            "intrinsic": (v.intrinsic if v else None), "mos": (v.mos if v else None),
+            # Model valuation — DAT-13b/DAT-15: `v` is the STORED row and keeps
+            # the raw figure by design, so the gate must be asked here too.
+            # Compare puts names side by side, which is exactly where a withheld
+            # value masquerading as a real one does the most damage.
+            "intrinsic": (None if _sup else (v.intrinsic if v else None)),
+            "mos": (None if _sup else (v.mos if v else None)),
+            "value_suppressed": _sup or None,
+            "fair_value_note": FAIR_VALUE_NM if _sup else None,
             "verdict": (v.verdict if v else None), "composite": (v.composite if v else None),
             "confidence": (v.confidence if v else None), "method": (v.method if v else None),
             # Multiples
