@@ -1,3 +1,5 @@
+from fastapi import Depends
+from app.admin_routes import require_admin
 """
 app/dhan_routes.py — Dhan-backed endpoints (options analytics + status).
 
@@ -28,10 +30,17 @@ def _dhan_error(e: Exception) -> str:
 
 
 @router.get("/dhan/status")
-def dhan_status():
+def dhan_status(_admin=Depends(require_admin)):
     """Diagnostics: is the token present, is client-id present, does the token
     actually authenticate (token-only historical probe), and did the instrument
-    map load. Never exposes the secret values themselves."""
+    map load. Never exposes the secret values themselves.
+
+    ADMIN ONLY. This is owner diagnostics — the docstring always said so — but it
+    was unauthenticated, and each call makes several LIVE broker requests
+    (token probe + instrument-map load). Anonymous traffic could therefore stall
+    worker threads on someone else's slow API and burn the owner's broker quota,
+    with no account needed. It reveals nothing secret, but it spends real
+    resources on behalf of an unauthenticated caller."""
     from app.dhan import client, instruments
     tok_cid = client._client_id_from_token()
     env_cid = __import__("os").getenv("DHAN_CLIENT_ID", "").strip()
