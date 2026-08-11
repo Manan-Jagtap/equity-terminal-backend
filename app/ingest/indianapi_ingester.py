@@ -422,6 +422,23 @@ def _save_corporate_actions(s, co, stock):
     for bo in (ca.get("bonus") or []):
         if (bo.get("xbDate") or bo.get("recordDate")) and _bonus_ratio_factor(bo.get("remarks")) is None:
             print(f"    ⚠ unparseable bonus ratio for {co.ticker}: {bo.get('remarks')!r}")
+    # An ABSENT payload is "we learned nothing", never "there are no corporate
+    # actions". Deleting first and finding nothing to re-insert wipes this
+    # company's whole split/bonus history — and app/corporate_actions.price_factor
+    # reads that history to adjust prices, so the loss is silent and then wrong
+    # rather than merely empty.
+    #
+    # This is the DATA-12 shape exactly: on 24 Jul 2026 a vendor endpoint started
+    # returning 404 and a blind replace wiped ~378 of ~736 names before anyone
+    # noticed. That was fixed by merging instead of replacing; this call site
+    # kept the old pattern. Purge only when the vendor actually gave us rows to
+    # put back.
+    if not rows:
+        if (stock or {}).get("stockCorporateActionData"):
+            print(f"    ⚠ {co.ticker}: corporate-action block present but no rows parsed — "
+                  f"keeping the {s.query(models.CorporateAction).filter_by(company_id=co.id).count()} "
+                  f"stored event(s) rather than blind-purging")
+        return 0
     s.query(models.CorporateAction).filter_by(company_id=co.id).delete(synchronize_session=False)
     seen = set()
     for a in rows:

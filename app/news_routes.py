@@ -197,6 +197,28 @@ def company_news(ticker: str, refresh: bool = False, db: Session = Depends(get_d
         if cached and time.time() - cached[0] < _CACHE_TTL:
             return cached[1]
 
+    # `refresh=true` DELIBERATELY bypasses the cache, on an endpoint that takes
+    # no authentication — so a loop over it spends ~3-4 IndianAPI calls per
+    # request (_indianapi_news tries ticker → name → stripped name) with nothing
+    # refusing them. The budget guard already exists (app/api_budget.py, used by
+    # profile_routes and manager_engine); it simply was never asked here.
+    #
+    # Out of quota, a refresh degrades to whatever is cached rather than
+    # spending past the ceiling. Fails OPEN: a guard that errors must not take
+    # the news tab down.
+    if refresh:
+        _allowed = True
+        try:
+            from app import api_budget
+            _allowed = not api_budget.would_exceed(db, 4)
+        except Exception:
+            _allowed = True
+        if not _allowed:
+            cached = _NEWS_CACHE.get(ticker)
+            if cached:
+                return cached[1]
+            refresh = False   # nothing cached: fall through, but do not force a refetch
+
     co = db.query(models.Company).filter_by(ticker=ticker).first()
     if not co:
         raise HTTPException(404, f"Unknown ticker {ticker}")
