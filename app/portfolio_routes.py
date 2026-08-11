@@ -22,6 +22,7 @@ from app import models
 from app.auth import get_current_user
 from app.admin_routes import require_admin
 from app.corporate_actions import price_factor
+from app.valuation_public import is_suppressed_row, FAIR_VALUE_NM
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -329,6 +330,7 @@ def _item(holding: models.PortfolioHolding, price, val: models.Valuation | None,
     qty, avg_cost = holding.qty or 0.0, holding.avg_cost or 0.0
     value = (qty * price) if price is not None else None
     cost = qty * avg_cost
+    _sup = is_suppressed_row(val)
     out = {
         "id": holding.id,
         "ticker": co.ticker, "name": co.name, "sector": co.sector,
@@ -337,10 +339,15 @@ def _item(holding: models.PortfolioHolding, price, val: models.Valuation | None,
         "div_income": _dividend_income(qty, holding.added_at, actions),
         "pnl": None, "pnl_pct": None, "weight": None,   # filled by compute_totals
         "total_pnl": None, "total_pnl_pct": None,       # filled by compute_totals
-        "mos": (val.mos if val else None),
+        # DAT-13b/DAT-15: the stored row keeps the raw figure by design, so a
+        # caller reading the DB directly must ask before showing it —
+        # valuation_public's docstring names this route as one that must. The
+        # verdict survives; only the point estimate is withheld.
+        "mos": (None if _sup else (val.mos if val else None)),
         "verdict": (val.verdict if val else None),
         "confidence": (val.confidence if val else None),
-        "intrinsic": (val.intrinsic if val else None),
+        "intrinsic": (None if _sup else (val.intrinsic if val else None)),
+        **({"value_suppressed": True, "fair_value_note": FAIR_VALUE_NM} if _sup else {}),
         **_term_fields(holding),
     }
     # Per-position XIRR: annualised total return (price + dividends) over the
@@ -709,8 +716,16 @@ def portfolio_analysis(user: models.User = Depends(get_current_user),
         for co, val in (db.query(models.Company, models.Valuation)
                           .join(models.Valuation, models.Valuation.company_id == models.Company.id)
                           .all()):
+            # Suppressed here, at the ONE point the universe is built, rather
+            # than in build_analysis: this list drives the "ADD CANDIDATE"
+            # suggestions, which filter on `mos >= 0.25` and then print it
+            # ("model verdict BUY at MoS +NN%"). Feeding it a withheld figure
+            # would recommend buying a name on a number the engine withdrew.
+            # A None mos fails that filter, so those names simply aren't
+            # suggested — which is the correct answer, not a lost feature.
             universe.append({"ticker": co.ticker, "name": co.name, "sector": co.sector,
-                             "price": price_by.get(co.id), "mos": val.mos,
+                             "price": price_by.get(co.id),
+                             "mos": (None if is_suppressed_row(val) else val.mos),
                              "verdict": val.verdict, "confidence": val.confidence})
     except Exception:
         db.rollback()

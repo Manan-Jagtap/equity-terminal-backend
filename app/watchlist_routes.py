@@ -19,6 +19,7 @@ from app.database import get_db
 from app import models
 from app.auth import get_current_user
 from app.watchlist_alerts import compute_alerts
+from app.valuation_public import is_suppressed_row, FAIR_VALUE_NM
 
 router = APIRouter(prefix="/api/watchlist", tags=["watchlist"])
 
@@ -82,7 +83,14 @@ def _enrich(db: Session, item: models.WatchlistItem, alpha_by=None, rev_by=None)
     except Exception:
         db.rollback()
     verdict = _NORMALIZE_VERDICT.get((v.verdict if v else None), (v.verdict if v else None))
-    mos = v.mos if v else None
+    # DAT-13b/DAT-15: the STORED row keeps the raw figure by design, so any caller
+    # reading the DB directly has to ask before showing it. valuation_public's own
+    # docstring names this route as one that must — it never did, so a watchlist
+    # printed the fair value and margin of safety the engine had withdrawn, and
+    # the MoS alert below fired on that withheld number.
+    suppressed = is_suppressed_row(v)
+    mos = None if suppressed else (v.mos if v else None)
+    intrinsic = None if suppressed else (v.intrinsic if v else None)
     move = _day_move(db, co.id)
 
     tk = (co.ticker or "").upper()
@@ -109,7 +117,10 @@ def _enrich(db: Session, item: models.WatchlistItem, alpha_by=None, rev_by=None)
     return {
         "ticker": co.ticker, "name": co.name, "sector": co.sector, "type": co.type,
         "price": price, "day_move": move,
-        "verdict": verdict, "intrinsic": (v.intrinsic if v else None), "mos": mos,
+        "verdict": verdict, "intrinsic": intrinsic, "mos": mos,
+        # Say WHY the number is absent, so the UI can render "n/m" rather than a
+        # dash that reads as "we have no data".
+        **({"value_suppressed": True, "fair_value_note": FAIR_VALUE_NM} if suppressed else {}),
         "composite": (v.composite if v else None), "confidence": (v.confidence if v else None),
         "analyst_target": (v.analyst_target if v else None),
         "analyst_upside": (v.analyst_upside if v else None),
