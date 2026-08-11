@@ -42,7 +42,25 @@ def intraday(ticker: str, db: Session = Depends(get_db)):
     if not tid or not KEY:
         return {"ticker": tk, "available": False, "values": []}
 
+    # This route is unauthenticated and the 3-minute cache is keyed per TICKER,
+    # so cycling the ~1000-name universe can spend ~20k vendor calls an hour —
+    # against a Developer-plan ceiling of 10k a MONTH. Worse, the call was never
+    # ticked into vendor_meter, so api_budget could not see it: the module
+    # docstring's own warning that "the budget guard governed on ~10-15% of real
+    # spend" still applied to this call site.
     try:
+        from app import api_budget
+        if api_budget.would_exceed(db, 1):
+            stale = _cache.get(tk)
+            if stale:
+                return stale[1]
+            return {"ticker": tk, "available": False, "values": [],
+                    "note": "vendor quota exhausted for this month"}
+    except Exception:
+        pass          # fail OPEN — a broken guard must not take the chart down
+
+    try:
+        from app import vendor_meter; vendor_meter.tick()   # FIX-07: was unmetered
         r = requests.post(ANALYST_BASE + "/1D_intraday_data",
                           headers={"x-api-key": KEY}, params={"stock_id": tid}, timeout=20)
         data = r.json() if r.status_code == 200 else None
