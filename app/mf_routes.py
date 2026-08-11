@@ -26,6 +26,43 @@ _TTL = 3 * 3600
 _cache: dict = {}
 
 
+_BUDGET_CK = {"at": 0.0, "ok": True}
+
+
+def _budget_ok() -> bool:
+    """Is there monthly vendor quota left to spend on this call?
+
+    Every route in this module is UNAUTHENTICATED and takes a caller-chosen
+    `name` / `q` / `id`, which is ALSO the cache key below — so each distinct
+    value is a guaranteed cache miss and a fresh vendor call. `vendor_meter.tick()`
+    recorded that spend but nothing ever refused it, so an unauthenticated script
+    iterating junk names could drain the month's IndianAPI quota. The budget guard
+    already existed (app/api_budget.py, used by profile_routes and manager_engine)
+    — it simply was not reachable from here, because `_get` is a module-level
+    helper with no request-scoped `db`.
+
+    Re-checked at most once a minute so the guard costs one query per minute
+    rather than one per call. Fails OPEN: a guard that errors must not take the
+    fund board down.
+    """
+    now = time.time()
+    if now - _BUDGET_CK["at"] < 60:
+        return _BUDGET_CK["ok"]
+    ok = True
+    try:
+        from app import api_budget
+        from app.database import SessionLocal
+        db = SessionLocal()
+        try:
+            ok = not api_budget.would_exceed(db, 1)
+        finally:
+            db.close()
+    except Exception:
+        ok = True
+    _BUDGET_CK.update(at=now, ok=ok)
+    return ok
+
+
 def _get(path, params=None, ttl=_TTL, host=None):
     ck = (host or "") + path + str(params or "")
     now = time.time()
@@ -34,6 +71,10 @@ def _get(path, params=None, ttl=_TTL, host=None):
         return hit[1]
     if not KEY:
         return None
+    if not _budget_ok():
+        # Out of quota: serve last-known-good rather than spending past the
+        # ceiling. Same degradation profile as profile_routes.
+        return hit[1] if hit else None
     try:
         from app import vendor_meter; vendor_meter.tick()  # FIX-07
         r = requests.get((host or BASE) + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
