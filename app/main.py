@@ -596,6 +596,7 @@ def api_strategy_list():
 
 
 _STRAT_CACHE = {}
+_STRAT_CACHE_MAX = 64   # hard ceiling; the normalised key space is smaller than this
 
 
 @app.get("/api/strategy/backtest")
@@ -605,8 +606,12 @@ def api_strategy_backtest(signal: str = "momentum", top_n: int = 15,
     """Backtest a rule-based price strategy over the 5-yr history vs the NIFTY 50.
     Every signal is computed from data available up to each rebalance date only
     (no look-ahead). Cached 10 min per distinct rule. Research aid, not advice."""
-    from app.strategy_backtest import run_backtest
-    key = (signal, int(top_n), rebalance, round(float(years), 2))
+    from app.strategy_backtest import run_backtest, normalise_params
+    # Key on the NORMALISED params, not the raw query string — otherwise
+    # years=5.01 / 5.02 / 5.03 are distinct keys holding identical results, and
+    # this endpoint takes no authentication.
+    signal, top_n, rebalance, years = normalise_params(signal, top_n, rebalance, years)
+    key = (signal, top_n, rebalance, years)
     hit = _STRAT_CACHE.get(key)
     if hit and (time.time() - hit[0]) < 600:
         return hit[1]
@@ -615,7 +620,15 @@ def api_strategy_backtest(signal: str = "momentum", top_n: int = 15,
     except Exception:
         db.rollback()
         return {"ok": False, "reason": "Backtest failed — price history may still be loading."}
-    _STRAT_CACHE[key] = (time.time(), out)
+    # Belt and braces: the key space is finite now, but drop expired entries and
+    # cap the dict so a future param can never make this unbounded again.
+    now = time.time()
+    for k in [k for k, v in _STRAT_CACHE.items() if now - v[0] > 600]:
+        _STRAT_CACHE.pop(k, None)
+    if len(_STRAT_CACHE) > _STRAT_CACHE_MAX:
+        for k in sorted(_STRAT_CACHE, key=lambda k: _STRAT_CACHE[k][0])[:len(_STRAT_CACHE) - _STRAT_CACHE_MAX]:
+            _STRAT_CACHE.pop(k, None)
+    _STRAT_CACHE[key] = (now, out)
     return out
 
 

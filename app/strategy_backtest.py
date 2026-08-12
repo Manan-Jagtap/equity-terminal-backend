@@ -177,11 +177,32 @@ def _drawdown(curve):
     return mdd
 
 
+def normalise_params(signal="momentum", top_n=15, rebalance="M", years=5):
+    """The ONE place backtest inputs are clamped.
+
+    Exported because the route caches on these values: keying the cache on the
+    RAW query string while normalising here meant `years=5.01`, `5.02`, `5.03`
+    … all produced the identical backtest under distinct keys. The endpoint is
+    unauthenticated, so that was an unbounded, attacker-controlled dict on a
+    2 GB box. Normalising before the key makes the key space finite by
+    construction: |signals| x 48 x |rebalance| x 5.
+    """
+    try:
+        top_n = max(3, min(50, int(top_n)))
+    except (TypeError, ValueError):
+        top_n = 15
+    try:
+        years = max(1.0, min(5.0, float(years)))
+    except (TypeError, ValueError):
+        years = 5.0
+    return (signal if signal in _SIGNALS else "momentum",
+            top_n,
+            rebalance if rebalance in _REBAL else "M",
+            round(years, 2))
+
+
 def run_backtest(db, signal="momentum", top_n=15, rebalance="M", years=5):
-    signal = signal if signal in _SIGNALS else "momentum"
-    rebalance = rebalance if rebalance in _REBAL else "M"
-    top_n = max(3, min(50, int(top_n)))
-    years = max(1, min(5, float(years)))
+    signal, top_n, rebalance, years = normalise_params(signal, top_n, rebalance, years)
 
     px = _load_prices(db)
     series, bench, meta = px["series"], px["bench"], px["meta"]
