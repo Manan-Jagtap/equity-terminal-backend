@@ -625,3 +625,94 @@ def kv_health_view(db: Session = Depends(get_db),
     a null age means the blob predates the envelope (stamps on next write)."""
     from app.kv import kv_health
     return {"keys": kv_health(db)}
+
+
+# ── Audience ─────────────────────────────────────────────────────────────────
+@router.get("/audience")
+def audience(days: int = 30,
+             user: models.User = Depends(require_admin),
+             db: Session = Depends(get_db)):
+    """Who is actually using the platform.
+
+    Built ENTIRELY from tables we already own — `usage_events` (INST-01: event
+    name + optional detail, NO ip, NO user-agent) and `auth_events`. No
+    third-party analytics processor, which the DPDP position rules out anyway.
+
+    "Online now" is a 5-minute activity window rather than a session count: we
+    do not track sessions, and inventing one from request timing would be a
+    guess presented as a measurement. Anonymous events (user_id NULL — logged
+    out, or a user who exercised DPDP erasure) are counted separately from
+    signed-in people rather than folded in, so "people" never silently means
+    "browsers".
+    """
+    from datetime import datetime, timedelta
+    days = max(1, min(days, 365))
+    now = datetime.utcnow()
+    since = now - timedelta(days=days)
+
+    UE, AE, U = models.UsageEvent, models.AuthEvent, models.User
+
+    def _users_since(delta):
+        return (db.query(func.count(func.distinct(UE.user_id)))
+                  .filter(UE.created_at >= now - delta, UE.user_id.isnot(None))
+                  .scalar() or 0)
+
+    def _events_since(delta):
+        return db.query(func.count(UE.id)).filter(UE.created_at >= now - delta).scalar() or 0
+
+    total_users = db.query(func.count(U.id)).scalar() or 0
+    signups_7d  = db.query(func.count(U.id)).filter(U.created_at >= now - timedelta(days=7)).scalar() or 0
+    signups_30d = db.query(func.count(U.id)).filter(U.created_at >= now - timedelta(days=30)).scalar() or 0
+
+    logins_24h = (db.query(func.count(AE.id))
+                    .filter(AE.event == "login", AE.created_at >= now - timedelta(hours=24)).scalar() or 0)
+    logins_7d  = (db.query(func.count(AE.id))
+                    .filter(AE.event == "login", AE.created_at >= now - timedelta(days=7)).scalar() or 0)
+    failed_24h = (db.query(func.count(AE.id))
+                    .filter(AE.event == "login_failed", AE.created_at >= now - timedelta(hours=24)).scalar() or 0)
+
+    # Daily series: func.date() is portable across Postgres (prod) and SQLite (tests).
+    series_rows = (db.query(func.date(UE.created_at).label("d"),
+                            func.count(func.distinct(UE.user_id)).label("people"),
+                            func.count(UE.id).label("events"))
+                     .filter(UE.created_at >= since)
+                     .group_by("d").order_by("d").all())
+    series = [{"date": str(r.d), "people": int(r.people or 0), "events": int(r.events or 0)}
+              for r in series_rows]
+
+    top_rows = (db.query(UE.event, func.count(UE.id).label("n"))
+                  .filter(UE.created_at >= since)
+                  .group_by(UE.event).order_by(func.count(UE.id).desc()).limit(15).all())
+
+    # Signed-in people vs anonymous traffic, kept apart on purpose.
+    anon_30d = (db.query(func.count(UE.id))
+                  .filter(UE.created_at >= now - timedelta(days=30), UE.user_id.is_(None)).scalar() or 0)
+
+    return {
+        "as_of": now.isoformat() + "Z",
+        "window_days": days,
+        "people": {
+            "online_now": _users_since(timedelta(minutes=5)),
+            "active_24h": _users_since(timedelta(hours=24)),
+            "active_7d":  _users_since(timedelta(days=7)),
+            "active_30d": _users_since(timedelta(days=30)),
+        },
+        "events": {
+            "last_24h": _events_since(timedelta(hours=24)),
+            "last_7d":  _events_since(timedelta(days=7)),
+            "anonymous_30d": anon_30d,
+        },
+        "accounts": {
+            "total": total_users,
+            "signups_7d": signups_7d,
+            "signups_30d": signups_30d,
+        },
+        "logins": {"last_24h": logins_24h, "last_7d": logins_7d, "failed_24h": failed_24h},
+        "series": series,
+        "top_events": [{"event": e, "count": int(n)} for e, n in top_rows],
+        # Said out loud so the numbers are not over-read.
+        "note": ("Activity is counted from usage_events, which the app emits per "
+                 "view. 'Online now' means activity in the last 5 minutes, not a "
+                 "session count. Anonymous events are listed separately and are "
+                 "not people."),
+    }
