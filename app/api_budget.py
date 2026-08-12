@@ -21,8 +21,39 @@ from . import models
 CALLS_PER_FULL_INGEST = 10
 
 
-def current_month() -> str:
-    return _dt.date.today().strftime("%Y-%m")
+def cycle_day() -> int:
+    """Day of month the vendor plan RENEWS on. 1 = calendar month."""
+    try:
+        return max(1, min(28, int(os.getenv("INDIANAPI_CYCLE_DAY", "1"))))
+    except ValueError:
+        return 1
+
+
+def current_month(today: _dt.date | None = None) -> str:
+    """The key for the CURRENT BILLING CYCLE — not necessarily the calendar month.
+
+    The vendor resets its counter on the plan's renewal day, and ours must reset
+    with it or the two disagree in whichever direction the calendar happens to
+    fall. Measured on 2026-08-12, the day after an 11th-of-month renewal: the
+    vendor console read 0 used / 10,000 remaining while this table read 9,081,
+    because our bucket ("2026-08") still carried ten days of PRE-renewal spend.
+
+    Over-counting is the safe direction. The dangerous one arrives on the 1st of
+    each calendar month, when a calendar bucket resets to zero while the vendor's
+    cycle is ~20 days old and mostly spent — the guard would then permit a full
+    month's budget on top of a nearly exhausted plan.
+
+    With INDIANAPI_CYCLE_DAY=11, spend from 11 Aug to 10 Sep keys to "2026-08".
+    Default 1 preserves the old calendar-month behaviour exactly, so this is
+    inert until the renewal day is configured.
+    """
+    d = today or _dt.date.today()
+    anchor = cycle_day()
+    if anchor > 1 and d.day < anchor:
+        # Before this month's renewal → still inside the PREVIOUS cycle.
+        y, m = (d.year - 1, 12) if d.month == 1 else (d.year, d.month - 1)
+        return f"{y:04d}-{m:02d}"
+    return d.strftime("%Y-%m")
 
 
 def budget() -> int:
