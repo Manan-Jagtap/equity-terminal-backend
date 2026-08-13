@@ -331,9 +331,12 @@ METRICS: list[Metric] = [
            lambda c: _div(c["rev_l"], c["total_assets"]),
            note="Revenue / Total Assets", band=(0, 10)),
 
-    Metric("rev_per_employee","Revenue / Employee",   "Efficiency", "cr", (TemplateCode.IT_SERVICES,),
-           lambda c: None,   # placeholder — needs headcount data
-           note="Requires headcount ingestion"),
+    # rev_per_employee was declared here with `lambda c: None` — a metric that
+    # could never return a value, because headcount is not ingested and nothing
+    # is scheduled to ingest it. Registered, it rendered as a permanent blank row
+    # on IT_SERVICES names, which reads as "we have no data for this company"
+    # rather than "this metric does not exist". Removed rather than left as a
+    # placeholder; re-add it in the same breath as the headcount feed.
 
     Metric("aum_per_cr_equity","AUM / Equity",        "Efficiency", "x", FINANCIAL,
            lambda c: _div(c["aum"], c["equity"]),

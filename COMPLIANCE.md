@@ -69,14 +69,30 @@ Before public launch:
 Current safeguards (PBKDF2 260k, HMAC sessions, TLS, rate limits) are a good
 baseline for "reasonable security safeguards".
 
-## 🟡 5. AI-generated research content
+## 🟢 5. AI-generated research content — NOT APPLICABLE
 
-The AI Thesis and transcript summaries are LLM-generated. SEBI's recent
-circulars put responsibility for AI-assisted research squarely on the
-registered entity, and expect **explicit AI-use disclosure**. The thesis
-output should carry a visible "AI-generated, machine-validated against source
-financials, may contain errors" label (partially present; make it uniform),
-and the RA registration (path 1 above) must disclose AI usage.
+**The platform contains no AI-generated content.** Every LLM path was stripped
+on 16 July 2026; the thesis and transcript summarisers are now rule-based
+extractors over the source documents.
+
+This section previously read "The AI Thesis and transcript summaries are
+LLM-generated" and told the reader to add an AI-use label and disclose AI usage
+in the RA registration. That was still here three weeks after the code was
+removed — a compliance document asserting a live AI feature the product does not
+have. Wrong in the safe direction, but wrong in the document whose entire job is
+to describe the product accurately to a regulator.
+
+Verified at the time of writing: no LLM SDK in requirements.txt (no anthropic,
+openai, langchain, transformers), and every remaining mention of "LLM" or
+"Anthropic" in app/ is a comment recording the removal — see app/transcript_nlp.py,
+whose docstring states there is no Anthropic call and no paid API.
+
+SEBI's AI circulars therefore do not bite today, and the RA registration has no
+AI usage to disclose. **If any LLM call is ever reintroduced, this section
+becomes live again**: responsibility for AI-assisted research sits squarely with
+the registered entity, explicit AI-use disclosure is expected, the output needs a
+visible "AI-generated, may contain errors" label, and the registration must be
+updated. Reintroducing one is a sign-off decision, not an implementation detail.
 
 ## 🟢 6. What's already in decent shape
 
