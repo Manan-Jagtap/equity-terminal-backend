@@ -1592,43 +1592,17 @@ VISIBLE_UNIVERSE = _TIERS[UNIVERSE_TIER] - EXCLUDED_TICKERS
 
 
 # ── Intraday spot-price refresh (yfinance — all 50 in ONE batched call) ──────
-# IndianAPI has no all-50 batch live-price endpoint (confirmed: only the top-10
-# NSE_most_active, or per-company /stock). Yahoo, via yfinance, returns every
-# NSE quote in a single batched request — free, no API key, no IndianAPI quota.
-# We use it ONLY for the live spot price; all fundamentals still come from
-# IndianAPI (yfinance fundamentals were the inaccurate source we migrated off).
-
-def _yf_live_prices(tickers, debug=False):
-    """All NSE spot prices in ONE batched Yahoo call → {OUR_TICKER: price}.
-    Yahoo uses the .NS suffix; we map back to the bare NSE symbol we store."""
-    import yfinance as yf
-    yf_syms = {f"{t}.NS": t for t in tickers}
-    try:
-        df = yf.download(list(yf_syms.keys()), period="1d", interval="5m",
-                         progress=False, threads=True)
-    except Exception as e:
-        if debug:
-            print(f"  [intraday] yfinance download failed: {type(e).__name__}: {e}")
-        return {}
-    out = {}
-    try:
-        close = df["Close"]
-        if hasattr(close, "columns"):              # multi-ticker → DataFrame
-            for ysym in close.columns:
-                s = close[ysym].dropna()
-                if len(s):
-                    out[yf_syms.get(ysym, ysym)] = round(float(s.iloc[-1]), 2)
-        else:                                      # single ticker → Series
-            s = close.dropna()
-            if len(s):
-                out[list(yf_syms.values())[0]] = round(float(s.iloc[-1]), 2)
-    except Exception as e:
-        if debug:
-            print(f"  [intraday] yfinance parse failed: {type(e).__name__}: {e}")
-    if debug:
-        print(f"  [intraday] yfinance returned {len(out)}/{len(tickers)} live prices")
-    return out
-
+# The batched-Yahoo live-price path (_yf_live_prices) lived here and was removed
+# as dead code: it had zero call sites, because run_intraday below already
+# documents why it stopped being usable — Yahoo blocks datacenter IPs, so it
+# could not work from the EC2 box regardless. Prices come from IndianAPI /stock.
+#
+# NOTE: this does NOT free the yfinance pin in requirements.txt. One other file
+# still imports it — app/ingest/fix_roe_sweep.py, a one-off from the 2026-06
+# migration that re-derived ROE assumptions stuck at 0.155. Its work is long
+# done and it is referenced only by audit documents, but deleting a script is a
+# judgement call rather than a cleanup, so the dependency stays until that call
+# is made.
 
 def run_intraday(debug=False):
     """Refresh Nifty 50 spot prices via IndianAPI (one /stock call per name).

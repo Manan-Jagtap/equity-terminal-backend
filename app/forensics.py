@@ -13,10 +13,19 @@ and reproducible. We compute what the ingested data supports TODAY:
   · Leverage trend (D/E now vs 3y ago)
 
 Each metric carries a red/amber/green flag; the module also returns an overall
-accounting-quality composite (0-100) and a plain-language flag list. The classic
-Beneish M-score and full Altman Z'' need receivables / working-capital / SG&A
-that aren't ingested yet — they're listed under `pending` and wired in once the
-ingester captures those lines.
+accounting-quality composite (0-100) and a plain-language flag list.
+
+Beneish M and Altman Z'' ARE implemented (`_beneish_m`, `_altman_z`) and are
+computed for every non-financial name. This docstring used to say they "need
+receivables / working-capital / SG&A that aren't ingested yet" and were "listed
+under `pending`" — that stopped being true when they were wired in, and the
+stale text described the module as less capable than it is.
+
+One real caveat remains, and it is narrower than the old text implied: inside
+Beneish, SGAI is pinned to 1.0 (neutral) because SG&A is not among the inputs
+this module receives, so that one of the eight terms never contributes. The
+response marks this explicitly with `sgai_neutral: True` rather than passing the
+score off as complete. `pending` now carries only promoter-pledge %.
 
 Safe by construction: any missing input yields None / a skipped test, never a
 crash. Financials (banks/NBFC/insurers) get a reduced set — coverage/accrual

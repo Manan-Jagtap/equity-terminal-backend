@@ -64,10 +64,39 @@ def test_cap_prevents_runaway_reinvestment():
 
 
 def test_engine_js_mirrors_the_floor():
-    """Parity contract: engines.py and engine.js must both carry CORR-6."""
-    js = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__)))), "equity-terminal", "src", "lib", "engine.js")
-    if not os.path.exists(js):
-        import pytest; pytest.skip("frontend repo not checked out beside backend")
-    src = open(js, encoding="utf-8").read()
+    """Parity contract: engines.py and engine.js must both carry CORR-6.
+
+    This used to look for the frontend as a SIBLING of the backend checkout and
+    skip when it was absent. It was absent everywhere: the repos actually live at
+    ~/Downloads/backend and ~/equity-terminal, so the guessed path resolved to
+    ~/Downloads/equity-terminal, and CI never checks the frontend out at all.
+    The test therefore skipped on every run since it was written — a green
+    parity contract that had never once been evaluated.
+
+    The frontend is public, so fetch the file when it is not on disk. Local path
+    still wins (offline, and picks up uncommitted edits); CORR6_ENGINE_JS
+    overrides both.
+    """
+    import pytest
+    src = None
+    candidates = [
+        os.environ.get("CORR6_ENGINE_JS"),
+        os.path.join(os.path.expanduser("~"), "equity-terminal", "src", "lib", "engine.js"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))), "equity-terminal", "src", "lib", "engine.js"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            src = open(p, encoding="utf-8").read()
+            break
+    if src is None:
+        import urllib.request, urllib.error
+        url = ("https://raw.githubusercontent.com/Manan-Jagtap/equity-terminal"
+               "/main/src/lib/engine.js")
+        try:
+            with urllib.request.urlopen(url, timeout=20) as r:
+                src = r.read().decode("utf-8")
+        except (urllib.error.URLError, TimeoutError) as e:
+            pytest.skip(f"engine.js unavailable locally and unfetchable: {e}")
+
     assert "REINVEST_CAP" in src and "roicEx" in src, "engine.js missing CORR-6 mirror"

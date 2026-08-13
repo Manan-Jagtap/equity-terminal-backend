@@ -106,8 +106,18 @@ BSE_SCRIP_CODES: dict[str, str] = {
     "INDIANB":      "532814",
     "UCOBANK":      "532505",
 
-    # --- Tata Capital (post-IPO; placeholder code, update on listing) ---
-    "TATACAPITAL":  "544350",   # ⚠ verify if/when listed
+    # TATACAPITAL was mapped to "544350" with the comment "⚠ verify if/when
+    # listed" — a GUESSED code, never confirmed against BSE.
+    #
+    # A wrong scrip code is not a blank: get_scrip_code() feeds documents_routes,
+    # so it would attach another listed company's filings to Tata Capital under a
+    # confident-looking UI. That is the DATA-10 contamination shape, and the two
+    # sources that could have verified it are both closed (BSE blocks us, and the
+    # vendor revoked /documents on 24 Jul 2026).
+    #
+    # Absent beats wrong: with no entry, get_scrip_code returns None and the
+    # caller degrades to "no filings" honestly. Restore it with a code read off
+    # the BSE listing itself, not inferred from the numbering sequence.
 }
 
 
