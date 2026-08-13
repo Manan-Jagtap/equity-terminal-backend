@@ -22,6 +22,7 @@ Design goals for the company workbook:
     hidden gridlines, frozen headers — aesthetically in line with the one-pager.
 """
 import io
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
@@ -152,8 +153,32 @@ _SCREENER_HEADER = ["Ticker", "Name", "Sector", "Valuation Sector", "Price",
                     "ROE %", "Analyst Target", "Analyst Rating"]
 
 
+_SCREENER_XLSX_CACHE = {"at": 0.0, "body": None}
+_SCREENER_XLSX_TTL = 600      # the underlying valuations move on a batch, not per request
+
+
 @router.get("/screener.xlsx")
 def export_screener(db: Session = Depends(get_db)):
+    """The whole covered universe as a workbook.
+
+    UNAUTHENTICATED and previously uncached: every request walked ~1000
+    companies, built an openpyxl workbook in memory and serialised it. On a
+    t3.micro that is a trivially repeatable way to pin CPU and memory — no
+    credentials, no rate limit, just refresh.
+
+    The contents change when the scheduler recomputes valuations, not per
+    request, so a short TTL costs nothing in freshness. The response bytes are
+    cached rather than the workbook object, because openpyxl Workbooks are not
+    safe to re-serialise concurrently.
+    """
+    now = time.time()
+    hit = _SCREENER_XLSX_CACHE
+    if hit["body"] is not None and (now - hit["at"]) < _SCREENER_XLSX_TTL:
+        return Response(
+            content=hit["body"],
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": 'attachment; filename="screener.xlsx"',
+                     "Cache-Control": f"public, max-age={_SCREENER_XLSX_TTL}"})
     wb = Workbook()
     ws = wb.active
     ws.title = "Screener"
@@ -202,7 +227,12 @@ def export_screener(db: Session = Depends(get_db)):
             # would render as a stray 0 in some spreadsheet apps
             if cell_.value is not None and not isinstance(cell_.value, str):
                 cell_.number_format = fmt
-    return _xlsx_response(wb, "screener.xlsx")
+    resp = _xlsx_response(wb, "screener.xlsx")
+    try:
+        _SCREENER_XLSX_CACHE.update(at=now, body=resp.body)
+    except Exception:
+        pass          # caching is an optimisation; never fail the download for it
+    return resp
 
 
 # ── Company export: Summary ──────────────────────────────────────────────────
