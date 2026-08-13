@@ -40,13 +40,46 @@ jobs:
         env:
           DATABASE_URL: "sqlite:////tmp/ci_terminal.db"
         run: python -m pytest tests/ -q
-      - name: Regenerate parity fixtures (must not crash)
-        # The frontend repo compares against committed fixtures; this proves the
-        # generators still run against the current engine/derive code so the
-        # cross-repo regeneration step can never rot silently.
+      - name: Parity fixtures must still match the committed ones (ARC-05)
+        # This step used to regenerate into /tmp and never look at the result,
+        # proving only that the generators do not crash. That left the drift it
+        # was named for wide open, and made the FRONTEND's green parity run
+        # meaningless in the one case that matters:
+        #
+        #   engines.py changes -> nobody regenerates -> frontend CI compares
+        #   engine.js against the STALE committed fixtures -> 60/60, 48/48, and
+        #   the two engines have actually diverged.
+        #
+        # The only guard was scripts/hooks/pre-push, which is local-only, opt-out
+        # via --no-verify, absent after a fresh clone, and never runs at all when
+        # main is merged on GitHub — the normal path here.
+        #
+        # The fixtures live in the frontend repo, which is public, so fetch the
+        # exact artifact the frontend tests consume rather than committing a
+        # second copy that could itself drift. Compared as parsed JSON, not
+        # bytes, so key order and whitespace cannot cause a false failure.
         run: |
+          set -euo pipefail
           python tests/gen_parity_cases.py /tmp/parityCases.json
           python tests/gen_derive_cases.py /tmp/deriveCases.json
+          RAW=https://raw.githubusercontent.com/Manan-Jagtap/equity-terminal/main/tests
+          for f in parityCases deriveCases; do
+            curl -fsSL "$RAW/$f.json" -o "/tmp/$f.committed.json"
+            python - "$f" <<'PY'
+          import json, sys
+          f = sys.argv[1]
+          fresh = json.load(open(f"/tmp/{f}.json"))
+          committed = json.load(open(f"/tmp/{f}.committed.json"))
+          if fresh != committed:
+              print(f"!! FIXTURE DRIFT in {f}.json", file=sys.stderr)
+              print("   The engine changed but the committed fixtures did not.", file=sys.stderr)
+              print("   The frontend parity suite is now checking engine.js against a stale", file=sys.stderr)
+              print("   snapshot and will pass while the two engines disagree.", file=sys.stderr)
+              print("   Fix: bash scripts/sync_parity_fixtures.sh, then commit the frontend diff.", file=sys.stderr)
+              sys.exit(1)
+          print(f"   {f}.json matches the committed fixture")
+          PY
+          done
 
       # The valuation book is this product. Until now the calibration bar was a
       # manual local command with a git-ignored baseline, so nothing stopped a
