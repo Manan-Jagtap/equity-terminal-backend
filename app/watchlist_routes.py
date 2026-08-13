@@ -14,7 +14,7 @@ Alert logic lives in app.watchlist_alerts (DB-free, unit-tested).
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app import models
 from app.auth import get_current_user
@@ -74,14 +74,59 @@ def _day_move(db: Session, company_id: int):
     return None
 
 
-def _enrich(db: Session, item: models.WatchlistItem, alpha_by=None, rev_by=None):
-    co = item.company
-    price = (co.market.price if co.market else None)
-    v = None
+def _prefetch(db: Session, company_ids):
+    """Two queries for the whole watchlist instead of two PER NAME.
+
+    `_enrich` fetched a Valuation and the last two HistoricalPrice rows for each
+    item, so rendering a 40-name watchlist opened ~80 round-trips. Both are
+    keyed by company_id, so both collapse into one IN-query each.
+
+    The day-move calculation is reproduced exactly: latest close / previous
+    close - 1, from the two most recent rows per company.
+    """
+    ids = list(company_ids)
+    if not ids:
+        return {}, {}
+    val_by, move_by = {}, {}
     try:
-        v = db.query(models.Valuation).filter_by(company_id=co.id).first()
+        for v in db.query(models.Valuation).filter(models.Valuation.company_id.in_(ids)).all():
+            val_by.setdefault(v.company_id, v)
     except Exception:
         db.rollback()
+    try:
+        rows = (db.query(models.HistoricalPrice)
+                  .filter(models.HistoricalPrice.company_id.in_(ids))
+                  .order_by(models.HistoricalPrice.company_id,
+                            models.HistoricalPrice.date.desc()).all())
+        seen = {}
+        for r in rows:
+            seen.setdefault(r.company_id, []).append(r)
+        for cid, rs in seen.items():
+            if len(rs) >= 2 and rs[1].close:
+                try:
+                    move_by[cid] = rs[0].close / rs[1].close - 1.0
+                except (TypeError, ZeroDivisionError):
+                    move_by[cid] = None
+    except Exception:
+        db.rollback()
+    return val_by, move_by
+
+
+def _enrich(db: Session, item: models.WatchlistItem, alpha_by=None, rev_by=None,
+            val_by=None, move_by=None):
+    co = item.company
+    price = (co.market.price if co.market else None)
+    # Prefetched by the caller when available — this used to be one Valuation
+    # query PER watched name, plus one 2-row price query each, so a 40-name
+    # watchlist opened 80 round-trips to render one screen.
+    if val_by is not None:
+        v = val_by.get(co.id)
+    else:
+        v = None
+        try:
+            v = db.query(models.Valuation).filter_by(company_id=co.id).first()
+        except Exception:
+            db.rollback()
     verdict = _NORMALIZE_VERDICT.get((v.verdict if v else None), (v.verdict if v else None))
     # DAT-13b/DAT-15: the STORED row keeps the raw figure by design, so any caller
     # reading the DB directly has to ask before showing it. valuation_public's own
@@ -91,7 +136,7 @@ def _enrich(db: Session, item: models.WatchlistItem, alpha_by=None, rev_by=None)
     suppressed = is_suppressed_row(v)
     mos = None if suppressed else (v.mos if v else None)
     intrinsic = None if suppressed else (v.intrinsic if v else None)
-    move = _day_move(db, co.id)
+    move = move_by.get(co.id) if move_by is not None else _day_move(db, co.id)
 
     tk = (co.ticker or "").upper()
     a = (alpha_by or {}).get(tk) or {}
@@ -141,11 +186,18 @@ def _enrich(db: Session, item: models.WatchlistItem, alpha_by=None, rev_by=None)
 def list_watchlist(user: models.User = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     uk = f"u{user.id}"
+    # joinedload, not just join: the join only filters/sorts, so `item.company`
+    # and `co.market` were still lazy-loaded ONE QUERY EACH PER ITEM inside
+    # _enrich. Measured before this: 1 name = 17 queries, 20 names = 65 — still
+    # ~3 per name after the Valuation/price prefetch removed the other two.
     items = (db.query(models.WatchlistItem)
+               .options(joinedload(models.WatchlistItem.company)
+                        .joinedload(models.Company.market))
                .filter_by(user_key=uk)
                .join(models.Company).order_by(models.Company.ticker).all())
     alpha_by, rev_by = _alpha_revisions(db) if items else ({}, {})
-    out = [_enrich(db, it, alpha_by, rev_by) for it in items]
+    val_by, move_by = _prefetch(db, {it.company_id for it in items})
+    out = [_enrich(db, it, alpha_by, rev_by, val_by, move_by) for it in items]
     db.commit()   # persist refreshed last_verdict/last_price
     # Most-actionable first: triggered names on top, then by margin of safety.
     out.sort(key=lambda r: (r["triggered"], r["mos"] if r["mos"] is not None else -9), reverse=True)
