@@ -144,6 +144,11 @@ def api_usage(_admin: models.User = Depends(require_admin)):
     base = os.getenv("INDIANAPI_ANALYST_BASE", "https://analyst.indianapi.in").rstrip("/")
     vendor = None
     try:
+        # The vendor's own usage endpoint is still a request against the plan,
+        # so it counts. It was the last unmetered IndianAPI call site; leaving it
+        # out meant api_budget undercounted by exactly the calls made to ask how
+        # much had been spent.
+        from app import vendor_meter; vendor_meter.tick()
         r = requests.get(base + "/usage", headers={"x-api-key": key}, timeout=15)
         if r.status_code == 200:
             vendor = r.json()
