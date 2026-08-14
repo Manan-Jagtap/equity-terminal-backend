@@ -21,11 +21,13 @@ receivables / working-capital / SG&A that aren't ingested yet" and were "listed
 under `pending`" — that stopped being true when they were wired in, and the
 stale text described the module as less capable than it is.
 
-One real caveat remains, and it is narrower than the old text implied: inside
-Beneish, SGAI is pinned to 1.0 (neutral) because SG&A is not among the inputs
-this module receives, so that one of the eight terms never contributes. The
-response marks this explicitly with `sgai_neutral: True` rather than passing the
-score off as complete. `pending` now carries only promoter-pledge %.
+All eight Beneish terms now use real data. SGAI was previously pinned to 1.0 on
+the belief that SG&A was not ingested; it is (the ingester maps Reuters
+"Selling/General/Admin. Expenses, Total" to `sga` precisely for this), so it is
+computed. Where a company lacks an SG&A line in either comparison year it still
+falls back to neutral for that company only, reported as `sgai_neutral: True` —
+a missing input must never quietly become a signal. `pending` carries only
+promoter-pledge %.
 
 Safe by construction: any missing input yields None / a skipped test, never a
 crash. Financials (banks/NBFC/insurers) get a reduced set — coverage/accrual
@@ -174,8 +176,9 @@ def _altman_z(statements, years):
 
 def _beneish_m(statements, years):
     """Beneish M-score — likelihood of earnings manipulation. M > −1.78 flags
-    elevated risk. SG&A isn't reported in this feed, so the minor SGAI term is
-    held neutral (=1); the other seven variables use real data."""
+    elevated risk. All eight variables use real data where available; SGAI falls
+    back to neutral (=1) per-company when either year lacks an SG&A line, which
+    the response reports as sgai_neutral."""
     if len(years) < 2:
         return None
     t, p = years[-1], years[-2]
@@ -212,7 +215,34 @@ def _beneish_m(statements, years):
     d_t, d_p = _dep(dept, ppet), _dep(depp, ppep)
     depi = (d_p / d_t) if (d_t and d_p) else 1.0
 
-    sgai = 1.0   # SG&A not reported → neutral
+    # SGAI = (SG&A / Sales)_t / (SG&A / Sales)_prior.
+    #
+    # Mind the sign. The intuition is that SG&A growing faster than sales signals
+    # deteriorating prospects, so you would expect it to RAISE the manipulation
+    # score — but Beneish's estimated coefficient is NEGATIVE (-0.172), so a
+    # rising ratio LOWERS M. That is the published specification, not a
+    # transcription error: Beneish notes the estimate came out opposite to the
+    # predicted sign. Reproduced here rather than "corrected", because a model
+    # named after its author should be the model he published.
+    #
+    # This was pinned to 1.0 with the comment "SG&A not reported". That stopped
+    # being true when the ingester started capturing Reuters
+    # "Selling/General/Admin. Expenses, Total" as `sga` (see
+    # ingest/indianapi_ingester.py, whose own comment names Beneish SGAI as the
+    # reason). Verified populated in production before wiring it in.
+    #
+    # Still falls back to neutral per-company rather than globally: plenty of
+    # names have no SG&A line in one of the two years, and a missing input must
+    # not silently become a signal. sgai_neutral now reports which happened.
+    sga_t, sga_p = P(t, "sga"), P(p, "sga")
+    if (sga_t is not None and sga_p is not None
+            and salt and salp and sga_p > 0 and sga_t >= 0):
+        ratio_p = sga_p / salp
+        sgai = ((sga_t / salt) / ratio_p) if ratio_p else 1.0
+        sgai_neutral = False
+    else:
+        sgai = 1.0
+        sgai_neutral = True
 
     def _lev(yr, ta):
         ltd = B(yr, "lt_debt"); cl = _cl((statements.get(yr, {}) or {}).get("BS", {}))
@@ -227,9 +257,9 @@ def _beneish_m(statements, years):
          + 0.115 * depi - 0.172 * sgai + 4.679 * tata - 0.327 * lvgi)
     flag = "red" if m > -1.78 else "amber" if m > -2.22 else "green"
     return {"value": round(m, 2), "flag": flag, "threshold": -1.78,
-            "sgai_neutral": True,
+            "sgai_neutral": sgai_neutral,
             "components": {"DSRI": round(dsri, 2), "GMI": round(gmi, 2), "AQI": round(aqi, 2),
-                           "SGI": round(sgi, 2), "DEPI": round(depi, 2),
+                           "SGI": round(sgi, 2), "DEPI": round(depi, 2), "SGAI": round(sgai, 2),
                            "LVGI": round(lvgi, 2), "TATA": round(tata, 3)},
             "note": ("M=%.2f — %s" % (m, "above −1.78: elevated manipulation risk"
                      if m > -1.78 else "below −1.78: no manipulation signal"))}
