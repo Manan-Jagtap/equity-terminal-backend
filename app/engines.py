@@ -331,9 +331,9 @@ _BLEND_WEIGHTS = {
     # FIX-11: DCF leads harder (.55→.65) and the exit multiple is trusted less
     # (.30→.20) — the exit leg was the single biggest source of rich confident
     # calls (CORR-1); the intrinsic DCF is the more defensible anchor.
-    "nonfin": [("FCFF DCF",        0.65), ("Exit Multiple",     0.20), ("P/E (sector)", 0.15)],
+    "nonfin": [("FCFF DCF",        0.66), ("Exit Multiple",     0.19), ("P/E (sector)", 0.15)],
     # Asset-light: earnings-based P/E is the meaningful multiple; EV/EBITDA less so.
-    "nonfin_light": [("FCFF DCF",  0.55), ("Exit Multiple",     0.15), ("P/E (sector)", 0.30)],
+    "nonfin_light": [("FCFF DCF",  0.56), ("Exit Multiple",     0.15), ("P/E (sector)", 0.29)],
 }
 # Sectors whose value is asset-light / earnings-driven → lean the cross-check on P/E.
 _ASSET_LIGHT = {"IT_SERVICES", "CONSUMER", "CONSUMER_DISC", "PHARMA"}
