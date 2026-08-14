@@ -5,12 +5,35 @@ from app import engines, sector_params as SP
 
 
 def test_fix11_blend_weights_deflated():
-    """DCF leads harder, exit multiple trusted less."""
+    """DCF leads harder, exit multiple trusted less.
+
+    Values moved 0.65/0.20/0.15 -> 0.66/0.19/0.15 (and nonfin_light
+    0.55/0.15/0.30 -> 0.56/0.15/0.29) on 14 Aug 2026. This guard caught the
+    change, which is what it is for — updated deliberately, not relaxed.
+
+    Provenance: a 5-fold cross-validated search over the weight simplex, scored
+    on held-out names against the calibration bands, found the aggregate wants
+    substantially MORE weight on the DCF (+10 names out-of-sample across 267).
+    Most of that gain is not bankable: at 0.80 the calibration gate fails on
+    FRESH-TRANCHE WITHIN-BAND REGRESSED (12.7% -> 11.8%) even though blended
+    (26.7 -> 29.6) and OLD (32.5 -> 37.0) both improve — the old-ruler mirage the
+    tranche split exists to expose. 0.66 is the step that survives every gate:
+    within-band 26.7% -> 27.6% (+3/-0), zero hard breaks, fresh tranche flat.
+
+    Keep pinning exact values. The engine.js mirror carries the same numbers and
+    the parity harness (60/60) will fail if the two drift apart.
+    """
     nonfin = dict(engines._BLEND_WEIGHTS["nonfin"])
-    assert nonfin["FCFF DCF"] == 0.65
-    assert nonfin["Exit Multiple"] == 0.20
+    assert nonfin["FCFF DCF"] == 0.66
+    assert nonfin["Exit Multiple"] == 0.19
     assert nonfin["P/E (sector)"] == 0.15
     assert abs(sum(nonfin.values()) - 1.0) < 1e-9
+
+    light = dict(engines._BLEND_WEIGHTS["nonfin_light"])
+    assert light["FCFF DCF"] == 0.56
+    assert light["Exit Multiple"] == 0.15
+    assert light["P/E (sector)"] == 0.29
+    assert abs(sum(light.values()) - 1.0) < 1e-9
 
 
 def test_fix11_exit_pe_rebased():
