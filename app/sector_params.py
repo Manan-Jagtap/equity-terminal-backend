@@ -168,7 +168,7 @@ SECTOR_PARAMS: dict[str, dict] = {
     "CONSTRUCTION":  _P(beta=1.20, terminal_growth=0.050, mature_roic=0.13, mature_roe=0.14, exit_pe=15, exit_ev_ebitda=9,  exit_pb=None),
     # Defence — structural order-book growth, high returns, indigenisation tailwind
     # → the PSUs (HAL/BEL/BDL) sustain premium multiples.
-    "DEFENCE":       _P(beta=0.95, terminal_growth=0.060, mature_roic=0.20, mature_roe=0.22, exit_pe=28, exit_ev_ebitda=24, exit_pb=None),
+    "DEFENCE":       _P(beta=0.95, terminal_growth=0.055, mature_roic=0.20, mature_roe=0.22, exit_pe=28, exit_ev_ebitda=24, exit_pb=None),
     # Textiles — commodity, cyclical (cotton/yarn), thin returns → cheap + through-cycle.
     "TEXTILES":      _P(beta=1.10, terminal_growth=0.040, mature_roic=0.11, mature_roe=0.12, exit_pe=13, exit_ev_ebitda=7,  exit_pb=None),
     # Logistics / transport (ex-airlines) — asset-moderate, GDP-linked.
