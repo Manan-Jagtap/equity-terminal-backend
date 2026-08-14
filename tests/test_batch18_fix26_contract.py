@@ -19,7 +19,17 @@ client = TestClient(app)
 def test_health_contract():
     r = client.get("/api/health")
     assert r.status_code == 200
-    assert set(r.json().keys()) == set(CONTRACT["/api/health"])
+    # degraded_reason is present ONLY when status == "degraded" (vendor
+    # unreachable), so it is not part of the steady-state key set. Compare
+    # against the response with it removed, and assert the pairing holds.
+    keys = set(r.json().keys())
+    body = r.json()
+    if body["status"] == "degraded":
+        assert "degraded_reason" in keys
+        keys.discard("degraded_reason")
+    else:
+        assert "degraded_reason" not in keys
+    assert keys == set(CONTRACT["/api/health"])
 
 
 def test_factors_backtest_contract():
