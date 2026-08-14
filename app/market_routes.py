@@ -38,6 +38,14 @@ def _get(path, params=None, ttl=TTL):
         data = r.json() if r.status_code == 200 else None
     except Exception:
         data = None
+    # Record the OUTCOME, not just the spend. tick() above already counted the
+    # quota this call burned — a failed call burns it too — so the meter alone
+    # could not tell health that upstream had stopped answering.
+    try:
+        from app import vendor_meter as _vm   # explicit: the tick() import above
+        _vm.record(data is not None)          # is local to the try block
+    except Exception:
+        pass
     if data is not None:
         _cache[ck] = (now, data)
         return data

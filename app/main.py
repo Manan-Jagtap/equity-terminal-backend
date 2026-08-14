@@ -396,9 +396,39 @@ def health(db: Session = Depends(get_db)):
             integrity = sweep.get("status")
     except Exception:
         pass
-    return {"status": "ok", "errors_1h": errs,
+    # VENDOR REACHABILITY. On 14 Aug 2026 every IndianAPI call failed for 5+
+    # hours while this endpoint returned {"status":"ok","errors_1h":0}. Nothing
+    # was broken in the reporting: market_routes._get serves its last good
+    # payload on upstream failure (correct), and no exception reached the error
+    # log, so `errors_1h` legitimately stayed 0. The gap was that "serving cache
+    # because upstream is gone" and "healthy" looked identical from outside, and
+    # a revoked credential read as a quiet evening. The only surfaces telling the
+    # truth were the ones with no cache to fall back on.
+    #
+    # `vendor_ok`/`vendor_fail` are this container's call outcomes since boot,
+    # and `vendor_last_ok_min` is the age of the last SUCCESSFUL call — the field
+    # that actually distinguishes the two cases.
+    vendor = {}
+    degraded = None
+    try:
+        from app import vendor_meter
+        o = vendor_meter.outcomes()
+        vendor = {"vendor_ok": o["ok"], "vendor_fail": o["fail"],
+                  "vendor_last_ok_min": o["last_ok_min"]}
+        # Deliberately conservative, so a couple of flaky calls do not page
+        # anyone: only degrade when this container has FAILED calls and has not
+        # had a SUCCESS in the last 30 minutes (or has never had one while
+        # failures are accumulating). A quiet container that has made no calls at
+        # all stays "ok" — no evidence is not bad evidence.
+        if o["fail"] > 0 and (o["last_ok_min"] is None or o["last_ok_min"] >= 30):
+            degraded = "vendor_unreachable"
+    except Exception:
+        pass
+    return {"status": "degraded" if degraded else "ok",
+            **({"degraded_reason": degraded} if degraded else {}),
+            "errors_1h": errs,
             "scheduler_beat_min": beat_min, "price_age_days": price_age_days,
-            "integrity": integrity}
+            "integrity": integrity, **vendor}
 
 
 def _latest_facts(db, company_id):
