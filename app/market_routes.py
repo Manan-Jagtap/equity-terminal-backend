@@ -25,6 +25,27 @@ TTL = 900  # seconds — market feeds change slowly; 15-min cache keeps loads fa
 _cache = {}  # key -> (ts, data)
 
 
+
+def _payload_ok(data) -> bool:
+    """A 200 is not a success until the body carries data.
+
+    The vendor answers some failure modes with HTTP 200 and an empty or
+    error-shaped body. Counting those as successes did two kinds of damage:
+    vendor_meter read a dead-but-200 feed as healthy (so /api/health stayed
+    "ok"), and — worse — the empty body OVERWROTE the last-good cached payload,
+    destroying exactly the data `_get` exists to preserve through an outage.
+    The feeds this file consumes are never legitimately empty: a trading session
+    always has movers, the 52-week lists always carry names, /indices always has
+    rows. An empty body is upstream trouble, and stale-last-good is the designed
+    answer to upstream trouble.
+    """
+    if not data:                       # None, {}, [], ""
+        return False
+    if isinstance(data, dict) and set(data.keys()) <= {"error", "message", "detail"}:
+        return False                   # error envelope with 200 status
+    return True
+
+
 def _get(path, params=None, ttl=TTL):
     ck = path + str(params or "")
     now = time.time()
@@ -38,15 +59,18 @@ def _get(path, params=None, ttl=TTL):
         data = r.json() if r.status_code == 200 else None
     except Exception:
         data = None
+    ok = _payload_ok(data)
     # Record the OUTCOME, not just the spend. tick() above already counted the
     # quota this call burned — a failed call burns it too — so the meter alone
-    # could not tell health that upstream had stopped answering.
+    # could not tell health that upstream had stopped answering. `ok`, not
+    # `data is not None`: a 200 with an empty body is a failure in every way
+    # that matters (see _payload_ok).
     try:
         from app import vendor_meter as _vm   # explicit: the tick() import above
-        _vm.record(data is not None)          # is local to the try block
+        _vm.record(ok)                        # is local to the try block
     except Exception:
         pass
-    if data is not None:
+    if ok:
         _cache[ck] = (now, data)
         return data
     return hit[1] if hit else None   # serve stale on upstream failure
@@ -73,12 +97,24 @@ def _get_analyst(path, params=None, ttl=TTL):
     if hit and now - hit[0] < ttl:
         return hit[1]
     try:
+        # Metered and outcome-tracked like _get. This helper was invisible to
+        # both: its calls burned quota uncounted, and its failures never reached
+        # /api/health — the indices and commodities cards could die silently
+        # while the vendor signal stayed green.
+        from app import vendor_meter as _vm
+        _vm.tick()
         r = requests.get(ANALYST_BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                          params=params or {}, timeout=20)
         data = r.json() if r.status_code == 200 else None
     except Exception:
         data = None
-    if data is not None:
+    ok = _payload_ok(data)
+    try:
+        from app import vendor_meter as _vm
+        _vm.record(ok)
+    except Exception:
+        pass
+    if ok:
         _cache[ck] = (now, data)
         return data
     return hit[1] if hit else None
