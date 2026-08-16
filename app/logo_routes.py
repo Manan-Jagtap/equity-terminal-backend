@@ -24,6 +24,17 @@ _CACHE: dict = {}   # ticker -> (bytes, content_type) | ("neg", retry_after_ts)
 _NEG_TTL = 6 * 3600   # a missing ticker_id/logo can appear later — retry after 6h
 _HEADERS = {"Cache-Control": "public, max-age=604800"}   # 7 days
 
+# The vendor's /logo/{id} is DEAD: the production IndianAPI host dropped it on
+# 13 Jul 2026, which is why the CDN URL below exists at all. The fallback kept
+# firing on every CDN miss regardless — a request that can only fail, behind a
+# 15s timeout, so a cold-cache name the CDN has no artwork for stalled a worker
+# thread for 15 seconds and ticked the paid quota before the frontend got its
+# 404 and drew the neutral tile. Re-enable ONLY when
+#   curl -sS -o /dev/null -w '%{http_code}\n' -H "X-API-Key: $INDIANAPI_KEY" \
+#        "$INDIANAPI_BASE/logo/<ticker_id>.png"
+# returns 200 with an image content-type on the PRODUCTION host.
+_VENDOR_LOGO_ENABLED = False
+
 
 @router.get("/logo/{ticker}")
 def logo(ticker: str, db: Session = Depends(get_db)):
@@ -50,6 +61,10 @@ def logo(ticker: str, db: Session = Depends(get_db)):
     # ticker_id — the identical artwork the licensed feed serves elsewhere.
     for url in (f"https://www.livemint.com/lm-img/markets/logo/{tid}.png",
                 f"{BASE}/logo/{tid}.png"):
+        # Dead leg since 13 Jul 2026 — skipped before it can spend a 15s timeout
+        # or a quota tick, but left wired so re-enabling is one flag (above).
+        if url.startswith(BASE) and not _VENDOR_LOGO_ENABLED:
+            continue
         try:
             # SEND THE CREDENTIAL ONLY TO THE VENDOR HOST. This loop used to
             # attach the paid IndianAPI key to BOTH requests, so every logo

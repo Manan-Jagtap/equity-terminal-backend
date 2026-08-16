@@ -474,18 +474,26 @@ def health(db: Session = Depends(get_db)):
         vendor = {"vendor_ok": o["ok"], "vendor_fail": o["fail"],
                   "vendor_last_ok_min": o["last_ok_min"]}
         # Deliberately conservative, so a couple of flaky calls do not page
-        # anyone: only degrade when this container has FAILED calls and has not
-        # had a SUCCESS in the last 30 minutes (or has never had one while
-        # failures are accumulating). A quiet container that has made no calls at
-        # all stays "ok" — no evidence is not bad evidence.
-        if o["fail"] > 0 and (o["last_ok_min"] is None or o["last_ok_min"] >= 30):
+        # anyone: degrade only when this container is failing NOW — a failure in
+        # the last 30 minutes with NO success after it (vendor_meter.unreachable).
+        # This read `o["fail"] > 0 and last_ok_min >= 30` until 16 Aug 2026, but
+        # `fail` is cumulative since boot and never decays: after the container's
+        # first transient failure the rule degenerated into "no successful vendor
+        # call in the last 30 minutes", and nothing keeps this process warm — web
+        # calls the vendor only when a user hits a market route, and uptime.yml
+        # probes THIS route, which makes no vendor call. So a quiet Indian night
+        # with no users matched it and emailed the owner about a healthy system.
+        # A container that has made no calls at all still stays "ok" — no
+        # evidence is not bad evidence.
+        if vendor_meter.unreachable():
             reasons.append("vendor_unreachable")
-        # FAILURE-RATE FLOOR: the rule above is cleared by ONE success in 30
-        # min, so a vendor answering 1 call in 20 stayed "ok" for as long as the
-        # luck held. The ring of the last ~20 outcomes (vendor_meter.failing)
-        # degrades when >= 80% of at least 10 recorded calls failed, whatever
-        # the most recent call did. Reported only when the stronger rule has
-        # not already fired — one reason per cause, not two for one outage.
+        # FAILURE-RATE FLOOR: the rule above is cleared by any success recorded
+        # after the last failure, so a vendor answering 1 call in 20 stayed "ok"
+        # for as long as the luck held. The ring of the last ~20 outcomes
+        # (vendor_meter.failing) degrades when >= 80% of at least 10 recorded
+        # calls failed, whatever the most recent call did. Reported only when the
+        # stronger rule has not already fired — one reason per cause, not two for
+        # one outage.
         elif vendor_meter.failing():
             reasons.append("vendor_failing")
     except Exception as exc:

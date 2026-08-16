@@ -13,7 +13,12 @@ on:
 jobs:
   health:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    # 3 probes x 3 attempts x (curl timeout + 30s backoff) is ~9 minutes of
+    # worst case, and the old 3-minute cap killed the run before the failing
+    # probe could print its ::error:: line — the owner got a bare "timed out"
+    # email naming nothing, which is the one thing this file exists to avoid.
+    # The budget is only spent during a real outage; a healthy run is seconds.
+    timeout-minutes: 10
     steps:
       - name: Probe /api/health (3 attempts, 30s apart) + error-storm threshold
         run: |
@@ -152,4 +157,84 @@ jobs:
             sleep 30
           done
           echo "::error::Frontend FAILED — equityverdict.com not serving the app (HTTP $code; Vercel missed-webhook / broken-build class)"
+          exit 1
+
+      - name: Probe a real CONTENT path (/api/companies) — 200 alone is a green shell
+        # /api/health is a LIVENESS probe: it answers from its own try/except'd
+        # signals and touches no content route, so every data route in the app
+        # could 500 and both steps above would still be green. This is the
+        # CORRECTNESS probe — one public, unauthenticated route driven end to
+        # end. /api/companies?nifty50=true is the screener's own query
+        # (Company ⨝ MarketSnapshot, overlaid with Valuation / CompanyInsight /
+        # latest facts), the first request the terminal makes on load, and ~53
+        # rows instead of ~1000: a real database read, a small payload.
+        #
+        # NOT /api/universe, the other obvious candidate: it returns module
+        # constants and never opens a session, so it serves a full ticker list
+        # at 200 straight through a total outage — the exact green shell this
+        # step exists to close.
+        #
+        # Three assertions, because a broken backend has passed each one alone:
+        #   1. HTTP 200 — the route did not 500.
+        #   2. A JSON ARRAY, non-empty. 200 with `{"error": ...}`, or with `[]`
+        #      (table empty or renamed, a purge that ran before its validation),
+        #      is downtime wearing a success code.
+        #   3. Rows that CARRY DATA: at least 40 must have both a non-null
+        #      `price` and a non-empty `verdict`. Rows survive with every field
+        #      null — a broken join, a wiped price table, a valuation blob
+        #      replaced blind (DATA-12 lost ~half the universe that way and
+        #      nothing paged) — and a length check reads that as healthy. This
+        #      is a floor, not equality: index churn or a name missing a
+        #      snapshot must not page, losing a quarter of the screener must.
+        #      Since filled <= rows, it is also the row-count floor.
+        #
+        # Unreadable output is never read as zero-and-therefore-fine — the
+        # null-is-not-zero rule the health gate above learned the hard way. Each
+        # count is proved to be an integer before it is compared; a body jq
+        # cannot parse (truncation, an HTML error page from the edge) is retried
+        # like a non-200 rather than paging. A body we DID parse fails
+        # immediately with no retry: no amount of waiting turns an empty
+        # screener into a full one, and this route is cached in-process for
+        # 5 minutes, so all three attempts would be served the same emptiness.
+        #
+        # That 5-minute cache is also this probe's limit, worth knowing when it
+        # pages: for up to 5 minutes after the database dies this step can still
+        # pass on cached rows. It gates the correctness of the data path; the
+        # null-signal gate in the health step is what watches the database.
+        run: |
+          URL="https://api.equityverdict.com/api/companies?nifty50=true"
+          for i in 1 2 3; do
+            # -m 45, not the health probe's 20: a cold process rebuilds the whole
+            # screener on the first request before it can answer this one.
+            code=$(curl -s -m 45 -o /tmp/co.json -w "%{http_code}" "$URL" || echo 000)
+            # `|| true` for the same reason as the health probe: on a timeout
+            # /tmp/co.json does not exist, and a bare failing read kills the
+            # script under bash -e instead of retrying.
+            rows=$(jq 'if type == "array" then length else -1 end' /tmp/co.json 2>/dev/null || true)
+            echo "attempt $i: HTTP $code rows=${rows:-<unreadable>}"
+            if [ "$code" != "200" ]; then sleep 30; continue; fi
+            case "$rows" in
+              -1)
+                echo "::error::/api/companies is HTTP 200 but the body is not a JSON array — an error object served as success"
+                exit 1 ;;
+              0)
+                echo "::error::/api/companies is HTTP 200 with ZERO rows — the route answers and the screener is empty (companies/market_snapshots empty or renamed, or a purge that ran before its validation)"
+                exit 1 ;;
+              ''|*[!0-9]*)
+                sleep 30; continue ;;
+            esac
+            filled=$(jq '[.[] | select((.price != null) and (.verdict != null) and (.verdict != ""))] | length' /tmp/co.json 2>/dev/null || true)
+            case "$filled" in
+              ''|*[!0-9]*)
+                echo "::error::/api/companies returned $rows rows that could not be inspected (jq failed on the elements) — refusing to call an unreadable payload healthy"
+                exit 1 ;;
+            esac
+            if [ "$filled" -lt 40 ]; then
+              echo "::error::/api/companies is HTTP 200 but only $filled rows carry both a price and a verdict — below the floor of 40 (~53 expected, $rows returned). Either the screener lost names (a wipe, a purge that ran before its validation) or rows are served with their data missing (broken join, wiped prices, blind-replaced valuations) — a row count alone reads both as healthy"
+              exit 1
+            fi
+            echo "content OK: $rows rows, $filled priced and graded"
+            exit 0
+          done
+          echo "::error::CONTENT path FAILED after 3 attempts — /api/companies unusable (last HTTP $code, rows=${rows:-<unreadable body>}). /api/health can be green while this is down: this is the route the terminal actually loads."
           exit 1

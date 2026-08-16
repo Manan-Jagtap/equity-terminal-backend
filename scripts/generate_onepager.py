@@ -1,6 +1,17 @@
 """
 scripts/generate_onepager.py — generate NBFC one-pager PDFs end to end.
 
+DEAD SINCE 16 Jul 2026 — THIS SCRIPT DOES NOT RUN. The AI-free strip (5e9ea2e)
+deleted app/onepager/extract.py, so the first import below raises
+ModuleNotFoundError before argparse is even reached; the weasyprint tear-sheet
+it feeds (app/onepager/render.py) is equally unrunnable, since jinja2 and
+weasyprint have never been in requirements.txt. Nothing in the API imports any
+of it — the live one-pager is the ReportLab renderer in app/onepager/legacy.py,
+served by POST /api/companies/{ticker}/onepager, and this file is not copied
+into the production image. Kept only pending the owner's call on deleting the
+whole stage; never "repair" it by re-adding a model call (AUDIT_2026-07
+CLN-06). The description below is the pre-strip design, retained as record.
+
 Extracts each ticker's quarter data (IP+transcript from R2 -> Claude), caches
 the extraction JSON, assembles a peer-comparison block across the set, and
 renders an A4 PDF per company.

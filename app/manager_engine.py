@@ -149,6 +149,22 @@ _NEWS_RED = ("fraud", "scam", "probe", "investigation", "sebi order", "sebi bars
              "resign", "auditor", "pledge invoked", "insolvency", "nclt", "raid",
              "penalty", "show cause", "whistleblower", "delisting")
 
+# /company_news is DEAD on the production IndianAPI host. news_routes
+# established that on 12 Jul 2026: the host serves no /company_news at all
+# (company stories live in the /stock payload's recentNews block) and /news
+# ignores stock_name. news_red_flags kept calling it anyway — up to 60 requests
+# per evidence rebuild (Mon-Fri 11:15 UTC, plus every on-demand rebuild in the
+# web process) that can only 404, each holding a 10s timeout open and each
+# ticking the paid vendor meter against a request the vendor never answered.
+# The headline screen was therefore always empty, at full price.
+# Re-enable ONLY once the production host answers, i.e. when
+#   curl -sS -o /dev/null -w '%{http_code}\n' -H "X-API-Key: $INDIANAPI_KEY" \
+#        "$INDIANAPI_BASE/company_news?symbol=TCS"
+# returns 200 with a list of articles — and wire vendor_meter.record() into the
+# call at the same time, because a call that can succeed makes its outcome real
+# evidence about the vendor instead of a guaranteed failure.
+_COMPANY_NEWS_ENABLED = False
+
 # Rate-sensitive sectors: an easing cycle is a tailwind (cheaper funding,
 # demand revival), tightening a headwind. Conservative ±3 tilt.
 _RATE_SENSITIVE = ("bank", "nbfc", "financ", "housing", "realty", "real estate",
@@ -270,6 +286,11 @@ def news_red_flags(ticker: str, budget_guard=None) -> list[str]:
     """Headline red-flag screen from the vendor news feed. Budget-guarded and
     fail-silent: with the API quota exhausted (or the feed down) it returns []
     — the engine never invents a clean bill of health, it just says nothing."""
+    # Short-circuited, not deleted: the endpoint below died 12 Jul 2026 (see
+    # _COMPANY_NEWS_ENABLED). [] is exactly the answer its 404 already produced
+    # — minus the request, the 10s timeout and the quota tick.
+    if not _COMPANY_NEWS_ENABLED:
+        return []
     import os
     import requests as _rq
     key = os.getenv("INDIANAPI_KEY", "").strip()

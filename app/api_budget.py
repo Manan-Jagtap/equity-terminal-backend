@@ -16,9 +16,18 @@ import os
 
 from . import models
 
-# Rough per-name cost of a full ingest (1 /stock + ~9 best-effort insight calls);
-# used only to project a bulk run's spend for the pre-flight log.
-CALLS_PER_FULL_INGEST = 10
+# Rough per-name cost of a full ingest; projects a bulk run's spend for the
+# pre-flight in indianapi_ingester.run() — which is a GATE, not just a log line.
+#
+# Was 10 (1 /stock + ~9 best-effort insight calls). Four of those nine went to
+# endpoints the vendor took off-plan on 24 Jul 2026 and that we no longer issue
+# (DATA-12): three /historical_stats (ratios, profit_loss_stats,
+# quarter_results) and one /documents. Leaving the estimate at 10 is not
+# "safely conservative" — a ~1,000-name refresh projected 10,010 against a
+# 10,000 budget and refused to start, over ~4,000 calls that are never made. 7
+# keeps headroom for _fetch_stock's stored-name retry and _pe_history's second
+# probe. Re-derive this if the off-plan flags are ever flipped back on.
+CALLS_PER_FULL_INGEST = 7
 
 
 def cycle_day() -> int:

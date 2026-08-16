@@ -5,6 +5,14 @@
 failure, so no exception ever reached the error log — the reporting was honest
 about errors and silent about reachability. These tests pin the distinction.
 
+The converse, and why the unreachable rule moved off the since-boot counters:
+it shipped as `fail > 0` (cumulative, never decays) AND a 30-minute-old last
+SUCCESS, so after any one transient failure it meant nothing but "nobody has
+called the vendor successfully in half an hour" — true of every quiet night,
+since no keepalive touches the vendor and uptime.yml only probes /api/health.
+It emailed the owner about silence. The rule now keys on the last FAILURE's
+recency too (tests below).
+
 Second gap, same shape: get_db() connects lazily, so with the DATABASE down every
 health signal failed inside its own `except Exception: pass`, went out as null,
 and uptime.yml's `// 0` read null as the passing value — 200/"ok" through a
@@ -72,7 +80,7 @@ def test_no_calls_is_not_degraded():
     vm = _fresh()
     o = vm.outcomes()
     assert o == {"ok": 0, "fail": 0, "last_ok_min": None, "last_fail_min": None}
-    assert not (o["fail"] > 0 and (o["last_ok_min"] is None or o["last_ok_min"] >= 30))
+    assert not vm.unreachable()
     assert vm.recent() == {"n": 0, "fail": 0, "fail_pct": None}
     assert not vm.failing()
 
@@ -84,7 +92,7 @@ def test_failures_with_no_success_degrade():
         vm.record(False)
     o = vm.outcomes()
     assert o["fail"] == 5 and o["ok"] == 0 and o["last_ok_min"] is None
-    assert o["fail"] > 0 and (o["last_ok_min"] is None or o["last_ok_min"] >= 30)
+    assert vm.unreachable()
 
 
 def test_recent_success_is_not_degraded():
@@ -94,7 +102,7 @@ def test_recent_success_is_not_degraded():
     vm.record(True)
     o = vm.outcomes()
     assert o["last_ok_min"] == 0
-    assert not (o["fail"] > 0 and (o["last_ok_min"] is None or o["last_ok_min"] >= 30))
+    assert not vm.unreachable()
 
 
 def test_health_endpoint_reports_degraded(hermetic_app):
@@ -155,6 +163,136 @@ def test_get_actually_records_outcomes(monkeypatch):
     assert o["ok"] >= 1 and o["last_ok_min"] == 0, "_get must record a successful call"
 
 
+# ── Quiet night vs live outage: the rule keys on the last FAILURE ────────────
+#
+# `fail > 0 AND last_ok_min >= 30` was armed for the life of the process by the
+# container's first transient failure, after which it only asked whether any
+# vendor call had SUCCEEDED in the last half hour. The web process calls the
+# vendor only when a user hits a market route and nothing keeps it warm, so an
+# empty Indian night matched it and emailed the owner about a healthy system.
+# These tests pin both directions: a live outage alerts, silence does not.
+
+def _age(vm, *, fail_min=None, ok_min=None):
+    """Backdate the meter's last-failure / last-success stamps by N minutes —
+    the alternative is sleeping for half an hour in CI."""
+    import time as _t
+    now = _t.time()
+    if fail_min is not None:
+        vm._last_fail = now - fail_min * 60
+    if ok_min is not None:
+        vm._last_ok = now - ok_min * 60
+
+
+def test_quiet_night_after_an_old_failure_is_not_unreachable():
+    """The defect itself: one transient failure, no success ever, then hours of
+    no traffic. The OLD expression is asserted here too — it still fires on this
+    state, which is exactly why an idle container paged the owner."""
+    vm = _fresh()
+    vm.record(False)
+    _age(vm, fail_min=90)
+    o = vm.outcomes()
+    assert o["fail"] == 1 and o["last_ok_min"] is None and o["last_fail_min"] == 90
+    assert o["fail"] > 0 and (o["last_ok_min"] is None or o["last_ok_min"] >= 30), \
+        "the rule this replaces fires on an idle container — the bug"
+    assert not vm.unreachable(), "90 min with no calls is silence, not an outage"
+    assert not vm.failing(), "one outcome is far below the ring's floor"
+
+
+def test_fresh_failures_with_no_success_are_unreachable():
+    """The 14 Aug shape, unchanged: calls are happening and all of them fail."""
+    vm = _fresh()
+    for _ in range(3):
+        vm.record(False)
+    assert vm.unreachable()
+
+
+def test_a_success_after_the_last_failure_clears_it():
+    vm = _fresh()
+    vm.record(False)
+    assert vm.unreachable()
+    vm.record(True)
+    assert not vm.unreachable(), "upstream answered after the failure — it is reachable"
+
+
+def test_failures_after_a_recent_success_are_unreachable():
+    """The old rule's other half was a false NEGATIVE: it only asked how old the
+    last SUCCESS was, so a success 5 minutes ago let any number of failures
+    since read "ok" until the half hour elapsed. What matters is that nothing
+    has succeeded SINCE the failure."""
+    vm = _fresh()
+    vm.record(True)
+    _age(vm, ok_min=5)
+    for _ in range(3):
+        vm.record(False)
+    o = vm.outcomes()
+    assert o["last_ok_min"] == 5
+    assert not (o["fail"] > 0 and o["last_ok_min"] >= 30), "the old rule stayed quiet here"
+    assert vm.unreachable()
+
+
+def test_ordering_uses_raw_stamps_not_rounded_minutes():
+    """A success and a failure inside the same wall-clock minute both report an
+    age of 0, so a rule comparing outcomes()' minute ages could not tell which
+    came last. unreachable() compares the stamps, where the order lives."""
+    vm = _fresh()
+    vm.record(True)
+    vm.record(False)
+    o = vm.outcomes()
+    assert o["last_ok_min"] == 0 and o["last_fail_min"] == 0
+    assert vm.unreachable()
+
+
+def test_the_window_closes_at_thirty_minutes():
+    """29 minutes is a live outage; 30 is history. The boundary is the FAILURE's
+    age — the success's age no longer decides anything on its own."""
+    vm = _fresh()
+    vm.record(False)
+    _age(vm, fail_min=29)
+    assert vm.unreachable()
+    _age(vm, fail_min=30)
+    assert not vm.unreachable()
+
+
+def test_health_endpoint_is_ok_on_a_quiet_night(hermetic_app):
+    """End-to-end through the real route, because this file's standing lesson is
+    that a helper-only test passes with the call site untouched: /api/health
+    itself must stop reporting an idle container as an outage, while still
+    reporting its failure count honestly."""
+    from fastapi.testclient import TestClient
+    app, _ = hermetic_app
+    vm = _fresh()
+    c = TestClient(app)
+
+    vm.record(False)
+    body = c.get("/api/health").json()
+    assert body["status"] == "degraded", "a failure with nothing after it is the live case"
+    assert body["degraded_reason"] == "vendor_unreachable"
+
+    _age(vm, fail_min=90)
+    body = c.get("/api/health").json()
+    assert body["status"] == "ok" and "degraded_reason" not in body, \
+        "no traffic for 90 min must not email the owner"
+    assert body["vendor_fail"] == 1, "the since-boot counter still tells the truth"
+    assert body["vendor_last_ok_min"] is None
+
+
+def test_health_endpoint_degrades_on_failures_after_a_recent_success(hermetic_app):
+    """Route-level for the false negative: vendor_last_ok_min is 5, well inside
+    the old 30-minute grace, and everything since has failed."""
+    from fastapi.testclient import TestClient
+    app, _ = hermetic_app
+    vm = _fresh()
+    c = TestClient(app)
+    vm.record(True)
+    _age(vm, ok_min=5)
+    for _ in range(3):
+        vm.record(False)
+    body = c.get("/api/health").json()
+    assert body["vendor_last_ok_min"] == 5
+    assert body["status"] == "degraded"
+    assert body["degraded_reason"] == "vendor_unreachable"
+
+
 # ── Failure-rate floor (the ring) ────────────────────────────────────────────
 
 def test_ring_floor_trips_on_high_recent_failure_despite_a_success():
@@ -166,7 +304,7 @@ def test_ring_floor_trips_on_high_recent_failure_despite_a_success():
     vm.record(True)
     o = vm.outcomes()
     assert o["last_ok_min"] == 0
-    assert not (o["fail"] > 0 and (o["last_ok_min"] is None or o["last_ok_min"] >= 30))
+    assert not vm.unreachable()
     r = vm.recent()
     assert r == {"n": 20, "fail": 19, "fail_pct": 0.95}
     assert vm.failing()

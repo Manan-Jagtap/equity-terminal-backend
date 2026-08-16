@@ -7,7 +7,10 @@ the vendor quota meter for the CDN fetch too — inflating our own tally against
 request the vendor never saw.
 """
 import os, sys, inspect, re
+from types import SimpleNamespace
+import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from fastapi import HTTPException
 from app import logo_routes, dhan_routes
 from app.admin_routes import require_admin
 
@@ -35,6 +38,48 @@ def test_livemint_is_still_tried_first():
     i_cdn = src.index("livemint.com")
     i_vendor = src.index('f"{BASE}/logo/')
     assert i_cdn < i_vendor, "CDN-first ordering should be preserved"
+
+
+class _Q:
+    """Just enough of a SQLAlchemy query for logo(): one row, always found."""
+    def __init__(self, obj):
+        self._o = obj
+
+    def filter_by(self, **kw):
+        return self
+
+    def first(self):
+        return self._o
+
+
+class _DB:
+    def __init__(self, ticker_id):
+        self._tid = ticker_id
+
+    def query(self, model):
+        from app import models
+        if model is models.Company:
+            return _Q(SimpleNamespace(id=1, ticker="TCS"))
+        return _Q(SimpleNamespace(ticker_id=self._tid))
+
+
+def test_dead_vendor_logo_leg_is_not_called(monkeypatch):
+    """The production host dropped /logo/{id} on 13 Jul 2026. Until it was
+    short-circuited, every CDN miss still tried it — a guaranteed failure behind
+    a 15s timeout, stalling a worker thread and ticking the paid quota before
+    the frontend got its 404 and drew the neutral tile."""
+    logo_routes._CACHE.clear()
+    seen = []
+
+    def _spy(url, *a, **k):
+        seen.append(url)
+        return SimpleNamespace(status_code=404, headers={}, content=b"")
+
+    monkeypatch.setattr(logo_routes.requests, "get", _spy)
+    with pytest.raises(HTTPException):
+        logo_routes.logo("TCS", db=_DB("1234"))
+    assert seen == ["https://www.livemint.com/lm-img/markets/logo/1234.png"], \
+        f"only the CDN may be tried; the vendor leg is dead — got {seen}"
 
 
 def _deps(fn):

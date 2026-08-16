@@ -318,6 +318,45 @@ def _price_from_stock(s, co, stock):
 # Everything here is best-effort: a failure never breaks the core statements.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Endpoints the vendor took OFF-PLAN on 24 Jul 2026 (DATA-12) ──────────────
+# /documents answers 404 "Endpoint not allowed"; /historical_stats answers HTTP
+# 200 with the body {"info": "Not a valid script_code"} for every name. Neither
+# can return data, yet every refresh kept asking: 3 /historical_stats calls per
+# name (_ratios, _growth, _results_snapshot), a 4th for lenders
+# (_financial_pl_supplement), plus 1 /documents call — ~4 of the ~10 vendor
+# calls we spend per name bought nothing. Over a ~1,000-name refresh that is
+# ~4,000 of a 10,000-call monthly budget, enough for api_budget's pre-flight to
+# refuse a run over spend that could never have returned anything.
+#
+# These flags gate the REQUEST only. Every parser, call site and merge below is
+# untouched, so re-enabling is a one-line flip once a manual probe (one curl,
+# not a full-universe run) shows the endpoint answering again. Same shape as
+# documents_routes._LIVE_BSE_OVERLAY, which parked the dead BSE overlay.
+#
+# Not asking also makes health MORE truthful, not less: /documents was feeding
+# vendor_meter a guaranteed failure and /historical_stats three guaranteed
+# successes into every name's ~10 outcomes, diluting the 80%-of-20 failure floor
+# in both directions.
+_HISTORICAL_STATS_ON_PLAN = False
+_DOCUMENTS_ON_PLAN = False
+
+# A body whose ONLY keys are these is the vendor reporting a failure, not data.
+# Deliberately WIDER than vendor_meter._ENVELOPE_KEYS, which excludes "info" on
+# purpose so an off-plan endpoint does not read as a dead vendor on /api/health.
+# That is right for a health gauge and wrong for a writer: to a caller that
+# STORES the result, {"info": "Not a valid script_code"} must mean NO DATA.
+_ERROR_ENVELOPE_KEYS = frozenset({"error", "info", "message", "detail"})
+
+
+def _endpoint_on_plan(path) -> bool:
+    """False for a vendor endpoint we know cannot answer (flags above)."""
+    if path == "/historical_stats":
+        return _HISTORICAL_STATS_ON_PLAN
+    if path == "/documents":
+        return _DOCUMENTS_ON_PLAN
+    return True
+
+
 def _get_safe(path, params):
     """Fast, single-shot GET for OPTIONAL insight sections — no retries/backoff
     so a flaky endpoint fails instantly instead of stalling the whole run.
@@ -327,11 +366,16 @@ def _get_safe(path, params):
     Every call also reports its OUTCOME to vendor_meter.record (spend was
     already tick()ed). These are per-name lookups that may legitimately answer
     empty (a name with no forecasts, no peers), so empty is not a failure; a
-    non-200, a transport error or an error envelope is. Two of these endpoints
-    have been off-plan since 24 Jul 2026 (DATA-12): /documents answers 404 —
-    recorded as the failure it is — and /historical_stats answers 200
-    {"info": "Not a valid script_code"}, recorded as upstream answering (see
-    payload_ok for why). Neither can trip health's 80%-of-20 floor on its own."""
+    non-200, a transport error or an error envelope is.
+
+    An endpoint the vendor has taken off-plan is short-circuited BEFORE the tick
+    (see _endpoint_on_plan), so a call that cannot answer costs neither quota nor
+    an outcome. For one that IS made, the health verdict and the caller's verdict
+    are deliberately different: a 200 {"info": ...} is recorded as upstream
+    ANSWERING (payload_ok's rule — off-plan is not a dead vendor) but returned to
+    the caller as None, because it is not data and callers STORE what they get."""
+    if not _endpoint_on_plan(path):
+        return None
     if not KEY:
         return None
     global _CALL_COUNT
@@ -348,6 +392,18 @@ def _get_safe(path, params):
         vendor_meter.record(False)
         return None
     vendor_meter.record(vendor_meter.payload_ok(data, empty_ok=True))
+    # DATA-12, second half: an ERROR-SHAPED dict is not data. Since 24 Jul 2026
+    # /historical_stats answers 200 {"info": "Not a valid script_code"} for every
+    # name — a NON-EMPTY dict, so _ratios/_growth returned it as a RESULT,
+    # _build_insight's `if v` filter kept it, and the DATA-12 merge (which only
+    # protects keys ABSENT from the fresh blob) wrote it OVER the stored
+    # last-good ratios/growth on every single refresh. /api/operations then
+    # dropped the name entirely (no metric is findable inside {"info": ...})
+    # while coverage's has_ratios still answered True. Returning None makes the
+    # key absent — exactly the case the merge already handles correctly: the
+    # stored value survives untouched.
+    if isinstance(data, dict) and data and set(data) <= _ERROR_ENVELOPE_KEYS:
+        return None
     if isinstance(data, list) and data and (
         (isinstance(data[-1], int) and data[-1] >= 400) or
         (isinstance(data[0], dict) and "error" in data[0])
