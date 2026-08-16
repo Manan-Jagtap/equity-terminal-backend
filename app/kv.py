@@ -32,6 +32,7 @@ evidence / macro / calibration — the ENG-01 surface) are stamped from day one.
   app/regulatory.py         regulatory_feed_v1
   app/segment_sotp.py       segment_financials_v1
   app/data_integrity.py     data_integrity_v1
+  app/eod_coverage.py       eod_selfheal_v1
   scheduler.py              scheduler_heartbeat
   app/portfolio_routes.py   fm_cash_<user_key>            (per-user prefix)
   app/auth_routes.py        pending_signup:<email>        (transient prefix)
@@ -59,6 +60,7 @@ KV_REGISTRY = {
     "regulatory_feed_v1":    "app/regulatory.py",
     "segment_financials_v1": "app/segment_sotp.py",
     "data_integrity_v1":     "app/data_integrity.py",
+    "eod_selfheal_v1":       "app/eod_coverage.py",
     "scheduler_heartbeat":   "scheduler.py",
     "fm_cash_":              "app/portfolio_routes.py",   # per-user prefix
     "pending_signup:":       "app/auth_routes.py",        # transient prefix

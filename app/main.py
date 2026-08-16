@@ -343,6 +343,9 @@ def health(db: Session = Depends(get_db)):
     dead scheduler silently froze prices/valuations while health stayed green.
     `price_age_days` is the age of the newest stored daily close (weekends and
     holidays make 1-3 normal; sustained growth means the price pipeline died).
+    `eod_names`/`eod_names_prior` are how many distinct names carry the newest
+    settled session and the one before it — price_age_days reads max(date) and
+    is blind to a session that landed for 21 names out of ~1013 (14 Aug 2026).
     `error_hours_24h` is how many of the trailing 24 clock hours hold an error
     (persistence — a job failing on every run never trips the storm rule);
     `integrity_age_days` is the age of the stored weekly sweep (a verdict with
@@ -420,6 +423,27 @@ def health(db: Session = Depends(get_db)):
             price_age_days = (_dt.date.today() - _dt.date.fromisoformat(eod)).days
     except Exception as exc:
         _unmeasured("price_age_days", exc)
+    # SESSION COVERAGE. price_age_days is max(date), and max(date) cannot see a
+    # PARTIAL session. On 14 Aug 2026 the Dhan EOD top-up never ran; the daily
+    # history self-heal seeded 21 brand-new listings (AASTHA, TURTLEMINT,
+    # XTRANET…) under that date, so this endpoint reported a 0-day-old price feed
+    # while 992 of ~1013 names had no candle for the session at all, and it was
+    # found by hand three days later. `eod_names` is how many distinct names
+    # carry the newest SETTLED session, `eod_names_prior` the same for the one
+    # before it; uptime.yml alerts on the RATIO, because the universe drifts
+    # (1009 → 1013 over recent weeks) and any absolute floor is either wrong
+    # today or wrong in a month.
+    #
+    # Plain dict reads of the heartbeat row already fetched above (SCALE-03: the
+    # counts are grouped aggregates over ~1.2M rows, so the SCHEDULER computes
+    # them). They cannot raise, and they are deliberately NOT their own
+    # "unmeasured" entries: when the heartbeat is unreadable scheduler_beat_min
+    # already carries that failure, and adding these would report one outage
+    # twice. Both are None on a fresh database, on a scheduler not yet redeployed
+    # since this shipped, and whenever there is no PRIOR session to divide by —
+    # no denominator is not a finding.
+    eod_names = hb.get("eod_names")
+    eod_names_prior = hb.get("eod_names_prior")
     # FIX-05/OPS-06: surface the weekly data-integrity sweep's red/amber/green
     # verdict as a bare status so the (token-less) uptime workflow can alert on a
     # `red` sweep — previously the sweep only reached a token-gated admin page and
@@ -507,6 +531,7 @@ def health(db: Session = Depends(get_db)):
             **({"degraded_reason": degraded} if degraded else {}),
             "errors_1h": errs, "error_hours_24h": ehrs,
             "scheduler_beat_min": beat_min, "price_age_days": price_age_days,
+            "eod_names": eod_names, "eod_names_prior": eod_names_prior,
             "integrity": integrity, "integrity_age_days": integrity_age_days,
             **vendor}
 
