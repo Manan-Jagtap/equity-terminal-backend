@@ -48,7 +48,10 @@ These have no single clean API. Two paths, both already built:
   The fetcher expects JSON `[{date, value}]`.
 - **Manual monthly** (most reliable): `POST /api/admin/macro/activity-point`
   `{slug, date, value}` — fills the card with one verified number a month.
-  GST already auto-fills when a PIB "GST collection" release is in the feed.
+  GST is manual-only: take the gross figure from the GSTN portal's monthly
+  "GST Collection" statistics (gst.gov.in). There is NO PIB auto-fill — the
+  Ministry of Finance stopped the monthly GST press release in Jul 2024, and
+  the PIB RSS carries titles + links only (no description, no pubDate).
 
 ## What's already live (no setup needed)
 

@@ -50,7 +50,7 @@ GDP_REAL = "gdp_at_market_prices_constant"
 # its PRIMARY public source (never a third-party aggregator's proprietary
 # monitor). They populate from macro_sources activity fetchers / admin uploads;
 # until then they read as "awaiting source", never fabricated.
-GST_COLLECTIONS = "gst_gross_collections_cr"          # GSTN / PIB monthly release
+GST_COLLECTIONS = "gst_gross_collections_cr"          # GSTN portal monthly stats — MANUAL entry (no PIB feed; see ACTIVITY_META)
 EWAY_BILLS = "eway_bills_generated_mn"                 # GSTN e-way bill portal
 PMI_MFG = "pmi_manufacturing"                          # S&P Global (licensed headline)
 PMI_SVC = "pmi_services"                               # S&P Global (licensed headline)
@@ -61,7 +61,15 @@ UPI_TXN = "upi_transactions_mn"                        # NPCI monthly stats
 # slug → (human name, primary source, licence note). Drives the dashboard's
 # "activity" section and the admin status view.
 ACTIVITY_META = {
-    GST_COLLECTIONS: ("GST gross collections (₹ cr)", "GSTN / PIB", "public"),
+    # GST is MANUAL-ONLY (admin POST /api/admin/macro/activity-point, or an
+    # ACTIVITY_GST_URL feed if one ever exists). It read "GSTN / PIB" on the
+    # strength of a PIB-RSS extractor (app/regulatory.py) that never wrote a
+    # point in prod: the Ministry of Finance stopped the monthly GST press
+    # release in Jul 2024 (figures now live on the GSTN portal) and the PIB feed
+    # is title+link only. The old label was surfaced by /api/macro as the card's
+    # source, implying an automation that did not exist; say where the number
+    # really comes from instead.
+    GST_COLLECTIONS: ("GST gross collections (₹ cr)", "GSTN portal · manual entry", "public"),
     EWAY_BILLS:      ("E-way bills generated (mn)", "GSTN e-way bill portal", "public"),
     PMI_MFG:         ("PMI — Manufacturing", "S&P Global", "licensed headline"),
     PMI_SVC:         ("PMI — Services", "S&P Global", "licensed headline"),

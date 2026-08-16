@@ -76,14 +76,20 @@ def test_block_present_but_unparseable(session, company):
 def test_a_real_payload_still_replaces(session, company):
     """The guard must not freeze the ledger: a genuine payload still refreshes
     it, otherwise corrections could never land."""
+    # The vendor keys the ex-date per action type: dividend `xdDate`, split
+    # `xsDate`, bonus `xbDate` (see _corporate_actions and the CorporateAction
+    # model docstring). This fixture used to say `exDate`, which the parser has
+    # never read, so `n` was always 0 and the skip below fired on every run —
+    # the ONLY test of the write path never actually wrote anything.
     stock = {
         "stockCorporateActionData": {
-            "splits": [{"exDate": "2025-01-15", "oldFaceValue": "10", "newFaceValue": "1"}],
+            "splits": [{"xsDate": "2025-01-15", "oldFaceValue": "10", "newFaceValue": "1"}],
         }
     }
     n = _save_corporate_actions(session, company, stock)
-    if n == 0:
-        pytest.skip("parser did not recognise this fixture shape; replacement path untested here")
+    # A hard assertion, not a skip: if the parser stops recognising the real
+    # split shape, that is a regression to fail on, not a reason to go silent.
+    assert n == 1, "parser must recognise the vendor's real split shape (xsDate/oldFaceValue/newFaceValue)"
     rows = session.query(models.CorporateAction).filter_by(company_id=company.id).all()
     assert len(rows) == n
     assert all(r.ex_date == "2025-01-15" for r in rows), "old rows should have been replaced"

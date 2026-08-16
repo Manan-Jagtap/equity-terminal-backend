@@ -9,6 +9,13 @@ name: CI
 # production), plus a narrow lint gate that catches the undefined-name /
 # syntax-error class — exactly the `_dt` NameError and the ENG-01 un-imported
 # macro_data that shipped live.
+#
+# OPS-04 / OPS-05b (Aug 2026): a third job builds and BOOTS the production
+# Docker image and probes /api/health — until now production was the first
+# place a built image ever ran (the 7-hour outage of 14 Jul 2026 was an
+# import-time death that only the image could have shown). And the Postgres job
+# now walks the alembic chain head -> base -> head, because every downgrade()
+# in alembic/versions/ had been written, reviewed, and never once executed.
 
 on:
   push:
@@ -126,5 +133,133 @@ jobs:
         run: pip install -r requirements.txt pytest
       - name: Boot migrations must succeed on Postgres (fail-closed sanity)
         run: python -c "from app.migrations_boot import run_boot_migrations as r; out=r(); print(out); assert not str(out).lower().startswith('error'), out"
+      # OPS-05b: the boot step above only ever drives the chain UPWARD — the
+      # only direction prod has ever run it. Every downgrade() body in
+      # alembic/versions/ was hand-written, reviewed, and never executed against
+      # any database, so the day a bad revision has to be backed out is the
+      # first-ever run of the exact code being relied on — on prod, under an
+      # outage. Same shape as the 7-hour class: the recovery path is the
+      # untested one. ROLLBACK.md prefers a forward-fix revision, but its
+      # image-by-SHA rollback runs OLD code against the NEWER schema; when that
+      # schema has to go too, downgrade() is the only tool, and it had never run.
+      #
+      # Walk the whole chain down to base and back up on the real dialect
+      # (Postgres FK-dependency order and DROP COLUMN differ from SQLite's), and
+      # assert in between that the downgrade actually REMOVED the schema: the
+      # revisions guard themselves with has_table/has_col checks, so a downgrade
+      # body that silently no-ops would "succeed" and make the round-trip prove
+      # nothing.
+      #
+      # Runs BEFORE the test suite on purpose. Right now the database holds only
+      # migration-managed tables. After the suite, create_all and
+      # main._additive_migrations have added things no revision owns (e.g.
+      # users.token_version), and a failure there would be a false alarm about
+      # models/migrations drift, not about the downgrade bodies. (That drift is
+      # real — `alembic check` reports users.token_version today — and is a
+      # separate fix; do not turn it into a red build here.)
+      #
+      # All four revisions are reversible as of 16 Aug 2026 (rehearsed on
+      # SQLite). If a future revision is genuinely one-way (a destructive data
+      # migration), do NOT delete this step: change `base` to the earliest
+      # reversible revision and say why, right here.
+      - name: Migration round-trip — upgrade head -> downgrade base -> upgrade head (OPS-05b)
+        run: |
+          set -euo pipefail
+          # First upgrade is a no-op after the boot step; it is here because it
+          # is the CLI + alembic.ini + env.py path the image ENTRYPOINT runs,
+          # which the Config-API boot step does not exercise.
+          python -m alembic upgrade head
+          python -m alembic downgrade base
+          python - <<'PY'
+          from sqlalchemy import inspect
+          from app.database import engine
+          left = set(inspect(engine).get_table_names()) - {"alembic_version"}
+          assert not left, f"downgrade base left tables behind: {sorted(left)}"
+          print("   downgrade base: schema fully removed")
+          PY
+          python -m alembic upgrade head
+          python -m alembic current 2>/dev/null | grep -q "(head)" \
+            || { echo "!! not at head after the round-trip" >&2; python -m alembic current; exit 1; }
+          echo "   round-trip OK: head -> base -> head"
       - name: Run test suite (Postgres)
         run: python -m pytest tests/ -q
+
+  backend-image-boots:
+    # OPS-04: production was the first place a built image ever ran. The two
+    # test jobs prove the code imports on a runner that has everything — a full
+    # checkout, every dep pip-installed into a normal user's site-packages, a
+    # writable CWD. The IMAGE is a different animal: a selective COPY list
+    # (app/, alembic/, scheduler.py, one script — nothing else exists in /srv),
+    # a .dockerignore, `pip install` from the pinned requirements only, a
+    # non-root user, and an ENTRYPOINT that runs `alembic upgrade head`
+    # fail-closed before uvicorn ever starts. Any of those can be wrong while
+    # both test jobs stay green.
+    #
+    # 14 Jul 2026: a push took prod down for ~7 hours. An admin endpoint using
+    # FastAPI File()/UploadFile shipped without python-multipart; FastAPI raises
+    # at route registration, uvicorn died at import, every endpoint 502'd, and
+    # the scheduler (which never imports the web app) kept its heartbeat green
+    # so the KV-based checks saw nothing. That is the class this job catches:
+    # build the exact Dockerfile deploy.yml builds, boot the web role the way
+    # cutover.sh boots it, and require /api/health to answer 200 — on the PR,
+    # instead of on the box after the cutover.
+    #
+    # SQLite on purpose: no service container, no secrets, and it still runs the
+    # ENTRYPOINT's alembic step plus the app's own boot migrations. The Postgres
+    # dialect is the postgres job's business; this job is about the IMAGE.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image (same Dockerfile + repo-root context as deploy.yml)
+        # ubuntu-latest is amd64 — the platform prod runs — so this is a native
+        # build, no QEMU. --platform is stated anyway so the build is the same
+        # invocation as build_and_push.sh and cannot quietly change if the
+        # runner image ever does.
+        run: docker build --platform linux/amd64 -f deploy/aws/Dockerfile -t equity-terminal-backend:ci .
+      - name: Boot the web role and require /api/health -> 200
+        run: |
+          set -euo pipefail
+          # Same shape as cutover.sh: default ENTRYPOINT (alembic upgrade head,
+          # fail-closed) + default CMD (uvicorn on 8080). Throwaway env only —
+          # SQLite needs no AUTH_SECRET, but one is set so the boot takes the
+          # prod-shaped branch and never the "dev-only random secret" one.
+          docker run -d --name web -p 8080:8080 \
+            -e DATABASE_URL="sqlite:////tmp/ci_image.db" \
+            -e AUTH_SECRET="ci-image-throwaway-secret-000000000000" \
+            equity-terminal-backend:ci
+          # cutover.sh gives the box 60s; a cold runner gets 90s. Poll every 2s,
+          # but stop the moment the container is no longer running — a dead
+          # import (the 7-hour class) exits within seconds and must fail FAST
+          # with its traceback, not after a silent 90s wait. `|| true`, not
+          # `|| echo 000`: curl already prints "000" via -w when the connection
+          # is refused, so the echo form yields "000000".
+          code=000
+          for i in $(seq 1 45); do
+            code=$(curl -s -m 5 -o /tmp/h.json -w "%{http_code}" http://127.0.0.1:8080/api/health || true)
+            code=${code:-000}
+            [ "$code" = "200" ] && break
+            if [ "$(docker inspect -f '{{.State.Running}}' web)" != "true" ]; then
+              echo "!! container exited before answering (attempt $i)"
+              break
+            fi
+            sleep 2
+          done
+          echo "--- docker logs web (tail) ---"
+          docker logs web 2>&1 | tail -n 80
+          echo "------------------------------"
+          if [ "$code" != "200" ]; then
+            echo "!! /api/health did not answer 200 from the built image (last code: $code)." >&2
+            echo "   The image is what ships. Read the logs above: a traceback at import means a" >&2
+            echo "   dependency or module missing IN THE IMAGE (requirements.txt, the Dockerfile" >&2
+            echo "   COPY list, .dockerignore); an alembic error means the ENTRYPOINT's fail-closed" >&2
+            echo "   migration refused to start the app — cutover.sh would have refused too." >&2
+            exit 1
+          fi
+          body=$(cat /tmp/h.json)
+          echo "HTTP $code $body"
+          # 200 with the app's own payload — a stray 200 from something else on
+          # the port must not pass. (cutover.sh additionally requires status=ok.)
+          echo "$body" | grep -q '"status"' \
+            || { echo "!! 200 but not the app's health payload" >&2; exit 1; }
+          echo "   image builds, boots, migrates and serves /api/health"

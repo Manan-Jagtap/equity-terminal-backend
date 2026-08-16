@@ -7,7 +7,7 @@ import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/_pytest_terminal.db")
 
-from datetime import datetime
+from datetime import date, datetime
 from app.portfolio_routes import compute_totals, _dividend_income
 
 
@@ -42,12 +42,15 @@ def test_weighted_mos_skips_null_mos_and_is_value_weighted():
 
 
 def test_unpriced_holding_and_empty_portfolio_are_safe():
-    # A holding with no MarketSnapshot has value=None: excluded from value and
-    # weights, but its cost still counts.
+    # A holding with no MarketSnapshot has value=None: excluded from BOTH sides
+    # of the totals (counting its cost but not its value used to report a
+    # phantom ₹800 loss) and surfaced via unpriced_count/unpriced_cost instead.
     items = [_item(None, 800.0), _item(1200.0, 1000.0, mos=0.05)]
     totals = compute_totals(items)
     assert totals["value"] == 1200.0
-    assert totals["cost"] == 1800.0
+    assert totals["cost"] == 1000.0
+    assert totals["pnl"] == 200.0
+    assert totals["unpriced_count"] == 1 and totals["unpriced_cost"] == 800.0
     assert items[0]["weight"] is None and items[0]["pnl"] is None
     assert abs(totals["weighted_mos"] - 0.05) < 1e-12
 
@@ -84,3 +87,6 @@ def test_dividend_income_since_added_scaled_by_split():
     assert abs(_dividend_income(10, datetime(2025, 1, 1), actions) - 200.0) < 1e-9
     # a dividend before the position was opened is excluded
     assert _dividend_income(10, datetime(2025, 4, 1), actions) == 0.0
+    # buy_date is a plain Date column (no .date() method) — the accrual path
+    # must accept it, since _item now passes holding.buy_date when stored.
+    assert abs(_dividend_income(10, date(2025, 1, 1), actions) - 200.0) < 1e-9

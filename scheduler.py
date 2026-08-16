@@ -533,7 +533,7 @@ def run_regulatory_refresh():
         from app.macro_sources import fetch_oecd_cli
         s = SessionLocal()
         try:
-            log.info(f"Regulatory feed: {refresh(s)}")   # RBI+SEBI+PIB, extracts GST
+            log.info(f"Regulatory feed: {refresh(s)}")   # RBI+SEBI+PIB titles+links only
             log.info(f"OECD CLI: {fetch_oecd_cli(s)} points")   # keyless, free
         finally:
             s.close()
@@ -1055,7 +1055,7 @@ else:
     except Exception as e:
         log.error(f"FM v4 bootstrap failed: {type(e).__name__}: {e}")
 
-    # Populate the free keyless feeds (PIB regulatory + GST extract, OECD CLI)
+    # Populate the free keyless feeds (RBI/SEBI/PIB regulatory radar, OECD CLI)
     # right after a deploy so they're live now, not at the next daily slot.
     run_regulatory_refresh()
 

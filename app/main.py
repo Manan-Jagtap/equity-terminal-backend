@@ -63,9 +63,12 @@ app.include_router(history_router)
 from app.news_routes import router as news_router
 app.include_router(news_router)
 # ARCH-05: /api/bse/* removed — zero frontend callers and the BSE AnnGetData
-# vendor path is anti-bot blocked (docs freshness comes from IndianAPI
-# /documents). The app/bse/ package + scripts/test_bse_fetch.py remain for
-# offline use; only the dead API surface is gone.
+# vendor path is anti-bot blocked. (An earlier version of this note said docs
+# freshness still came from IndianAPI /documents — no longer true: the vendor
+# revoked that endpoint on 24 Jul 2026 (DATA-12), so the documents route now
+# serves last-good stored filings with no live refresh path at all; see
+# app/documents_routes.py.) The app/bse/ package + scripts/test_bse_fetch.py
+# remain for offline use; only the dead API surface is gone.
 from app.market_routes import router as market_router
 app.include_router(market_router)
 from app.profile_routes import router as profile_router

@@ -3,9 +3,19 @@ app/documents_routes.py — company documents (concalls, annual reports,
 credit ratings, announcements) from the stored insight blob.
 
   GET /api/companies/{ticker}/documents → the insight's normalised "documents"
-                                          dict, or {} — NEVER a 500. The data is
-                                          populated by the ingester's _documents()
-                                          best-effort call to IndianAPI /documents.
+                                          dict, or {} — NEVER a 500.
+
+Provenance, stated honestly (as of 16 Aug 2026): the blob WAS populated by the
+ingester's _documents() call to IndianAPI /documents until the vendor revoked
+that endpoint on 24 Jul 2026 (404 "Endpoint not allowed" — DATA-12). The rows
+served today are last-good values restored from the 22–23 Jul R2 backups and
+kept alive by the DATA-12 merge-not-replace: the ingester still asks, gets
+None, and keeps the stored copy. BSE's own announcements API has been anti-bot
+blocked since mid-Jul 2026 (see _LIVE_BSE_OVERLAY below). So there is currently
+NO live refresh path for this route — it serves stored filings that only get
+older — and neither source may be described as live without re-checking it
+first. If real-time filings become a requirement, the path is a licensed feed:
+not scraping BSE, and no longer the vendor endpoint.
 """
 import re
 import time
@@ -20,14 +30,31 @@ from app import models
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
-# --- Live BSE announcements layer -------------------------------------------
-# The stored `documents` blob is only refreshed when the IndianAPI-quota-bound
-# ingester next touches a company, so a fresh filing (results, investor deck,
-# transcript) can take days to appear. BSE's own announcements API is quota-free
-# and updates the moment a company files, so we overlay a short rolling window
-# of live BSE filings on top of the blob — the Docs tab then reflects a result
-# as soon as it hits the exchange. Cached per scrip; a slow BSE call is bounded
-# so it can never stall the page.
+# --- Live BSE announcements layer (DORMANT — the source is closed) -----------
+# Original intent: the stored `documents` blob only refreshed when the
+# IndianAPI-quota-bound ingester next touched a company, so a fresh filing
+# (results, investor deck, transcript) could take days to appear; BSE's
+# quota-free announcements API was overlaid on top so the Docs tab reflected a
+# result the moment it hit the exchange.
+#
+# What is actually true today: BSE's AnnGetData endpoint answers the JSON string
+# "No Record Found!" to every scrip/date/param variant, from datacenter AND
+# residential IPs (first seen 15 Jul 2026, endpoint-scoped anti-bot; re-confirmed
+# 16 Aug 2026), and the scrip-search fallback in app/bse/scrip_codes.py 302s to
+# error_Bse.html. The overlay has therefore not contributed a single row since
+# mid-July — but it still COST every Docs-tab request a live round-trip to a dead
+# host: for the ~920 tickers outside the hardcoded scrip table, get_scrip_code()
+# ran a synchronous, uncached, 15 s-timeout HTTP call in the request thread (one
+# WARNING log line per page view, and the frontend fetches /documents twice per
+# Company page), and each per-scrip cache miss parked one of the two pool
+# workers on a 30 s-timeout announcements call. On a bad day at the anti-bot
+# layer that is a 15 s stall on the Docs tab for nothing.
+#
+# _LIVE_BSE_OVERLAY short-circuits _merge_live_bse. The overlay code below is
+# kept intact (not deleted) so it can be switched back on after a re-check shows
+# BSE answering again, or re-pointed at a licensed feed with the same row shape.
+# Do NOT try to defeat the anti-bot layer to revive it.
+_LIVE_BSE_OVERLAY = False
 _BSE_TTL = 1800  # 30 min
 _bse_cache: dict = {}          # scrip -> (ts, [items])
 _bse_pool = ThreadPoolExecutor(max_workers=2)
@@ -72,6 +99,10 @@ def _live_bse_items(scrip: str, days: int = 150) -> list:
 
 
 def _merge_live_bse(ticker: str, docs: dict) -> dict:
+    if not _LIVE_BSE_OVERLAY:
+        # Dead source (see _LIVE_BSE_OVERLAY above): don't dial BSE on every
+        # request just to hear "No Record Found!" again — serve the stored blob.
+        return docs
     try:
         from app.bse.scrip_codes import get_scrip_code
         scrip = get_scrip_code(ticker.upper())
