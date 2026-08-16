@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pre-push hook (versioned copy — installed at .git/hooks/pre-push).
 # When the outgoing push touches the parity-locked math (engines.py, derive.py,
-# sector_params.py), regenerate + verify + auto-commit the frontend parity
+# sector_params.py, data_quality.py), regenerate + verify + auto-commit the frontend parity
 # fixtures BEFORE the backend push completes. A harness failure blocks the push.
 # Reinstall after a fresh clone:  cp scripts/hooks/pre-push .git/hooks/ && chmod +x .git/hooks/pre-push
 set -euo pipefail
@@ -17,7 +17,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     range="$remote_sha..$local_sha"
   fi
   if git diff --name-only "$range" 2>/dev/null \
-      | grep -qE '^app/(engines|derive|sector_params)\.py$'; then
+      | grep -qE '^app/(engines|derive|sector_params|data_quality)\.py$'; then
     echo "pre-push: parity-locked math changed — syncing frontend fixtures…"
     "$toplevel/scripts/sync_parity_fixtures.sh"
   fi

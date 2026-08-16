@@ -342,9 +342,13 @@ def health(db: Session = Depends(get_db)):
     heartbeat — the scheduler is a SEPARATE container, and before this field a
     dead scheduler silently froze prices/valuations while health stayed green.
     `price_age_days` is the age of the newest stored daily close (weekends and
-    holidays make 1-3 normal; sustained growth means the price pipeline died)."""
+    holidays make 1-3 normal; sustained growth means the price pipeline died).
+    `error_hours_24h` is how many of the trailing 24 clock hours hold an error
+    (persistence — a job failing on every run never trips the storm rule);
+    `integrity_age_days` is the age of the stored weekly sweep (a verdict with
+    no date stays green after the sweep stops running)."""
     import datetime as _dt
-    from app.error_log import errors_last_hour
+    from app.error_log import errors_last_hour, error_hours_last_day
     # DB-OUTAGE VISIBILITY. get_db() connects lazily, so with the database down
     # nothing had raised by the time we got here: each signal's query failed
     # inside its own `except Exception: pass`, the field went out as null, and
@@ -374,6 +378,21 @@ def health(db: Session = Depends(get_db)):
     except Exception as exc:
         errs = None
         _unmeasured("errors_1h", exc)
+    # SUSTAINED ERRORS. errors_1h is intensity, and uptime.yml's `> 25` on it
+    # catches a storm and nothing quieter. A job that fails on every run (the
+    # 90-min intraday fetch, a nightly wrapper) or a route broken for every
+    # caller writes a handful of entries an hour, every hour, and never nears
+    # 25 in any one hour — FIX-06 made those failures COUNT and the alert still
+    # never saw them. This is the number of the trailing 24 clock hours (UTC)
+    # holding at least one error: a burst is one or two of them however large;
+    # a standing fault is most of them. 0..25, so uptime.yml gates it as a
+    # share of the day. Its own try: a fresh ring is honestly 0, only a DB
+    # error is "unmeasured".
+    try:
+        ehrs = error_hours_last_day(db, strict=True)
+    except Exception as exc:
+        ehrs = None
+        _unmeasured("error_hours_24h", exc)
     beat_min = None
     hb = {}
     try:
@@ -406,11 +425,33 @@ def health(db: Session = Depends(get_db)):
     # `red` sweep — previously the sweep only reached a token-gated admin page and
     # a data-rot finding paged nobody. `None` until the first sweep is stored.
     integrity = None
+    integrity_age_days = None
     try:
         from app.data_integrity import load_sweep
         sweep = load_sweep(db)
         if sweep:
             integrity = sweep.get("status")
+            # SWEEP FRESHNESS. `integrity` is a verdict with no date: a green
+            # from a sweep that stopped running (the Sunday job raising, the
+            # schedule line lost, a Sunday-03:00 restart skipping the slot for
+            # a week) stays green forever, and the one alerting channel keeps
+            # grading a universe that no longer exists. Whole days since the
+            # sweep's own `as_of` (run_integrity_sweep stamps it in UTC); the
+            # sweep is weekly, so 0-6 is normal, 7 is the due Sunday itself,
+            # 8+ a missed slot — uptime.yml gates it. None when the stored blob
+            # carries no parseable `as_of` (a hand-written or pre-`as_of`
+            # blob): not knowing the age is not an outage, and this must not
+            # drag `integrity` into "unmeasured" — hence its own narrow except.
+            raw = sweep.get("as_of")
+            if isinstance(raw, str):
+                try:
+                    as_of = _dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    if as_of.tzinfo is None:
+                        as_of = as_of.replace(tzinfo=_dt.timezone.utc)
+                    integrity_age_days = max(
+                        0, (_dt.datetime.now(_dt.timezone.utc) - as_of).days)
+                except ValueError:
+                    pass
     except Exception as exc:
         _unmeasured("integrity", exc)
     # VENDOR REACHABILITY. On 14 Aug 2026 every IndianAPI call failed for 5+
@@ -456,9 +497,10 @@ def health(db: Session = Depends(get_db)):
     degraded = ";".join(reasons) if reasons else None
     return {"status": "degraded" if degraded else "ok",
             **({"degraded_reason": degraded} if degraded else {}),
-            "errors_1h": errs,
+            "errors_1h": errs, "error_hours_24h": ehrs,
             "scheduler_beat_min": beat_min, "price_age_days": price_age_days,
-            "integrity": integrity, **vendor}
+            "integrity": integrity, "integrity_age_days": integrity_age_days,
+            **vendor}
 
 
 def _latest_facts(db, company_id):

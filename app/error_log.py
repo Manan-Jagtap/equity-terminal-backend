@@ -68,6 +68,45 @@ def errors_last_hour(db, *, strict: bool = False) -> int:
         return 0
 
 
+def error_hours_last_day(db, *, strict: bool = False) -> int:
+    """How many distinct clock hours (UTC) in the trailing 24 h hold at least
+    one captured error — PERSISTENCE, where errors_last_hour is INTENSITY.
+
+    Why a second window: the uptime rule on errors_1h (> 25) catches a storm
+    and nothing quieter. A job that fails on EVERY run (run_intraday_prices
+    every 90 min, a nightly wrapper) or a route broken for every caller writes
+    a handful of entries an hour, every hour, and never nears 25 in any single
+    hour — the shape behind the 5-day ledger freeze, still invisible to the
+    alert after FIX-06 made those failures count. Hours-with-errors rather
+    than errors-in-24h on purpose: a burst is one or two buckets however large
+    (the storm rule already paged it), so a resolved storm does not keep the
+    alert red for a day; a standing fault is most of the buckets. Bounded
+    0..25 (24 whole hours + the two partial edge hours), so a threshold reads
+    as a share of the day. The ring keeps MAX_ENTRIES=100, so under a storm it
+    spans less than a day — fine: that is errors_1h's case, and a stream of
+    one an hour reaches back 100 h. Same strict/lenient contract as
+    errors_last_hour: /api/health passes strict=True so a DB error is reported
+    as UNMEASURED, never as a clean 0."""
+    try:
+        from app.manager_engine import _kv_get
+        entries = _kv_get(db, KEY) or []
+        cutoff = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=24)
+        hours = set()
+        for e in entries:
+            try:
+                ts = _dt.datetime.fromisoformat(e["ts"])
+                if ts >= cutoff:
+                    hours.add(ts.astimezone(_dt.timezone.utc)
+                                .replace(minute=0, second=0, microsecond=0))
+            except Exception:
+                continue
+        return len(hours)
+    except Exception:
+        if strict:
+            raise
+        return 0
+
+
 def recent_errors(db, limit: int = 50) -> list[dict]:
     """Most-recent entries, newest first (admin surface)."""
     try:

@@ -3,9 +3,11 @@
   "/api/health": [
     "status",
     "errors_1h",
+    "error_hours_24h",
     "scheduler_beat_min",
     "price_age_days",
     "integrity",
+    "integrity_age_days",
     "vendor_ok",
     "vendor_fail",
     "vendor_last_ok_min"

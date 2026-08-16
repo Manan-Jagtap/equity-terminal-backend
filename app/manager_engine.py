@@ -279,6 +279,15 @@ def news_red_flags(ticker: str, budget_guard=None) -> list[str]:
         return []
     base = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
     try:
+        # tick() only — this call is deliberately NOT vendor_meter.record()ed.
+        # news_routes established on 12 Jul 2026 that the production host has
+        # no /company_news (company stories live in /stock's recentNews), so
+        # this call answers non-200 whether or not the vendor is up. Recording
+        # its inevitable failure would report "vendor_failing" during every
+        # evidence rebuild that runs in the web process (portfolio cold start,
+        # /api/admin/fm-engine/rebuild) — a hundred consecutive failures with no
+        # success between them — when nothing upstream is wrong. Wire record()
+        # here only once the call is confirmed to answer; better, stop making it.
         from app import vendor_meter; vendor_meter.tick()  # FIX-07
         r = _rq.get(base + "/company_news", headers={"X-API-Key": key},
                     params={"symbol": ticker}, timeout=10)

@@ -79,6 +79,18 @@ def intraday(ticker: str, db: Session = Depends(get_db)):
         row = data[0]
     elif isinstance(data, dict):
         row = data
+    # OUTCOME (vendor_meter.record), judged on the route's OWN boundary:
+    # whatever the code below cannot read as a row is what it labels
+    # "vendor_error"; a row with no ticks is the healthy closed-market answer
+    # and must not read as a failure. Deliberately not the empty-body rule the
+    # market feeds use — here the healthy body is empty by design, and this
+    # route is polled every 3 min per open chart all evening, so a wrong
+    # judgement would flood the ring with false failures every night.
+    try:
+        from app import vendor_meter as _vm
+        _vm.record(isinstance(row, dict))
+    except Exception:
+        pass
     if not isinstance(row, dict):
         out = {"ticker": tk, "available": False, "values": [], "reason": "vendor_error"}
         _cache[tk] = (now, out)

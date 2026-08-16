@@ -73,13 +73,26 @@ def _get(path, params, retries=4):
             r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                              params=params, timeout=90)
             if r.status_code == 200:
-                return r.json()
+                data = r.json()
+                # OUTCOME per attempt, matching tick() above: each attempt is
+                # one call the vendor either answered or did not. /stock is the
+                # only path this helper serves and it never legitimately answers
+                # a name we track with an empty body, so empty_ok stays False.
+                # The ring is per-process — the scheduler's does not reach
+                # /api/health — but this same code runs in the web process under
+                # /api/admin/run-backfill, where it does.
+                vendor_meter.record(vendor_meter.payload_ok(data))
+                return data
+            vendor_meter.record(False)
             if r.status_code in (429, 500, 502, 503, 504):
                 last = f"HTTP {r.status_code} — {r.text[:120]}"
                 time.sleep(3 * (attempt + 1))
                 continue
             raise RuntimeError(f"HTTP {r.status_code} — {r.text[:200]}")
         except requests.exceptions.RequestException as e:
+            # Transport failures AND a 200 whose body will not parse (requests
+            # raises its JSONDecodeError as a RequestException) both land here.
+            vendor_meter.record(False)
             last = f"{type(e).__name__}: {e}"
             time.sleep(3 * (attempt + 1))
     raise RuntimeError(f"{last} (after {retries} retries)")
@@ -309,7 +322,16 @@ def _get_safe(path, params):
     """Fast, single-shot GET for OPTIONAL insight sections — no retries/backoff
     so a flaky endpoint fails instantly instead of stalling the whole run.
     Returns None on any failure, and treats IndianAPI's [{'error': ...}, <code>]
-    payload (HTTP 200 wrapping an internal error) as a failure too."""
+    payload (HTTP 200 wrapping an internal error) as a failure too.
+
+    Every call also reports its OUTCOME to vendor_meter.record (spend was
+    already tick()ed). These are per-name lookups that may legitimately answer
+    empty (a name with no forecasts, no peers), so empty is not a failure; a
+    non-200, a transport error or an error envelope is. Two of these endpoints
+    have been off-plan since 24 Jul 2026 (DATA-12): /documents answers 404 —
+    recorded as the failure it is — and /historical_stats answers 200
+    {"info": "Not a valid script_code"}, recorded as upstream answering (see
+    payload_ok for why). Neither can trip health's 80%-of-20 floor on its own."""
     if not KEY:
         return None
     global _CALL_COUNT
@@ -319,10 +341,13 @@ def _get_safe(path, params):
         r = requests.get(BASE + path, headers={"X-API-Key": KEY, "x-api-key": KEY},
                          params=params, timeout=30)
         if r.status_code != 200:
+            vendor_meter.record(False)
             return None
         data = r.json()
     except Exception:
+        vendor_meter.record(False)
         return None
+    vendor_meter.record(vendor_meter.payload_ok(data, empty_ok=True))
     if isinstance(data, list) and data and (
         (isinstance(data[-1], int) and data[-1] >= 400) or
         (isinstance(data[0], dict) and "error" in data[0])
