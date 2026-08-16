@@ -69,8 +69,9 @@ jobs:
           set -euo pipefail
           python tests/gen_parity_cases.py /tmp/parityCases.json
           python tests/gen_derive_cases.py /tmp/deriveCases.json
+          python tests/gen_verdict_cases.py /tmp/verdictCases.json
           RAW=https://raw.githubusercontent.com/Manan-Jagtap/equity-terminal/main/tests
-          for f in parityCases deriveCases; do
+          for f in parityCases deriveCases verdictCases; do
             curl -fsSL "$RAW/$f.json" -o "/tmp/$f.committed.json"
             python - "$f" <<'PY'
           import json, sys

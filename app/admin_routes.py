@@ -154,6 +154,15 @@ def api_usage(_admin: models.User = Depends(require_admin)):
             vendor = r.json()
     except Exception:
         vendor = None
+    # OUTCOME too (vendor_meter.record): /usage is on every plan and never
+    # legitimately empty, and a dead credential fails here exactly as it does
+    # everywhere else — the owner asking "how much have I spent" during an
+    # outage is evidence health should see.
+    try:
+        from app import vendor_meter as _vm
+        _vm.record(_vm.payload_ok(vendor))
+    except Exception:
+        pass
     s = SessionLocal()
     try:
         internal = {"month": api_budget.current_month(),

@@ -279,9 +279,11 @@ def test_fresh_db_with_no_heartbeat_is_ok_not_unmeasured(hermetic_app):
     body = TestClient(app).get("/api/health").json()
     assert body["status"] == "ok" and "degraded_reason" not in body
     assert body["errors_1h"] == 0
+    assert body["error_hours_24h"] == 0        # an empty ring is 0 hours, not null
     assert body["scheduler_beat_min"] is None
     assert body["price_age_days"] is None
     assert body["integrity"] is None
+    assert body["integrity_age_days"] is None  # no sweep stored → no age, like `integrity`
 
 
 def test_db_outage_is_degraded_not_ok(tmp_path):
@@ -321,10 +323,12 @@ def test_db_outage_is_degraded_not_ok(tmp_path):
     reason = body["degraded_reason"]
     assert reason.startswith("unmeasured:"), reason
     fields = set(reason.split(":", 1)[1].split(","))
-    assert fields == {"errors_1h", "scheduler_beat_min", "price_age_days", "integrity"}, fields
+    assert fields == {"errors_1h", "error_hours_24h", "scheduler_beat_min",
+                      "price_age_days", "integrity"}, fields
     # errors_1h used to read 0 here (errors_last_hour swallowed the DB error) —
     # a false "no errors" during the outage. Under strict it is honestly null.
-    assert body["errors_1h"] is None
+    # error_hours_24h reads the same ring under the same strict contract.
+    assert body["errors_1h"] is None and body["error_hours_24h"] is None
     assert body["scheduler_beat_min"] is None and body["price_age_days"] is None
     # No driver/SQL text leaks into the public payload.
     assert "sqlite" not in reason.lower() and "select" not in reason.lower()

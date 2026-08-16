@@ -279,8 +279,11 @@ curl https://api.equityverdict.com/api/health                     # must: {"stat
 GitHub Actions on every push/PR run the backend suite + parity generators
 (backend repo) and both parity harnesses + build + a Playwright runtime smoke in
 seed mode (frontend repo). A separate 30-min cron workflow probes prod
-`/api/health` and fails (→ GitHub email) when it isn't 200 **or** when
-`errors_1h` exceeds 25 (error storm).
+`/api/health` and fails (→ GitHub email) when it isn't 200/`ok` **or** when a
+signal crosses its gate: `errors_1h` > 25 (error storm), `error_hours_24h` ≥ 12
+(a sustained fault — errors in half the day's hours, the storm rule's blind
+spot), `scheduler_beat_min` > 120, `price_age_days` > 3, `integrity` red, or
+`integrity_age_days` > 7 (the weekly sweep stopped running).
 
 **Error telemetry is SELF-OWNED (DPDP posture — no external processor):**
 `app/error_log.py` records unhandled exceptions into a capped ring buffer in

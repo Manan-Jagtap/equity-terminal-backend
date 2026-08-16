@@ -101,17 +101,28 @@ def _indianapi_news(ticker: str, name: str = "") -> tuple[list[dict], str | None
 
     last_err = "no_results"
     for q in cands:
+        data = None
         try:
             from app import vendor_meter; vendor_meter.tick()  # FIX-07
             r = requests.get(_INDIANAPI_BASE + "/stock",
                              headers={"X-API-Key": key, "x-api-key": key},
                              params={"name": q}, timeout=25)
-            if r.status_code != 200:
+            if r.status_code == 200:
+                data = r.json()
+            else:
                 last_err = f"http_{r.status_code}"
-                continue
-            data = r.json()
         except Exception as e:
             last_err = str(e)[:80]
+        # OUTCOME per attempt (vendor_meter.record). The candidates are our
+        # ticker, then the company's name, then its suffix-stripped name — the
+        # later forms are KNOWN to miss for some names (that is why there are
+        # three), so an empty answer is not the vendor being down: empty_ok.
+        try:
+            from app import vendor_meter as _vm
+            _vm.record(_vm.payload_ok(data, empty_ok=True))
+        except Exception:
+            pass
+        if data is None:
             continue
         arts = (data or {}).get("recentNews") if isinstance(data, dict) else None
         items = _recent_news_items(arts)
@@ -150,15 +161,28 @@ def _market_news_for(ticker: str, name: str) -> tuple[list[dict], str | None]:
     key = os.getenv("INDIANAPI_KEY", "").strip()
     if not key:
         return [], "no_key"
+    data, err = None, None
     try:
+        # Metered and outcome-tracked like the primary lookup above. This
+        # fallback was invisible to both: quota burned uncounted, failures unseen.
+        from app import vendor_meter; vendor_meter.tick()
         r = requests.get(_INDIANAPI_BASE + "/news",
                          headers={"X-API-Key": key, "x-api-key": key},
                          params={"page_no": 1, "size": 50}, timeout=20)
-        if r.status_code != 200:
-            return [], f"http_{r.status_code}"
-        data = r.json()
+        if r.status_code == 200:
+            data = r.json()
+        else:
+            err = f"http_{r.status_code}"
     except Exception as e:
-        return [], str(e)[:80]
+        err = str(e)[:80]
+    # The general market feed is never legitimately empty.
+    try:
+        from app import vendor_meter as _vm
+        _vm.record(_vm.payload_ok(data))
+    except Exception:
+        pass
+    if err:
+        return [], err
     arts = data if isinstance(data, list) else (data.get("news") or data.get("data") or [])
     terms = _match_terms(ticker, name)
     matched = [a for a in arts if isinstance(a, dict)

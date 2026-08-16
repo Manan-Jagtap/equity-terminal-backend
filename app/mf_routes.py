@@ -63,7 +63,7 @@ def _budget_ok() -> bool:
     return ok
 
 
-def _get(path, params=None, ttl=_TTL, host=None):
+def _get(path, params=None, ttl=_TTL, host=None, empty_ok=True):
     ck = (host or "") + path + str(params or "")
     now = time.time()
     hit = _cache.get(ck)
@@ -82,7 +82,25 @@ def _get(path, params=None, ttl=_TTL, host=None):
         data = r.json() if r.status_code == 200 else None
     except Exception:
         data = None
-    if data is not None:
+    # OUTCOME, not just spend: tick() above counted the quota this call burned
+    # (a failed call burns it too), so the meter alone could not tell
+    # /api/health that upstream had stopped answering. `empty_ok` defaults
+    # True here because every route in this module is keyed by a name the
+    # CALLER chose and the vendor answers a miss with an empty body — _resolve
+    # probes progressively shorter queries expecting exactly that, and the
+    # facts call in detail() documents "a miss is expected". An empty answer is
+    # upstream answering, not upstream down; recording it as a failure would let
+    # a junk query on this unauthenticated board flip health to "degraded". The
+    # catalog is the one feed that is never legitimately empty and says so. A
+    # 200 wrapping an error envelope is a failure everywhere — and is no longer
+    # cached over a last-good payload (the same fix market_routes got in #140).
+    try:
+        from app import vendor_meter as _vm
+        ok = _vm.payload_ok(data, empty_ok=empty_ok)
+        _vm.record(ok)
+    except Exception:
+        ok = data is not None
+    if ok:
         _cache[ck] = (now, data)
         return data
     return hit[1] if hit else None
@@ -92,7 +110,7 @@ def _get(path, params=None, ttl=_TTL, host=None):
 def catalog():
     """Full browsable catalog: {category: {sub_category: [funds]}}.
     Funds are trimmed to the display fields and sorted by 1-day change."""
-    data = _get("/mutual_funds")
+    data = _get("/mutual_funds", empty_ok=False)   # the catalog is never legitimately empty
     if not isinstance(data, dict):
         return {"categories": [], "available": False}
     cats = []

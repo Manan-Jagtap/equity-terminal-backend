@@ -27,7 +27,7 @@ _cache: dict[str, tuple[float, object]] = {}
 _out_calls = 0          # actual vendor HTTP hits since process start (budget)
 
 
-def _get(path, params, ttl=TTL):
+def _get(path, params, ttl=TTL, empty_ok=True):
     global _out_calls
     ck = path + str(params)
     now = time.time()
@@ -44,7 +44,23 @@ def _get(path, params, ttl=TTL):
         data = r.json() if r.status_code == 200 else None
     except Exception:
         data = None
-    if data is not None:
+    # OUTCOME, not just spend (see vendor_meter.record / market_routes._get).
+    # `empty_ok` defaults True: the document lists this helper serves
+    # (/concalls, /annual_reports, /credit_ratings, /recent_announcements) are
+    # legitimately empty for a small name with nothing filed, and
+    # /historical_stats has answered every name with 200 {"info": ...} since
+    # the vendor took it off-plan (DATA-12) — the Financials tabs still call it
+    # per visit, so it must read as "upstream answered", which payload_ok does.
+    # /stock is the exception: it never legitimately answers a ticker we track
+    # with an empty body, and its call sites say so. An error envelope with a
+    # 200 is a failure and is no longer cached over last-good (#140's fix).
+    try:
+        from app import vendor_meter as _vm
+        ok = _vm.payload_ok(data, empty_ok=empty_ok)
+        _vm.record(ok)
+    except Exception:
+        ok = data is not None
+    if ok:
         _cache[ck] = (now, data)
         return data
     return hit[1] if hit else None
@@ -322,15 +338,18 @@ def company_profile(ticker: str, db: Session = Depends(get_db)):
         before = _out_calls
         # Warm all 5 upstream calls concurrently (~3s vs ~15s sequential); the
         # parse helpers below then hit the in-memory cache instantly.
-        _warm = [("/stock", {"name": name}), ("/concalls", {"stock_name": name}),
-                 ("/annual_reports", {"stock_name": name}), ("/credit_ratings", {"stock_name": name}),
-                 ("/recent_announcements", {"stock_name": name})]
+        # Third element: may this feed legitimately answer empty? Only /stock
+        # may not (see _get) — an empty /stock for a ticker we track is upstream
+        # trouble and must neither be cached for 6h nor read as a success.
+        _warm = [("/stock", {"name": name}, False), ("/concalls", {"stock_name": name}, True),
+                 ("/annual_reports", {"stock_name": name}, True), ("/credit_ratings", {"stock_name": name}, True),
+                 ("/recent_announcements", {"stock_name": name}, True)]
         try:
             with ThreadPoolExecutor(max_workers=5) as ex:
-                list(ex.map(lambda c: _get(c[0], c[1]), _warm))
+                list(ex.map(lambda c: _get(c[0], c[1], empty_ok=c[2]), _warm))
         except Exception:
             pass
-        stock = _get("/stock", {"name": name}) or {}
+        stock = _get("/stock", {"name": name}, empty_ok=False) or {}
         prof = stock.get("companyProfile") or {}
 
         payload = {

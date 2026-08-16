@@ -62,6 +62,13 @@ def logo(ticker: str, db: Session = Depends(get_db)):
             # CDN fetch inflated our own quota tally against a request IndianAPI
             # never saw, which is part of why the internal meter read far above
             # the vendor dashboard.
+            #
+            # tick() only — deliberately NOT vendor_meter.record()ed. The
+            # production host dropped /logo/{id} (13 Jul 2026, above), so this
+            # fallback fails whether or not the vendor is up; recording that
+            # would let one cold-cache page of names the CDN has no artwork
+            # for read as a failing vendor. A dead upstream shows up through
+            # the market feeds on the same page load; this path adds no truth.
             if _vendor:
                 from app import vendor_meter; vendor_meter.tick()  # FIX-07
             r = requests.get(url, headers=hdrs, timeout=15)

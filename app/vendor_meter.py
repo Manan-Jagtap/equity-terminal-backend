@@ -119,6 +119,55 @@ def record(success: bool) -> None:
         _ring.append(bool(success))
 
 
+# ── Payload judgement: what counts as a SUCCESSFUL answer ────────────────────
+#
+# record() takes a bool, and before this every call site had its own idea of
+# what a good answer looked like — most of them "data is not None", which reads
+# a 200 wrapping {} or {"error": ...} as success. market_routes._payload_ok
+# settled the rule for the market feeds (#140): a 200 is not a success until the
+# body carries data, because the vendor answers some failure modes with 200 +
+# an empty or error-shaped body. That rule is right for feeds that are never
+# legitimately empty. It is WRONG for lookups keyed by a name the caller chose
+# — a fund search that matches nothing, a small company with no rated debt, a
+# forecast for a name nobody covers — where an empty answer IS the vendor
+# answering correctly. Recording those as failures would let a junk query on
+# an unauthenticated route, or a quiet name, push /api/health to "degraded".
+# `empty_ok` is that distinction, chosen per call site.
+_ENVELOPE_KEYS = frozenset({"error", "message", "detail"})
+
+
+def payload_ok(data, *, empty_ok: bool = False) -> bool:
+    """Judge a parsed vendor body: True when upstream actually answered.
+
+      None                 → False   non-200 / transport error / unparseable
+                                     (call sites collapse all three to None)
+      {} / [] / ""         → empty_ok
+      {"error": ...}       → False   the vendor's own failure, wrapped in a 200
+      [{"error": ...}, N]  → False   the same envelope as the insight endpoints
+                                     ship it (list-wrapped, HTTP code last)
+      anything else        → True
+
+    "info" is deliberately NOT an envelope key. Since 24 Jul 2026 (DATA-12) the
+    vendor answers /historical_stats for every name with 200 {"info": "Not a
+    valid script_code"} — an off-plan endpoint, not a dead vendor — and the
+    Financials tabs still call it on every visit. Counting that as a failure
+    would report the vendor as failing whenever anyone browsed. Pure; never
+    raises on JSON-shaped input."""
+    if data is None:
+        return False
+    if not data:                                    # {}, [], "", 0, False
+        return empty_ok
+    if isinstance(data, dict):
+        return not (set(data.keys()) <= _ENVELOPE_KEYS)
+    if isinstance(data, list):
+        head, tail = data[0], data[-1]
+        if isinstance(head, dict) and "error" in head:
+            return False
+        if isinstance(tail, int) and not isinstance(tail, bool) and tail >= 400:
+            return False
+    return True
+
+
 def recent() -> dict:
     """{n, fail, fail_pct} over the last RING_N recorded outcomes. fail_pct is
     None until anything is recorded (no evidence is not bad evidence)."""
