@@ -40,8 +40,15 @@ def record_error(db, path: str, exc: BaseException) -> None:
         pass
 
 
-def errors_last_hour(db) -> int:
-    """Count of captured errors in the trailing hour (for /api/health)."""
+def errors_last_hour(db, *, strict: bool = False) -> int:
+    """Count of captured errors in the trailing hour (for /api/health).
+
+    Default: never raises — a DB hiccup reads as 0, which is right for the
+    admin page (a best-effort figure next to the entry list). `strict=True` is
+    for /api/health, where a swallowed DB error is exactly the failure being
+    measured: with the database down this used to answer 0 ("no errors") while
+    the store it counts from was unreachable. Under strict the DB error
+    propagates so health can mark the signal UNMEASURED instead of "clean"."""
     try:
         from app.manager_engine import _kv_get
         entries = _kv_get(db, KEY) or []
@@ -56,6 +63,8 @@ def errors_last_hour(db) -> int:
                 continue
         return n
     except Exception:
+        if strict:
+            raise
         return 0
 
 

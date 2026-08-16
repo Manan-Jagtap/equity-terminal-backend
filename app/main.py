@@ -353,10 +353,35 @@ def health(db: Session = Depends(get_db)):
     holidays make 1-3 normal; sustained growth means the price pipeline died)."""
     import datetime as _dt
     from app.error_log import errors_last_hour
+    # DB-OUTAGE VISIBILITY. get_db() connects lazily, so with the database down
+    # nothing had raised by the time we got here: each signal's query failed
+    # inside its own `except Exception: pass`, the field went out as null, and
+    # uptime.yml's `// 0` turned null into the PASSING value — a total DB outage
+    # returned 200/"ok" to the only alerting channel, and cutover.sh (which
+    # gates on status=="ok") would have promoted a build onto it. Every signal
+    # that RAISES is now recorded here and the status goes "degraded". Keyed on
+    # the exception, never on None: a fresh database with no heartbeat row and
+    # no prices measures None honestly and must stay "ok".
+    unmeasured = []
+
+    def _unmeasured(field, exc):
+        unmeasured.append(field)
+        # Server-side detail only; the public payload carries the field NAME,
+        # never the driver's SQL text.
+        log.warning("health: %s unmeasured — %s: %s", field, type(exc).__name__, str(exc)[:200])
+        # Postgres poisons the transaction after a failed statement; without a
+        # rollback one broken signal would drag every later one into
+        # "unmeasured" and the reason would blame the wrong fields.
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
     try:
-        errs = errors_last_hour(db)
-    except Exception:
+        errs = errors_last_hour(db, strict=True)   # strict: a DB error must NOT read as 0
+    except Exception as exc:
         errs = None
+        _unmeasured("errors_1h", exc)
     beat_min = None
     hb = {}
     try:
@@ -366,8 +391,8 @@ def health(db: Session = Depends(get_db)):
         if ts:
             beat = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
             beat_min = round((_dt.datetime.now(_dt.timezone.utc) - beat).total_seconds() / 60)
-    except Exception:
-        pass
+    except Exception as exc:
+        _unmeasured("scheduler_beat_min", exc)
     # SCALE-03: O(1) health. The freshest EOD date is stamped into the heartbeat
     # by the scheduler each loop, so we read it from the KV row already fetched
     # above instead of running max(date) over ~1.2M HistoricalPrice rows on every
@@ -382,8 +407,8 @@ def health(db: Session = Depends(get_db)):
             eod = str(latest)[:10] if latest else None
         if eod:
             price_age_days = (_dt.date.today() - _dt.date.fromisoformat(eod)).days
-    except Exception:
-        pass
+    except Exception as exc:
+        _unmeasured("price_age_days", exc)
     # FIX-05/OPS-06: surface the weekly data-integrity sweep's red/amber/green
     # verdict as a bare status so the (token-less) uptime workflow can alert on a
     # `red` sweep — previously the sweep only reached a token-gated admin page and
@@ -394,8 +419,8 @@ def health(db: Session = Depends(get_db)):
         sweep = load_sweep(db)
         if sweep:
             integrity = sweep.get("status")
-    except Exception:
-        pass
+    except Exception as exc:
+        _unmeasured("integrity", exc)
     # VENDOR REACHABILITY. On 14 Aug 2026 every IndianAPI call failed for 5+
     # hours while this endpoint returned {"status":"ok","errors_1h":0}. Nothing
     # was broken in the reporting: market_routes._get serves its last good
@@ -409,7 +434,7 @@ def health(db: Session = Depends(get_db)):
     # and `vendor_last_ok_min` is the age of the last SUCCESSFUL call — the field
     # that actually distinguishes the two cases.
     vendor = {}
-    degraded = None
+    reasons = []
     try:
         from app import vendor_meter
         o = vendor_meter.outcomes()
@@ -421,9 +446,22 @@ def health(db: Session = Depends(get_db)):
         # failures are accumulating). A quiet container that has made no calls at
         # all stays "ok" — no evidence is not bad evidence.
         if o["fail"] > 0 and (o["last_ok_min"] is None or o["last_ok_min"] >= 30):
-            degraded = "vendor_unreachable"
-    except Exception:
-        pass
+            reasons.append("vendor_unreachable")
+        # FAILURE-RATE FLOOR: the rule above is cleared by ONE success in 30
+        # min, so a vendor answering 1 call in 20 stayed "ok" for as long as the
+        # luck held. The ring of the last ~20 outcomes (vendor_meter.failing)
+        # degrades when >= 80% of at least 10 recorded calls failed, whatever
+        # the most recent call did. Reported only when the stronger rule has
+        # not already fired — one reason per cause, not two for one outage.
+        elif vendor_meter.failing():
+            reasons.append("vendor_failing")
+    except Exception as exc:
+        # The meter is in-process and cannot fail for DB reasons; if it does
+        # raise, that is a bug worth seeing, not one worth paging over.
+        log.warning("health: vendor meter unreadable — %s", exc)
+    if unmeasured:
+        reasons.append("unmeasured:" + ",".join(unmeasured))
+    degraded = ";".join(reasons) if reasons else None
     return {"status": "degraded" if degraded else "ok",
             **({"degraded_reason": degraded} if degraded else {}),
             "errors_1h": errs,

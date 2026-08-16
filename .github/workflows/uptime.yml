@@ -25,7 +25,26 @@ jobs:
             # on attempt 1 instead of retrying (18 Jul incident).
             body=$(cat /tmp/h.json 2>/dev/null || true)
             echo "attempt $i: HTTP $code $body"
-            if [ "$code" = "200" ] && echo "$body" | grep -q '"ok"'; then
+            status=$(echo "$body" | jq -r '.status // empty' 2>/dev/null || true)
+            if [ "$code" = "200" ] && [ "$status" = "ok" ]; then
+              # NULL IS NOT ZERO. Every signal below used to be read with
+              # `// 0`, and each one is produced under its own try/except in
+              # /api/health — so with the database DOWN every query failed,
+              # every field came back null, `// 0` turned null into the
+              # passing value, and this job stayed green through a total DB
+              # outage (the app now also reports that as status=degraded, so
+              # the check above already fails; this is the belt to that
+              # braces — a regression in the app's status logic must not turn
+              # the alert back off). `integrity` is deliberately NOT in this
+              # list: it is null until the first weekly sweep is stored and
+              # its `// "green"` is pinned by tests/test_fix05_health_integrity.py.
+              for sig in errors_1h scheduler_beat_min price_age_days; do
+                raw=$(echo "$body" | jq -r ".$sig" 2>/dev/null || echo null)
+                if [ "$raw" = "null" ]; then
+                  echo "::error::Health is 200/ok but $sig is null — the signal was NOT measured (DB unreachable / table missing class); refusing to read null as 0"
+                  exit 1
+                fi
+              done
               # Self-owned error telemetry: errors_1h is the trailing-hour count
               # of unhandled exceptions (app/error_log.py — data stays in OUR
               # DB; no third-party APM by DPDP posture). A storm alerts like
@@ -38,8 +57,8 @@ jobs:
               # FIX-05/OPS-01: data-rot signals that used to page nobody. A dead
               # scheduler (separate container) froze prices/valuations while
               # health stayed 200; a stalled price feed rotted silently. Bare
-              # ints from /api/health; `// 0` so a transiently-missing field
-              # never false-alarms.
+              # ints from /api/health. (The `// 0` here is now only reached
+              # after the null gate above has proven the field is present.)
               beat=$(echo "$body" | jq -r '.scheduler_beat_min // 0' 2>/dev/null || echo 0)
               if [ "$beat" != "null" ] && [ "$beat" -gt 120 ] 2>/dev/null; then
                 echo "::error::Scheduler stalled — scheduler_beat_min=$beat exceeds 120 min (nightly ingest/valuation not running)"
@@ -62,7 +81,7 @@ jobs:
             fi
             sleep 30
           done
-          echo "::error::Production health check FAILED after 3 attempts (HTTP $code)"
+          echo "::error::Production health check FAILED after 3 attempts (HTTP $code, status=${status:-<none>} $(echo "$body" | jq -r '.degraded_reason // empty' 2>/dev/null))"
           exit 1
 
       - name: Probe the Vercel frontend (equityverdict.com)
