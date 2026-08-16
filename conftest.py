@@ -36,3 +36,36 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_DB_PATH}"
 def _cleanup() -> None:
     """Leave no artefact behind — that is the whole point."""
     shutil.rmtree(_TMPDIR, ignore_errors=True)
+
+
+# ── vendor_meter is process-global; reset it between tests ───────────────────
+#
+# app.vendor_meter holds since-boot counters, a last-ok/last-fail pair and a
+# 20-outcome ring in MODULE globals. /api/health reads them, so ANY test that
+# asserts status == "ok" is hostage to whichever earlier test last drove a
+# failing vendor call — and pytest shares one process across the whole suite.
+#
+# This has now bitten three separate times, each presenting as "passes alone,
+# fails in the suite", and each costing a bisect to re-diagnose:
+#   * the first unmeasured-signals attempt, which was REVERTED over it
+#   * tests/test_fix05_health_integrity.py
+#   * tests/test_eod_session_coverage.py
+# The per-file autouse fixtures those files carry are now belt-and-braces; this
+# is the braces. Fixing it here rather than in each victim also means the next
+# health test written does not have to know the trap exists.
+#
+# Safe by construction: every test that MEANS to observe the meter reloads it
+# itself first (47 call sites do), so a reset before each test cannot take away
+# state any test is relying on. It only clears leakage BETWEEN files.
+import pytest as _pytest
+
+
+@_pytest.fixture(autouse=True)
+def _reset_vendor_meter():
+    import importlib
+    try:
+        from app import vendor_meter
+        importlib.reload(vendor_meter)
+    except Exception:
+        pass          # meter absent/unimportable is not this fixture's problem
+    yield

@@ -140,6 +140,11 @@ def run_dhan_topup(days: int = 30):
             wider = sorted(set(VISIBLE_UNIVERSE) - set(CORE_UNIVERSE))
             if wider:
                 indianapi_run(price_only=True, tickers=wider)
+        # Returned (rather than only logged) so the EOD self-heal below can
+        # record whether its catch-up actually produced candles — the one thing
+        # that separates a missed slot from an exchange holiday. Callers that do
+        # not care keep ignoring it; every failure path still returns None.
+        return stats
     except Exception as e:
         log.error(f"Dhan daily top-up failed: {e}")
         record_job_error(e)
@@ -502,6 +507,74 @@ def run_missing_history_backfill():
 # Self-heal check daily, after the EOD top-up settles (4:15pm IST = 10:45 UTC)
 for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
     getattr(schedule.every(), _day).at("10:45").do(run_missing_history_backfill)
+
+
+def run_eod_selfheal(recompute: bool = True):
+    """Session-level catch-up: when the most recent COMPLETED trading session is
+    not in HistoricalPrice — missing entirely, or present for only a fraction of
+    the universe — run the same idempotent top-up the 10:15 UTC slot would have.
+
+    This is the durable half of the 14 Aug 2026 fix. `schedule` keeps no state
+    and recomputes every job's next_run from PROCESS START, so a container
+    recreated after the slot silently drops that day's run: nothing retries it,
+    nothing records that it did not happen, and every deploy after 15:45 IST
+    therefore costs a session. Rather than teach the scheduler about restarts,
+    this asks the only question with a durable answer — is the session in the
+    table? — so it is right whatever caused the miss (deploy, crash-loop, paused
+    host, a slot that raised) and needs no persistence of its own.
+
+    Hooked BOTH on boot (the deploy that caused the skip is the deploy that
+    repairs it, within seconds instead of at the next slot) and on a 30-minute
+    interval (a container already up when the slot passed never boots, and the
+    boot hook alone would never fire for it).
+
+    Idempotency is what makes running it twice free: backfill_prices writes
+    against the (company_id, date) unique key, so a redundant pass adds nothing.
+    app/eod_coverage.py holds the decision — the timing rules, the holiday brake
+    and the cross-instance claim — with the reasoning for each."""
+    try:
+        from app.dhan import client as _dhan
+        from app.database import SessionLocal
+        from app import eod_coverage
+        if not _dhan.configured():
+            return                  # nothing to top up from, exactly as the slot
+        s = SessionLocal()
+        try:
+            target = eod_coverage.pending_session(s)
+            if not target:
+                return
+            if not eod_coverage.claim(s, target):
+                # Another instance is on it, or this date has been tried its
+                # MAX_ATTEMPTS (the exchange was shut). Neither is an error.
+                log.info(f"EOD self-heal: {target} is claimed or exhausted — skipping.")
+                return
+            log.warning(f"EOD self-heal: the {target} session is missing or partial — "
+                        f"the daily top-up did not run for it; running it now.")
+        finally:
+            s.close()
+        stats = run_dhan_topup() or {}      # default 30-day window fills the gap
+        added = int(stats.get("rows_added") or 0)
+        s = SessionLocal()
+        try:
+            eod_coverage.record_result(s, target, added)
+        finally:
+            s.close()
+        log.info(f"EOD self-heal for {target}: {stats}")
+        if added and recompute:
+            # Prices moved, so MoS/verdicts must be re-derived — the recompute
+            # the missed slot would have run. NOT snapshot_verdicts(): the public
+            # track record is append-only and the daily slot owns its cadence, so
+            # a repair must not add a row the model never actually made on time.
+            run_compute(visible=True)
+    except Exception as e:
+        log.error(f"EOD self-heal failed: {type(e).__name__}: {e}")
+        record_job_error(e)
+
+
+# Every 30 minutes, deliberately NOT at a slot — the whole point is that a slot
+# can be missed. `schedule.every(30).minutes` first fires 30 min after process
+# start, which is why boot calls this directly as well (below).
+schedule.every(30).minutes.do(run_eod_selfheal)
 
 
 def run_macro_refresh():
@@ -1019,12 +1092,23 @@ else:
     # freshly onboarded tranche is fully usable the moment the deploy lands.
     run_missing_history_backfill()
 
+    _compute_on_boot = os.getenv("COMPUTE_ON_BOOT", "true").strip().lower() not in ("0", "false", "no")
+
+    # Catch up a missed EOD session on the very deploy that caused it. THIS
+    # restart is the event that drops the day's run (`schedule` recomputes every
+    # next_run from process start), so the repair belongs here and not only on
+    # the 30-minute interval — otherwise a 15:50 IST deploy leaves the universe
+    # a session stale for up to half an hour, and over a weekend for three days
+    # (14 Aug 2026). It skips its own recompute when the boot recompute below is
+    # going to run anyway, and does it itself when COMPUTE_ON_BOOT is off.
+    run_eod_selfheal(recompute=not _compute_on_boot)
+
     # ── Auto-recompute on every deploy ───────────────────────────────────────
     # The valuations cache is a pure local computation from data already in the
     # DB (no API calls, no quota). Recomputing it on boot means every engine /
     # sector-param change goes live the moment the scheduler redeploys — no
     # dashboard flags, no manual steps. Disable with COMPUTE_ON_BOOT=false.
-    if os.getenv("COMPUTE_ON_BOOT", "true").strip().lower() not in ("0", "false", "no"):
+    if _compute_on_boot:
         log.info("Deploy boot — recomputing valuations so the cache matches the current engine…")
         run_compute()
         log.info("Boot recompute complete.")
@@ -1066,10 +1150,18 @@ else:
 # /api/health and the uptime workflow can threshold it.
 _HEARTBEAT_EVERY = 300  # seconds
 _last_beat = 0.0
+# Session-coverage counts ride the same heartbeat row but are recomputed far
+# less often: they are grouped aggregates over ~1.2M price rows, they only move
+# when a session is written, and their only consumer (uptime.yml) probes every
+# 30 minutes. Cached until the freshest EOD date changes or this expires.
+_COVERAGE_EVERY = 1800  # seconds
+_coverage = {}
+_coverage_for = None    # the max(date) the cached counts were computed against
+_coverage_at = 0.0
 
 
 def _heartbeat():
-    global _last_beat
+    global _last_beat, _coverage, _coverage_for, _coverage_at
     if time.time() - _last_beat < _HEARTBEAT_EVERY:
         return
     try:
@@ -1089,6 +1181,30 @@ def _heartbeat():
                     payload["latest_eod_date"] = str(latest)[:10]
             except Exception:
                 pass
+            # SESSION COVERAGE (17 Aug 2026). latest_eod_date above is max(date)
+            # and max(date) cannot see a PARTIAL session: the Dhan top-up wrote
+            # nothing for 14 Aug, the daily history self-heal seeded 21 brand-new
+            # listings under that same date, and /api/health reported a 0-day-old
+            # price feed while 992 names had no candle for the session. The NAME
+            # COUNT behind that date, against the previous session's, is the
+            # signal that was missing. Stamped here (background process) for the
+            # same reason latest_eod_date is: health must stay O(1).
+            _latest = payload.get("latest_eod_date")
+            if _coverage_for != _latest or time.time() - _coverage_at >= _COVERAGE_EVERY:
+                try:
+                    from app import eod_coverage
+                    _coverage = eod_coverage.session_coverage(s)
+                except Exception as e:
+                    # Publish NOTHING rather than a stale or wrong pair — health
+                    # reads absent as unmeasured, which raises no alarm, whereas
+                    # a stale count could suppress a real one. Backed off with
+                    # the rest so a persistent failure logs every 30 min.
+                    _coverage = {}
+                    log.warning(f"session coverage unreadable: {type(e).__name__}: {e}")
+                _coverage_for, _coverage_at = _latest, time.time()
+            payload["eod_names"] = _coverage.get("names")
+            payload["eod_names_prior"] = _coverage.get("prior_names")
+            payload["eod_names_date"] = _coverage.get("date")
             if row:
                 row.value = payload
             else:

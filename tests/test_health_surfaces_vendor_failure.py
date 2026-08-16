@@ -420,6 +420,10 @@ def test_fresh_db_with_no_heartbeat_is_ok_not_unmeasured(hermetic_app):
     assert body["error_hours_24h"] == 0        # an empty ring is 0 hours, not null
     assert body["scheduler_beat_min"] is None
     assert body["price_age_days"] is None
+    # The session-coverage pair rides the same heartbeat row: absent, not zero.
+    # A brand-new database has no sessions to count, and "0 names" would read as
+    # a total EOD failure to uptime.yml's ratio gate.
+    assert body["eod_names"] is None and body["eod_names_prior"] is None
     assert body["integrity"] is None
     assert body["integrity_age_days"] is None  # no sweep stored → no age, like `integrity`
 
