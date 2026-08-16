@@ -7,6 +7,13 @@ The vendor's /1D_intraday_data (analyst host, keyed by the IndianAPI ticker_id
 we store on CompanyInsight) returns the day's minute ticks. Cached 3 min so an
 open chart doesn't hammer the quota. Empty (not an error) when the market is
 closed or the name has no ticker_id.
+
+Every empty return that is NOT the healthy closed-market case carries a
+"reason" ("unknown_ticker" | "no_feed" | "quota" | "vendor_error"). Without it
+the frontend could only render all four causes as "the market is closed" —
+turning quota exhaustion and vendor outages into a market-hours FACT the
+server never asserted. The healthy-but-empty payload stays unlabeled on
+purpose: absence of "reason" is the signal that emptiness is trustworthy.
 """
 import os
 import time
@@ -36,11 +43,11 @@ def intraday(ticker: str, db: Session = Depends(get_db)):
 
     co = db.query(models.Company).filter_by(ticker=tk).first()
     if not co:
-        return {"ticker": tk, "available": False, "values": []}
+        return {"ticker": tk, "available": False, "values": [], "reason": "unknown_ticker"}
     ins = db.query(models.CompanyInsight).filter_by(company_id=co.id).first()
     tid = ins.ticker_id if ins else None
     if not tid or not KEY:
-        return {"ticker": tk, "available": False, "values": []}
+        return {"ticker": tk, "available": False, "values": [], "reason": "no_feed"}
 
     # This route is unauthenticated and the 3-minute cache is keyed per TICKER,
     # so cycling the ~1000-name universe can spend ~20k vendor calls an hour —
@@ -54,7 +61,7 @@ def intraday(ticker: str, db: Session = Depends(get_db)):
             stale = _cache.get(tk)
             if stale:
                 return stale[1]
-            return {"ticker": tk, "available": False, "values": [],
+            return {"ticker": tk, "available": False, "values": [], "reason": "quota",
                     "note": "vendor quota exhausted for this month"}
     except Exception:
         pass          # fail OPEN — a broken guard must not take the chart down
@@ -73,7 +80,7 @@ def intraday(ticker: str, db: Session = Depends(get_db)):
     elif isinstance(data, dict):
         row = data
     if not isinstance(row, dict):
-        out = {"ticker": tk, "available": False, "values": []}
+        out = {"ticker": tk, "available": False, "values": [], "reason": "vendor_error"}
         _cache[tk] = (now, out)
         return out
 

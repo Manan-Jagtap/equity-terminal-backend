@@ -296,9 +296,16 @@ def build_financials_response(
         "statements":      statements,
         "growth":          growth,
         "has_data":        len(years_available) > 0,
+        # This string reaches API consumers verbatim. It used to credit
+        # "yfinance / XBRL" and point at bulk_ingester — a module that no
+        # longer exists in the repo (only a .bak remains) — so an empty
+        # response advertised a pipeline we stopped using. The live source
+        # for HistoricalFinancial is IndianAPI's /stock endpoint via
+        # app.ingest.indianapi_ingester (Dhan supplies EOD prices only,
+        # not statements, so it is not named here).
         "source_note":     (
-            "Historical data from yfinance / XBRL ingestion. "
-            "Run bulk_ingester to populate."
+            "Historical data from IndianAPI ingestion. "
+            "Run app.ingest.indianapi_ingester to populate."
             if not years_available
             else f"{len(years_available)} fiscal year(s) available."
         ),

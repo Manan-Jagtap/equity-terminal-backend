@@ -200,11 +200,21 @@ def compute_totals(items: list[dict]) -> dict:
     received since the position was opened). MUTATES each item to set `weight`,
     `pnl`/`pnl_pct` (capital only) and `total_pnl`/`total_pnl_pct` (capital +
     dividends). weighted_mos is the value-weighted average over items with a
-    non-null MoS.
+    non-null MoS. Totals span PRICED items only — an unpriced holding is
+    surfaced via unpriced_count/unpriced_cost instead of skewing the P&L.
     """
-    total_value = sum(i["value"] for i in items if i.get("value") is not None)
-    total_cost = sum(i["cost"] for i in items if i.get("cost") is not None)
-    total_div = sum((i.get("div_income") or 0.0) for i in items)
+    # An unpriced holding (no stored price → value=None) used to count on the
+    # COST side of the totals but not the VALUE side, so the book reported a
+    # phantom loss equal to that holding's entire cost. Exclude it from BOTH
+    # sides — cost, value AND dividends, so pnl_pct/total_pnl_pct stay over the
+    # same priced base — and surface it via unpriced_count/unpriced_cost so the
+    # UI can say "not marked to market" rather than "you lost this much".
+    priced = [i for i in items if i.get("value") is not None]
+    unpriced_cost = sum(i["cost"] for i in items
+                        if i.get("value") is None and i.get("cost") is not None)
+    total_value = sum(i["value"] for i in priced)
+    total_cost = sum(i["cost"] for i in priced if i.get("cost") is not None)
+    total_div = sum((i.get("div_income") or 0.0) for i in priced)
     pnl = (total_value - total_cost) if items else 0.0
     pnl_pct = (pnl / total_cost) if total_cost else None
     total_pnl = pnl + total_div
@@ -226,6 +236,7 @@ def compute_totals(items: list[dict]) -> dict:
     return {"value": total_value, "cost": total_cost, "pnl": pnl,
             "pnl_pct": pnl_pct, "div_income": total_div,
             "total_pnl": total_pnl, "total_pnl_pct": total_pnl_pct,
+            "unpriced_count": len(items) - len(priced), "unpriced_cost": unpriced_cost,
             "weighted_mos": weighted_mos}
 
 
@@ -305,15 +316,21 @@ def benchmark_block(items: list[dict]) -> dict | None:
             "matched_cost": invested, "as_of": dates[-1]}
 
 
-def _dividend_income(qty: float, added_at, actions: list[dict] | None) -> float:
+def _dividend_income(qty: float, opened_on, actions: list[dict] | None) -> float:
     """Cash dividends received on this position: qty × Σ per-share dividends with
     ex-date on/after the position was opened, each scaled to the CURRENT per-share
     basis so it lines up with today's qty across any intervening split/bonus.
-    `added_at` is the only entry-date proxy the model stores (a v1 approximation:
-    a mid-window top-up is treated as held from the original add date)."""
+    `opened_on` is the stored buy_date when the user gave one, else added_at —
+    this docstring used to claim added_at was the only entry proxy the model
+    stores, which stopped being true when buy_date landed; accruing from row
+    creation credited an imported historical holding zero dividends before the
+    import date. (Still a v1 approximation: a mid-window top-up is treated as
+    held from the original entry date.)"""
     if not qty or not actions:
         return 0.0
-    since = added_at.date().isoformat() if added_at else ""
+    # Accepts date (the buy_date column) or datetime (the added_at fallback):
+    # [:10] trims the time part either way.
+    since = opened_on.isoformat()[:10] if opened_on else ""
     per_share = 0.0
     for a in actions:
         if a.get("action_type") != "dividend":
@@ -336,7 +353,12 @@ def _item(holding: models.PortfolioHolding, price, val: models.Valuation | None,
         "ticker": co.ticker, "name": co.name, "sector": co.sector,
         "qty": qty, "avg_cost": avg_cost,
         "price": price, "value": value, "cost": cost,
-        "div_income": _dividend_income(qty, holding.added_at, actions),
+        # Accrue dividends from the stored buy_date, not the row-creation
+        # timestamp: an imported historical holding was only credited dividends
+        # with ex-dates AFTER the import, silently under-stating div_income /
+        # total_pnl. added_at remains the honest fallback for rows the user
+        # never dated (same precedence as _term_fields).
+        "div_income": _dividend_income(qty, holding.buy_date or holding.added_at, actions),
         "pnl": None, "pnl_pct": None, "weight": None,   # filled by compute_totals
         "total_pnl": None, "total_pnl_pct": None,       # filled by compute_totals
         # DAT-13b/DAT-15: the stored row keeps the raw figure by design, so a

@@ -2,7 +2,20 @@
 app/bse/scrip_codes.py — NSE ticker → BSE numeric scrip code lookup.
 
 The hardcoded table covers the NBFCs and lenders Manan tracks. For tickers
-not in the table, falls back to BSE's search API.
+not in the table, get_scrip_code() falls back to BSE's quote-search endpoint.
+
+What that fallback actually does today (checked 16 Aug 2026): BSE answers
+getQouteSearchW.aspx with a 302 to error_Bse.html, r.json() raises on the
+HTML, and the lookup returns None after one WARNING — it resolves nothing for
+any ticker outside the table. Its downstream is closed too: the BSE
+announcements API has been anti-bot blocked since mid-Jul 2026 and the vendor
+revoked IndianAPI /documents on 24 Jul 2026, so a scrip code currently buys no
+live filings from anywhere. The fallback is kept (not deleted) for the offline
+tooling — scripts/backfill_nbfc_docs.py, scripts/test_bse_fetch.py,
+app/bse/fetcher.py — and for the day BSE answers again; the request-time
+caller, documents_routes._merge_live_bse, no longer reaches it (short-circuited
+by _LIVE_BSE_OVERLAY). Do not add a request-path caller: the fallback is an
+uncached 15 s-timeout HTTP round-trip in the calling thread.
 
 Verified scrip codes against bseindia.com as of May 2026. If BSE delists
 or renames anything, update here.
@@ -124,7 +137,10 @@ BSE_SCRIP_CODES: dict[str, str] = {
 def get_scrip_code(ticker: str) -> Optional[str]:
     """
     Resolve an NSE ticker to its BSE scrip code.
-    Looks up the hardcoded table first; falls back to BSE search.
+    Looks up the hardcoded table first; falls back to BSE search — a live,
+    uncached, 15 s-timeout HTTP call that currently (Aug 2026) always ends in
+    None because BSE redirects the search endpoint to an error page. Offline
+    tooling only; never call this from a request path (see module docstring).
     Returns None if not found.
     """
     t = ticker.upper().strip()
