@@ -13,6 +13,7 @@ governed on ~10-15% of real spend and could not protect the plan cutover on
 """
 from __future__ import annotations
 import threading
+from collections import deque
 
 _lock = threading.Lock()
 _pending = 0    # ticks not yet flushed to the durable tally
@@ -87,9 +88,25 @@ _fail = 0
 _last_ok = None      # monotonic-ish wall clock of the last SUCCESSFUL call
 _last_fail = None
 
+# FAILURE-RATE FLOOR. The since-boot totals above feed health's
+# "vendor_unreachable" rule (failures AND no success in 30 min). That rule is
+# deliberately conservative, and it has a hole: one lucky success every half
+# hour clears it, so a vendor answering 1 call in 20 reads as healthy for as
+# long as the luck holds. A ring of the last RING_N outcomes answers the other
+# question — "what fraction of RECENT calls failed" — independent of when the
+# last success happened. `record()` feeds both; `failing()` reads the ring.
+RING_N = 20
+FLOOR_MIN_CALLS = 10      # below this the ring is too thin to judge — stay "ok"
+FLOOR_FAIL_PCT = 0.80     # >= 80% of the last RING_N failed → degrade
+_ring = deque(maxlen=RING_N)
+
 
 def record(success: bool) -> None:
-    """Record a vendor call outcome. Cheap, thread-safe, never raises."""
+    """Record a vendor call outcome. Cheap, thread-safe, never raises.
+
+    Feeds BOTH the since-boot totals (outcomes()) and the recent-outcome ring
+    (recent()/failing()) — one call site, two views, so a caller can never keep
+    one signal honest and starve the other."""
     global _ok, _fail, _last_ok, _last_fail
     import time as _t
     with _lock:
@@ -99,6 +116,25 @@ def record(success: bool) -> None:
         else:
             _fail += 1
             _last_fail = _t.time()
+        _ring.append(bool(success))
+
+
+def recent() -> dict:
+    """{n, fail, fail_pct} over the last RING_N recorded outcomes. fail_pct is
+    None until anything is recorded (no evidence is not bad evidence)."""
+    with _lock:
+        n = len(_ring)
+        f = sum(1 for s in _ring if not s)
+    return {"n": n, "fail": f, "fail_pct": (None if n == 0 else f / n)}
+
+
+def failing(min_calls: int = FLOOR_MIN_CALLS, min_fail_pct: float = FLOOR_FAIL_PCT) -> bool:
+    """True when the recent ring holds >= min_calls outcomes and >= min_fail_pct
+    of them failed — even if the LAST call happened to succeed. Thin evidence
+    (fewer than min_calls) never trips it: a fresh container that has made three
+    calls, all failed, is the unreachable rule's job, not this one's."""
+    r = recent()
+    return r["n"] >= min_calls and r["fail_pct"] is not None and r["fail_pct"] >= min_fail_pct
 
 
 def outcomes() -> dict:
