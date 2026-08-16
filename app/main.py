@@ -35,26 +35,15 @@ run_boot_migrations()
 
 Base.metadata.create_all(bind=engine)
 
-# create_all never ALTERs existing tables — additive columns need a nudge.
-# Idempotent and dialect-tolerant: failures (column exists) are expected.
-def _additive_migrations():
-    from sqlalchemy import text
-    stmts = [
-        "ALTER TABLE portfolio_holdings ADD COLUMN buy_date DATE",
-        "ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0",  # SEC-01
-    ]
-    with engine.connect() as conn:
-        for stmt in stmts:
-            try:
-                conn.execute(text(stmt))
-                conn.commit()
-            except Exception:
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-
-_additive_migrations()
+# ARC-04: there used to be a THIRD schema mechanism here — `_additive_migrations()`,
+# two raw `ALTER TABLE … ADD COLUMN` statements (portfolio_holdings.buy_date,
+# users.token_version) swallowed by `except: pass`. It is gone: both columns now
+# come from the Alembic chain (alembic/versions/arc04_orphan_columns.py — an
+# idempotent guarded add, a no-op on prod where the raw ALTERs already ran).
+# create_all never ALTERs an existing table, so a column that lands in
+# app/models.py without a revision reaches NO existing database — fresh CI /
+# container schemas are built by `alembic upgrade head` alone. New column ⇒
+# `alembic revision -m "..."`, never a raw ALTER here.
 
 app = FastAPI(title="Equity Research Terminal API", version="2.0")
 

@@ -88,12 +88,16 @@ def test_erasure_semantics_anonymise_usage_delete_feedback():
     db.close()
 
 
-def test_alembic_head_is_inst0102():
+def test_alembic_chain_has_inst0102():
+    # inst0102tel must sit in a SINGLE-head chain (guards a bad merge). The
+    # exact head moves with each new migration — the current-head assertion
+    # lives in the newest migration's test (test_arc04_orphan_columns.py).
     import os
     from alembic.config import Config
     from alembic.script import ScriptDirectory
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cfg = Config(os.path.join(root, "alembic.ini"))
     cfg.set_main_option("script_location", os.path.join(root, "alembic"))
-    heads = list(ScriptDirectory.from_config(cfg).get_heads())
-    assert heads == ["inst0102tel"], heads
+    script = ScriptDirectory.from_config(cfg)
+    assert len(list(script.get_heads())) == 1
+    assert script.get_revision("inst0102tel") is not None
