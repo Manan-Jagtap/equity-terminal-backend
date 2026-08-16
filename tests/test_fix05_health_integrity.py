@@ -4,12 +4,33 @@ The uptime workflow has no admin token, so the weekly integrity sweep (red/amber
 green, stored in KVStore) was invisible to alerting. Health now surfaces a bare
 `integrity` status the token-less uptime.yml can page on. The scheduler_beat_min
 and price_age_days threshold alerts live in .github/workflows/uptime.yml (shell,
-exercised there); here we lock the health CONTRACT those alerts read."""
+exercised there); here we lock the health CONTRACT those alerts read.
+
+These tests assert status == "ok", which makes them hostage to app.vendor_meter
+— a MODULE GLOBAL shared by the whole pytest process. Any earlier test file that
+drives a failing vendor call (test_data12b_offplan_envelope, the vendor-meter
+suites) leaves a recent failure with no success after it, and health then
+degrades to "vendor_unreachable" — correctly. The file passed alone and failed
+in the suite, which is the same non-hermetic shape that got the first
+unmeasured-signals attempt reverted (see test_health_surfaces_vendor_failure's
+docstring). Fixed on the VICTIM's side with the autouse reset below: prod
+behaviour is not weakened, and this file no longer depends on collection
+order."""
+import importlib
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 os.environ["DATABASE_URL"] = "sqlite:////tmp/_pytest_fix05.db"
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _clean_vendor_meter():
+    """Zero the process-wide vendor meter before every test in this file, so a
+    prior file's failed call cannot make health degrade here."""
+    from app import vendor_meter
+    importlib.reload(vendor_meter)
+    yield
 
 from app.database import Base, engine, SessionLocal
 from app import models

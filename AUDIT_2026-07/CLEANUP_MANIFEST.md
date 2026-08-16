@@ -15,7 +15,7 @@ Endpoint-orphan and stale-doc items from the Code lane (Agent 4) will be merged 
 ### [CLN-02] No `.dockerignore` — dev clutter ships in the production image
 - **Severity:** S2 (surface + bloat)  **Effort:** XS  **Priority:** P2  **Status:** New
 - **Location:** backend repo root (missing `.dockerignore`); `deploy/aws/Dockerfile:23 COPY app ./app`
-- **Evidence:** No `.dockerignore` exists, so `COPY app ./app` copies **~24 `.bak` files + 10 `probe_*.py` scripts + `app/onepager/legacy.py`** into the running container. (Root `*.db` files are NOT copied — Dockerfile only takes `app/`, `alembic/`, `scheduler.py`, `requirements.txt`.)
+- **Evidence:** No `.dockerignore` exists, so `COPY app ./app` copies **~24 `.bak` files + 10 `probe_*.py` scripts + `app/onepager/legacy.py`** into the running container. (Root `*.db` files are NOT copied — Dockerfile only takes `app/`, `alembic/`, `scheduler.py`, `requirements.txt`.) **Correction 16 Aug 2026 (see CLN-06): `app/onepager/legacy.py` is NOT clutter — it is the live ReportLab one-pager renderer re-exported by `app/onepager/__init__.py`. Keep it OUT of `.dockerignore`; excluding it boot-fails the image on `main.py`'s module-level import while every local run still passes.**
 - **Fix:** Add `.dockerignore` excluding `**/*.bak*`, `**/probe_*.py`, `*.db`, `__pycache__/`, `tests/`, `*.md`, `venv*/`. Rebuild → smaller image, narrower surface.
 - **Verification:** `docker run … ls app/onepager/*.bak` returns nothing.
 
@@ -41,10 +41,11 @@ Endpoint-orphan and stale-doc items from the Code lane (Agent 4) will be merged 
 ## Needs a check before deleting (confirm with owner / Code lane)
 
 ### [CLN-06] `app/onepager/legacy.py` — likely superseded renderer
-- **Severity:** S3  **Effort:** S  **Priority:** P3  **Status:** New — CONFIRM
+- **Severity:** S3  **Effort:** S  **Priority:** P3  **Status:** WITHDRAWN 16 Aug 2026 — **DO NOT DELETE.** Pre-check run; it inverts this entry.
 - **Location:** `app/onepager/legacy.py`
-- **Evidence:** `app/onepager/` is LIVE (`main.py:112 from app.onepager import build_onepager`); the PDF was rebuilt (render.py/render_css.py current). `legacy.py` name implies the old renderer. Not yet confirmed unreferenced.
-- **Pre-check:** `grep -rn "onepager.legacy\|from app.onepager.legacy\|import legacy" app` must be empty. If empty → delete. **Blast radius: PDF export if wrongly removed** — verify a one-pager still renders after removal.
+- **Original evidence (WRONG — kept for the record):** `app/onepager/` is LIVE (`main.py:112 from app.onepager import build_onepager`); the PDF was rebuilt (render.py/render_css.py current). `legacy.py` name implies the old renderer. Not yet confirmed unreferenced.
+- **Pre-check result (16 Aug 2026):** the grep pattern missed a re-export. `app/onepager/__init__.py` is `from .legacy import build_onepager`, so `main.py`'s live import IS the reference the grep was hunting for — `legacy.py` is the **only** renderer `POST /api/companies/{ticker}/onepager` has ever used, and deleting it 500s that route for every ticker. The "rebuilt" renderer is the dead one: `render.py`/`render_css.py`/`peers.py` lost their only entry point when the AI-free strip (5e9ea2e, 16 Jul 2026) deleted `app/onepager/extract.py`, and they need jinja2 + weasyprint, neither ever in `requirements.txt`.
+- **Real action (needs owner sign-off, not a cleanup):** the deletion candidate is the weasyprint stage — `render.py`, `render_css.py`, `peers.py`, `brand.py` (zero importers), `fonts/` (212 KB), `scripts/generate_onepager.py`. Nothing outside that set references them. **Blast radius of removing THAT set: zero** (the script is already dead at import and is not even copied into the image).
 
 ### [CLN-07] `yfinance` — one live path only; evaluate removal
 - **Severity:** S3  **Effort:** M  **Priority:** P3  **Status:** New — CONFIRM (cross-lane: Data/Perf)

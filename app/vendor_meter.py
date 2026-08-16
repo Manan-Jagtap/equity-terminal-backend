@@ -88,10 +88,10 @@ _fail = 0
 _last_ok = None      # monotonic-ish wall clock of the last SUCCESSFUL call
 _last_fail = None
 
-# FAILURE-RATE FLOOR. The since-boot totals above feed health's
-# "vendor_unreachable" rule (failures AND no success in 30 min). That rule is
-# deliberately conservative, and it has a hole: one lucky success every half
-# hour clears it, so a vendor answering 1 call in 20 reads as healthy for as
+# FAILURE-RATE FLOOR. The stamps above feed health's "vendor_unreachable" rule
+# (unreachable(): a failure inside the last 30 min with no success after it).
+# That rule is deliberately conservative, and it has a hole: any success after
+# the last failure clears it, so a vendor answering 1 call in 20 reads ok for as
 # long as the luck holds. A ring of the last RING_N outcomes answers the other
 # question — "what fraction of RECENT calls failed" — independent of when the
 # last success happened. `record()` feeds both; `failing()` reads the ring.
@@ -184,6 +184,38 @@ def failing(min_calls: int = FLOOR_MIN_CALLS, min_fail_pct: float = FLOOR_FAIL_P
     calls, all failed, is the unreachable rule's job, not this one's."""
     r = recent()
     return r["n"] >= min_calls and r["fail_pct"] is not None and r["fail_pct"] >= min_fail_pct
+
+
+# LIVE-OUTAGE WINDOW. health's "vendor_unreachable" rule used to read
+# `fail > 0 AND last_ok_min >= 30` over the since-boot totals. `fail` never
+# decays, so the FIRST transient failure of a container's life armed it for the
+# life of the process, and all that was left of the rule was "no successful
+# vendor call in the last 30 minutes". Nothing keeps the web process warm — it
+# calls the vendor only when a user hits a market route, and uptime.yml probes
+# /api/health, which makes no vendor call — so a quiet Indian night with no
+# users satisfied the rule and emailed the owner about a healthy system.
+# Absence of traffic is not an outage. Keyed on the last FAILURE, silence stays
+# silent (no calls, no fresh failure) while a vendor that is genuinely down
+# keeps producing fresh failures for as long as anything calls it.
+UNREACHABLE_MIN = 30      # a failure older than this is history, not an outage
+
+
+def unreachable(window_min: int = UNREACHABLE_MIN) -> bool:
+    """True when this container is failing RIGHT NOW: a failure recorded in the
+    last `window_min` minutes with NO success recorded after it.
+
+    Both halves carry weight. Drop the freshness half and one old failure plus a
+    quiet night reads as an outage (above); drop "no success since" and the rule
+    says nothing about whether upstream is answering. It compares the RAW stamps
+    rather than outcomes()' rounded minute ages: a success and a failure seconds
+    apart round to the same age, and their ORDER is the whole question."""
+    import time as _t
+    now = _t.time()
+    with _lock:
+        last_fail, last_ok = _last_fail, _last_ok
+    if last_fail is None or (now - last_fail) >= window_min * 60:
+        return False                      # nothing has failed recently
+    return last_ok is None or last_ok < last_fail
 
 
 def outcomes() -> dict:

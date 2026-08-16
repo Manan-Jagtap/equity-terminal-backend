@@ -327,6 +327,13 @@ def test_ingester_get_safe_records(monkeypatch):
     vm = _fresh()
     from app.ingest import indianapi_ingester as ing
     monkeypatch.setattr(ing, "KEY", "realkey")
+    # /historical_stats and /documents are short-circuited off-plan (DATA-12), so
+    # they make no call and record no outcome. This test's subject is the
+    # METERING of a call that IS made — force them on so those transport paths
+    # stay covered. The short-circuit itself is tested in
+    # test_data12b_offplan_envelope.py.
+    monkeypatch.setattr(ing, "_HISTORICAL_STATS_ON_PLAN", True)
+    monkeypatch.setattr(ing, "_DOCUMENTS_ON_PLAN", True)
 
     monkeypatch.setattr(ing.requests, "get", lambda *a, **k: _R(200, {"ROCE %": {"Mar 2025": 20}}))
     assert ing._get_safe("/historical_stats", {"stock_name": "TCS", "stats": "ratios"})
@@ -341,7 +348,9 @@ def test_ingester_get_safe_records(monkeypatch):
     assert vm.outcomes()["fail"] == 2
 
     monkeypatch.setattr(ing.requests, "get", lambda *a, **k: _R(200, {"info": "Not a valid script_code"}))
-    ing._get_safe("/historical_stats", {"stock_name": "TCS", "stats": "ratios"})
+    # The health verdict and the caller's verdict diverge ON PURPOSE here.
+    assert ing._get_safe("/historical_stats", {"stock_name": "TCS", "stats": "ratios"}) is None, \
+        "an error envelope is NO DATA to the caller — returning it overwrote stored ratios (DATA-12)"
     assert vm.outcomes()["ok"] == 2, "an off-plan 200 is upstream answering"
 
     monkeypatch.setattr(ing.requests, "get", lambda *a, **k: _R(200, []))
@@ -357,16 +366,24 @@ def test_ingester_get_safe_records(monkeypatch):
 
 # ── deliberately NOT recorded ────────────────────────────────────────────────
 
-def test_news_red_flags_dead_endpoint_does_not_poison_the_ring(monkeypatch):
+def test_news_red_flags_makes_no_call_at_all(monkeypatch):
     """/company_news does not exist on the production host (news_routes,
-    12 Jul 2026). Its inevitable non-200 is spend, not evidence: recording it
-    would read as a failing vendor on every evidence rebuild in the web process."""
+    12 Jul 2026). It was called every evidence build anyway — up to 60
+    guaranteed-404 requests per run, spend with no possible evidence in it. The
+    leg is short-circuited now, so there is no tick to count and no outcome to
+    record, and the screen still answers [] exactly as the 404 made it."""
     vm = _fresh()
     from app import manager_engine as ME
     monkeypatch.setenv("INDIANAPI_KEY", "k")
-    monkeypatch.setattr("requests.get", lambda *a, **k: _R(404, None))
+    calls = []
+
+    def _spy(*a, **k):
+        calls.append(a)
+        return _R(404, None)
+    monkeypatch.setattr("requests.get", _spy)
     assert ME.news_red_flags("TCS") == []
-    assert vm.pending() == 1, "spend is still counted"
+    assert calls == [], f"the dead endpoint must not be called — got {calls}"
+    assert vm.pending() == 0, "a call that is never made costs no quota"
     assert vm.outcomes() == {"ok": 0, "fail": 0, "last_ok_min": None, "last_fail_min": None}
 
 
