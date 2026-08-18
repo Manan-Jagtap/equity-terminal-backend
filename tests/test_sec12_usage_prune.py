@@ -34,4 +34,11 @@ def test_scheduler_registers_daily_usage_prune():
     path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "scheduler.py")
     src = open(path, encoding="utf-8").read()
     assert "def run_usage_prune" in src
-    assert 'schedule.every().day.at("03:15").do(run_usage_prune)' in src
+    # The registration is now wrapped: `.do(_tracked(run_usage_prune))`. _tracked
+    # stamps a COMPLETED run into app/job_runs.py, which is how a slot that went
+    # by unserved becomes visible at all — `schedule` has no memory across
+    # processes, so a container recreated after 03:15 silently drops that day's
+    # prune and nothing would otherwise record it. Assert the slot and the job
+    # separately so this guard survives the next wrapper without going quiet.
+    assert 'schedule.every().day.at("03:15")' in src
+    assert 'do(_tracked(run_usage_prune))' in src

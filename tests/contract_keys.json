@@ -12,7 +12,9 @@
     "integrity_age_days",
     "vendor_ok",
     "vendor_fail",
-    "vendor_last_ok_min"
+    "vendor_last_ok_min",
+    "jobs_overdue",
+    "jobs_overdue_stuck"
   ],
   "/api/factors/backtest": [
     "tracking_since",

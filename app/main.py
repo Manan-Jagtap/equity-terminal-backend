@@ -490,6 +490,27 @@ def health(db: Session = Depends(get_db)):
     # `vendor_ok`/`vendor_fail` are this container's call outcomes since boot,
     # and `vendor_last_ok_min` is the age of the last SUCCESSFUL call — the field
     # that actually distinguishes the two cases.
+    # MISSED SCHEDULED JOBS. `schedule` recomputes next_run from process start,
+    # so a container recreated after a job's slot silently drops that day's run —
+    # how the 14 Aug EOD session was lost and went unnoticed for three days.
+    # app/job_runs.py records each run; a job past its slot with no record is
+    # overdue. Published rather than merely logged so uptime.yml can alert, and
+    # the STUCK ones named separately: a job the catch-up will replay is a
+    # transient, whereas run_full and the results calendar are never replayed
+    # (both quota-heavy, both refused during the current vendor 429) and need a
+    # human decision. Naming replayable jobs here would train the reader to
+    # ignore the field.
+    jobs_overdue = None
+    jobs_overdue_stuck = None
+    try:
+        from app import job_runs
+        _od = job_runs.overdue(db)
+        jobs_overdue = len(_od)
+        _stuck = sorted(r["job"] for r in _od if r["policy"] == "never_catch_up")
+        jobs_overdue_stuck = ",".join(_stuck) if _stuck else None
+    except Exception as exc:
+        log.warning("health: job-run ledger unreadable — %s", exc)
+
     vendor = {}
     reasons = []
     try:
@@ -532,6 +553,7 @@ def health(db: Session = Depends(get_db)):
             "errors_1h": errs, "error_hours_24h": ehrs,
             "scheduler_beat_min": beat_min, "price_age_days": price_age_days,
             "eod_names": eod_names, "eod_names_prior": eod_names_prior,
+            "jobs_overdue": jobs_overdue, "jobs_overdue_stuck": jobs_overdue_stuck,
             "integrity": integrity, "integrity_age_days": integrity_age_days,
             **vendor}
 
