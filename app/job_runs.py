@@ -158,6 +158,35 @@ def last_due_slot(name: str, now: dt.datetime | None = None) -> dt.datetime | No
     return None
 
 
+def ensure_ledger(db, now: dt.datetime | None = None) -> None:
+    """Start the clock at scheduler BOOT, not at the first successful run.
+
+    `_since` is what stops a freshly provisioned box reporting fifteen phantom
+    misses, but writing it only from record_run() left a hole with the same
+    shape as the bug this module exists to fix: a scheduler broken badly enough
+    that NO job ever completes would never create the ledger, overdue() would
+    skip every job on the `since is None` guard, and jobs_overdue would read a
+    reassuring 0 for ever. A gate that cannot fire is worse than no gate,
+    because it is believed.
+
+    Called once from the scheduler's boot path, before the loop. Idempotent:
+    the stamp is only written when the row is absent, so a restart does not
+    reset the window and forgive real misses."""
+    try:
+        row = db.query(models.KVStore).filter_by(key=KEY).first()
+        if row is None:
+            db.add(models.KVStore(key=KEY, value={
+                "_since": _now(now).isoformat(timespec="seconds")}))
+            db.commit()
+        elif not (row.value or {}).get("_since"):
+            state = dict(row.value or {})
+            state["_since"] = _now(now).isoformat(timespec="seconds")
+            row.value = state
+            db.commit()
+    except Exception:
+        db.rollback()
+
+
 def record_run(db, name: str, now: dt.datetime | None = None) -> None:
     """Stamp a completed run. Called by the wrapper in scheduler.py for EVERY
     job, including never_catch_up ones — recording the miss is what makes it

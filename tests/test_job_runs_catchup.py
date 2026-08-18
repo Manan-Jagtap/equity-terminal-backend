@@ -134,3 +134,24 @@ def test_weekday_only_jobs_do_not_come_due_at_the_weekend():
     sat = _at(2026, 8, 15, 23, 0)
     slot = jr.last_due_slot("run_manager_evidence", now=sat)
     assert slot is not None and slot.weekday() < 5
+
+
+def test_ledger_arms_at_boot_so_the_gate_can_fire(db):
+    """Without an armed ledger, overdue() skips every job on the `since is None`
+    guard and jobs_overdue reads 0 for ever — a gate that cannot fire. Arming at
+    boot means a slot passing AFTER the scheduler started is measurable even if
+    no job has ever completed."""
+    assert jr.overdue(db) == []                      # unarmed: nothing measurable
+    jr.ensure_ledger(db, now=_at(2026, 8, 18, 1, 0))
+    # 02:00 daily slot passes with nothing recorded -> now genuinely overdue
+    out = {r["job"] for r in jr.overdue(db, now=_at(2026, 8, 18, 12, 0))}
+    assert "run_regulatory_refresh" in out
+
+
+def test_arming_is_idempotent_and_does_not_forgive_real_misses(db):
+    """A restart must not slide the window forward and erase misses that
+    happened before it."""
+    jr.ensure_ledger(db, now=_at(2026, 8, 18, 1, 0))
+    jr.ensure_ledger(db, now=_at(2026, 8, 19, 1, 0))   # later boot
+    since = jr._state(db).get("_since")
+    assert since.startswith("2026-08-18"), "the original start must survive"

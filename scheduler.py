@@ -1203,6 +1203,19 @@ else:
     # (14 Aug 2026). It skips its own recompute when the boot recompute below is
     # going to run anyway, and does it itself when COMPUTE_ON_BOOT is off.
     run_eod_selfheal(recompute=not _compute_on_boot)
+    # Arm the missed-run ledger before the first pass. Without this the ledger
+    # is only created by a COMPLETED run, so a scheduler that never manages one
+    # would leave jobs_overdue reading 0 for ever — the gate could not fire.
+    try:
+        from app.database import SessionLocal as _SL
+        from app import job_runs as _jr
+        _s0 = _SL()
+        try:
+            _jr.ensure_ledger(_s0)
+        finally:
+            _s0.close()
+    except Exception as _e:
+        log.error(f"job ledger arm failed: {_e}")
     # One catch-up pass at boot, before the loop: a deploy is the single most
     # common cause of a missed slot, so the moment right after one is exactly
     # when a job is most likely overdue.
