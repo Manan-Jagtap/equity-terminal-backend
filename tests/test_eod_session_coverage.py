@@ -374,3 +374,22 @@ def test_a_productive_run_is_not_recorded_as_a_non_session(db):
     ec.record_result(db, "2026-08-19", 992)
     state = db.query(models.KVStore).filter_by(key=ec.KEY).first().value
     assert "2026-08-19" not in (state.get("no_session") or [])
+
+
+def test_grader_infers_a_non_session_from_live_state_not_only_memory(db):
+    """The gap the first version left. A date that exhausted its attempts BEFORE
+    the remembering code shipped never gets another record_result() call —
+    pending_session() skips it as exhausted — so no_session stays empty for
+    precisely the date blocking the grader. Reading attempts/last_rows_added
+    directly makes the fix work on state that already exists."""
+    from app import models, eod_coverage as ec
+    for i in range(1, 1014):
+        _price(db, i, "2026-08-14")
+    for i in range(1, 22):
+        _price(db, i, "2026-08-17")
+    # exactly what prod held: exhausted, zero rows, and NO no_session list
+    db.add(models.KVStore(key=ec.KEY, value={
+        "target": "2026-08-17", "attempts": ec.MAX_ATTEMPTS, "last_rows_added": 0}))
+    db.commit()
+    out = ec.session_coverage(db, now=_at("2026-08-18", 4))
+    assert out["date"] == "2026-08-14" and out["names"] == 1013
