@@ -129,3 +129,24 @@ def test_refresh_leaves_stored_ratios_and_growth_untouched(db, monkeypatch):
         "stored ratios were overwritten by the vendor's error envelope"
     assert got["growth"] == _STORED["growth"], \
         "stored growth was overwritten by the vendor's error envelope"
+
+
+def test_historical_financial_source_has_no_misleading_default():
+    """The column advertised `default="yfinance"` — a source this codebase
+    stopped using in the 2026-06 migration and which is no longer even a
+    dependency. It could never fire (the sole writer always passes source), so
+    it was pure misinformation in the schema. An unset source must be NULL, not
+    a confident wrong attribution."""
+    from app import models
+    col = models.HistoricalFinancial.__table__.c.source
+    assert col.default is None, "an unset source must be NULL, not attributed"
+    assert col.server_default is None, "no DB-level default either"
+
+
+def test_the_only_writer_still_states_its_source():
+    """Removing the default is only safe while the writer is explicit. If that
+    ever regresses, rows go NULL and this test is the warning."""
+    import inspect
+    from app.ingest import indianapi_ingester as ing
+    src = inspect.getsource(ing._upsert_hist)
+    assert 'source="indianapi"' in src
