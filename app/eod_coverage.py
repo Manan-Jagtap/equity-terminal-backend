@@ -81,6 +81,10 @@ LEASE_MIN = 30
 # in a genuine vendor outage — the next daily run_dhan_topup() asks for a
 # 30-DAY window and refills the gap.
 MAX_ATTEMPTS = 3
+# How many proven-empty dates the grader remembers. Only ever consulted to SKIP
+# a date, so a short memory degrades to today's behaviour (a stale holiday
+# alert) rather than to a wrong count.
+NO_SESSION_MEMORY = 30
 
 
 def _now(now: dt.datetime | None = None) -> dt.datetime:
@@ -141,8 +145,16 @@ def session_coverage(db, now: dt.datetime | None = None) -> dict:
         # Today's session may still be half-written — grade the last one that
         # can no longer change. Dates are ISO strings, so `<` is chronological.
         q = q.filter(models.HistoricalPrice.date < now.date().isoformat())
-    rows = (q.group_by(models.HistoricalPrice.date)
-             .order_by(models.HistoricalPrice.date.desc()).limit(2).all())
+    # Skip dates the exchange never opened — see record_result(). Fetched a few
+    # extra rows because a long weekend can stack more than one.
+    try:
+        st = db.query(models.KVStore).filter_by(key=KEY).first()
+        skip = set((st.value or {}).get("no_session") or []) if st else set()
+    except Exception:
+        skip = set()
+    rows = [r for r in (q.group_by(models.HistoricalPrice.date)
+                         .order_by(models.HistoricalPrice.date.desc()).limit(8).all())
+            if str(r[0])[:10] not in skip][:2]
     if not rows:
         return empty
     out = dict(empty)
@@ -237,6 +249,19 @@ def record_result(db, target: str, rows_added: int,
     state.update(target=target,
                  last_run_at=now.isoformat(timespec="seconds"),
                  last_rows_added=int(rows_added))
+    # A date the vendor has now refused MAX_ATTEMPTS times, adding nothing, is a
+    # session the exchange never held. Remember it: session_coverage() must not
+    # GRADE such a date, and until now it did — 17 Aug 2026 was a holiday, the
+    # only rows carrying it were 21 new listings from the history self-heal, and
+    # the gate read that as a 2%-covered session and would have alerted.
+    #
+    # Learned from Dhan's own answers rather than a holiday CALENDAR, which
+    # would be a list to maintain and would have been wrong here anyway. Capped:
+    # this is a rolling memory for the grader, not an exchange almanac.
+    if int(rows_added) == 0 and int(state.get("attempts") or 0) >= MAX_ATTEMPTS:
+        empty = [d for d in (state.get("no_session") or []) if d != target]
+        empty.append(target)
+        state["no_session"] = sorted(empty)[-NO_SESSION_MEMORY:]
     row.value = state
     flag_modified(row, "value")
     db.commit()

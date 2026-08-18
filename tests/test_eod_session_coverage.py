@@ -316,3 +316,61 @@ def test_the_alert_and_the_repair_share_one_threshold():
     body = open(wf).read()
     assert ".eod_names" in body and ".eod_names_prior" in body
     assert f"* {E.MIN_COVERAGE_PCT})" in body
+
+
+# ── holidays are learned from the vendor, never from a calendar ──────────────
+
+def _price(db, ticker_id, date, close=100.0):
+    from app import models
+    db.add(models.HistoricalPrice(company_id=ticker_id, date=date, close=close, volume=1))
+
+
+def test_grader_skips_a_date_the_vendor_proved_empty(db):
+    """17 Aug 2026 was a market holiday. The only rows carrying that date were
+    21 new listings seeded by the history self-heal, so the gate graded a 2%
+    'session' and would have alerted — the same 21 rows that made a DEAD job
+    look alive on 14 Aug now made a holiday look like a failure.
+
+    The self-heal already had the evidence: 3 attempts, 0 rows added. The grader
+    now reads it instead of trusting weekday arithmetic."""
+    from app import models, eod_coverage as ec
+    for i in range(1, 1014):
+        _price(db, i, "2026-08-14")
+    for i in range(1, 22):                      # the self-heal's new listings
+        _price(db, i, "2026-08-17")
+    db.commit()
+
+    # Without the memory the grader picks the holiday and reports 21/1013.
+    naive = ec.session_coverage(db, now=_at("2026-08-18", 4))
+    assert naive["date"] == "2026-08-17" and naive["names"] == 21
+
+    db.add(models.KVStore(key=ec.KEY, value={
+        "target": "2026-08-17", "attempts": ec.MAX_ATTEMPTS,
+        "last_rows_added": 0, "no_session": ["2026-08-17"]}))
+    db.commit()
+
+    out = ec.session_coverage(db, now=_at("2026-08-18", 4))
+    assert out["date"] == "2026-08-14", "a day the exchange never opened is not a session"
+    assert out["names"] == 1013
+
+
+def test_exhausted_attempts_with_zero_rows_records_the_non_session(db):
+    """The learning step: three refusals adding nothing IS the holiday signal."""
+    from app import models, eod_coverage as ec
+    db.add(models.KVStore(key=ec.KEY, value={"target": "2026-08-17",
+                                             "attempts": ec.MAX_ATTEMPTS}))
+    db.commit()
+    ec.record_result(db, "2026-08-17", 0)
+    state = db.query(models.KVStore).filter_by(key=ec.KEY).first().value
+    assert "2026-08-17" in (state.get("no_session") or [])
+
+
+def test_a_productive_run_is_not_recorded_as_a_non_session(db):
+    """Rows came back, so the exchange was open — never blacklist that date."""
+    from app import models, eod_coverage as ec
+    db.add(models.KVStore(key=ec.KEY, value={"target": "2026-08-19",
+                                             "attempts": ec.MAX_ATTEMPTS}))
+    db.commit()
+    ec.record_result(db, "2026-08-19", 992)
+    state = db.query(models.KVStore).filter_by(key=ec.KEY).first().value
+    assert "2026-08-19" not in (state.get("no_session") or [])
