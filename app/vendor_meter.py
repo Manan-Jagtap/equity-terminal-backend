@@ -87,6 +87,15 @@ _ok = 0
 _fail = 0
 _last_ok = None      # monotonic-ish wall clock of the last SUCCESSFUL call
 _last_fail = None
+# ORDER, kept separately from TIME. time.time() has finite resolution, so a
+# success and a failure recorded microseconds apart can carry the IDENTICAL
+# stamp — precisely the case unreachable() exists to resolve. Comparing stamps
+# made the answer depend on how fast the machine was, which showed up as a
+# 1-in-5 flake in the suite. A counter that only ever increases answers "which
+# came last" exactly, on any machine, for free.
+_seq = 0
+_ok_seq = 0
+_fail_seq = 0
 
 # FAILURE-RATE FLOOR. The stamps above feed health's "vendor_unreachable" rule
 # (unreachable(): a failure inside the last 30 min with no success after it).
@@ -107,15 +116,18 @@ def record(success: bool) -> None:
     Feeds BOTH the since-boot totals (outcomes()) and the recent-outcome ring
     (recent()/failing()) — one call site, two views, so a caller can never keep
     one signal honest and starve the other."""
-    global _ok, _fail, _last_ok, _last_fail
+    global _ok, _fail, _last_ok, _last_fail, _seq, _ok_seq, _fail_seq
     import time as _t
     with _lock:
+        _seq += 1
         if success:
             _ok += 1
             _last_ok = _t.time()
+            _ok_seq = _seq
         else:
             _fail += 1
             _last_fail = _t.time()
+            _fail_seq = _seq
         _ring.append(bool(success))
 
 
@@ -215,7 +227,7 @@ def unreachable(window_min: int = UNREACHABLE_MIN) -> bool:
         last_fail, last_ok = _last_fail, _last_ok
     if last_fail is None or (now - last_fail) >= window_min * 60:
         return False                      # nothing has failed recently
-    return last_ok is None or last_ok < last_fail
+    return last_ok is None or _ok_seq < _fail_seq
 
 
 def outcomes() -> dict:

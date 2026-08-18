@@ -38,6 +38,41 @@ from app.ingest.compute_valuations import run as compute_valuations, refresh_mos
 from app.ingest.reclassify import run as reclassify
 
 
+def _tracked(fn):
+    """Wrap a scheduled job so a COMPLETED run is stamped in app/job_runs.py.
+
+    `schedule` has no memory across processes, so the only way to know a slot
+    went by unserved is to record the runs that DID happen. Applied at
+    REGISTRATION rather than inside each job body: fifteen call sites is fifteen
+    chances to forget one, and a job that silently stops recording looks
+    permanently overdue — an alert that cries wolf is worse than no alert.
+
+    The stamp is best-effort and always AFTER the job: bookkeeping must never be
+    the reason a real job fails, and a job that raised did not run, so recording
+    it would be a lie."""
+    name = getattr(fn, "__name__", None)
+
+    def _wrapped(*a, **k):
+        out = fn(*a, **k)
+        if name:
+            try:
+                from app.database import SessionLocal
+                from app import job_runs
+                if name in job_runs.JOBS:
+                    _s = SessionLocal()
+                    try:
+                        job_runs.record_run(_s, name)
+                    finally:
+                        _s.close()
+            except Exception:
+                pass
+        return out
+
+    _wrapped.__name__ = name or "job"
+    return _wrapped
+
+
+
 def snapshot_verdicts():
     """Append today's (verdict, price) row per company to the track-record
     ledger. Pure local write — no API calls. Idempotent per (company, date)."""
@@ -456,18 +491,18 @@ def run_manager_calibration():
 
 # Daily EOD price refresh — 3:45pm IST = 10:15 UTC, Mon-Fri
 for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
-    getattr(schedule.every(), _day).at("10:15").do(run_prices)
+    getattr(schedule.every(), _day).at("10:15").do(_tracked(run_prices))
 
 # FM v4 evidence — nightly after the EOD refresh settles (4:45pm IST = 11:15 UTC)
 for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
-    getattr(schedule.every(), _day).at("11:15").do(run_manager_evidence)
+    getattr(schedule.every(), _day).at("11:15").do(_tracked(run_manager_evidence))
 
 # FM v4 calibration — monthly, first Saturday 02:30 IST (= Fri 21:00 UTC)
 def _monthly_manager_calibration():
     import datetime as _dt
     if _dt.date.today().day <= 7:
         run_manager_calibration()
-schedule.every().friday.at("21:00").do(_monthly_manager_calibration)
+schedule.every().friday.at("21:00").do(_tracked(_monthly_manager_calibration))
 
 
 def run_missing_history_backfill():
@@ -506,7 +541,7 @@ def run_missing_history_backfill():
 
 # Self-heal check daily, after the EOD top-up settles (4:15pm IST = 10:45 UTC)
 for _day in ("monday", "tuesday", "wednesday", "thursday", "friday"):
-    getattr(schedule.every(), _day).at("10:45").do(run_missing_history_backfill)
+    getattr(schedule.every(), _day).at("10:45").do(_tracked(run_missing_history_backfill))
 
 
 def run_eod_selfheal(recompute: bool = True):
@@ -577,6 +612,72 @@ def run_eod_selfheal(recompute: bool = True):
 schedule.every(30).minutes.do(run_eod_selfheal)
 
 
+def run_missed_job_catchup():
+    """Replay scheduled jobs whose slot went by unserved.
+
+    run_eod_selfheal above repairs ONE job by asking the data whether it ran.
+    The other fourteen leave no such trace — a regulatory refresh that never
+    fired looks exactly like one that fired and found nothing — so app/job_runs.py
+    records each run and this pass acts on what is missing.
+
+    Three deliberate brakes, each for a failure this could otherwise cause:
+      * MAX_PER_PASS — after a long outage many jobs are overdue at once, and
+        starting them together on a 2 GB single-worker box is worse than the
+        misses. The backlog drains over successive passes instead.
+      * claim() — a cutover can briefly run two schedulers; without a lease both
+        would start the same job.
+      * is_catchable() — policy, plus the one job-shaped exception
+        (run_encrypted_backup only inside its own UTC day, because a next-day
+        replay writes tomorrow's backup and recovers nothing).
+
+    never_catch_up jobs are NOT replayed here; they are still recorded, and
+    /api/health publishes them as overdue so a miss stops being silent. That is
+    the whole point — replaying run_full during a vendor 429 would spend quota
+    the owner does not have on data the vendor will not return."""
+    from app.database import SessionLocal
+    from app import job_runs
+    s_ = SessionLocal()
+    try:
+        pending = job_runs.overdue(s_)
+        if not pending:
+            return
+        catchable = [r for r in pending if job_runs.is_catchable(r)]
+        skipped = [r["job"] for r in pending if r not in catchable]
+        if skipped:
+            log.warning(f"missed jobs NOT replayed (policy): {', '.join(skipped)}")
+        started = 0
+        for rec in catchable:
+            if started >= job_runs.MAX_PER_PASS:
+                log.info(f"catch-up cap {job_runs.MAX_PER_PASS} reached — "
+                         f"{len(catchable) - started} still queued for the next pass")
+                break
+            fn = globals().get(rec["job"])
+            if not callable(fn):
+                continue
+            if not job_runs.claim(s_, rec["job"]):
+                continue                       # another instance has it
+            log.info(f"catch-up: {rec['job']} missed its {rec['due_at']} slot "
+                     f"({rec['missed_min']} min ago) — running now")
+            try:
+                fn()
+            except Exception as e:             # a failing catch-up must not kill
+                log.error(f"catch-up {rec['job']} failed: {e}")   # the pass
+                record_job_error(e)
+            else:
+                job_runs.record_run(s_, rec["job"])
+            started += 1
+    except Exception as e:
+        log.error(f"missed-job catch-up pass failed: {e}")
+    finally:
+        s_.close()
+
+
+# Same 30-minute cadence as the EOD self-heal, and for the same reason: a job
+# scheduled `.at()` is only ever evaluated by a process that was alive at that
+# moment, so recovery has to be driven by something that re-arms on an interval.
+schedule.every(30).minutes.do(run_missed_job_catchup)
+
+
 def run_macro_refresh():
     """Weekly macro-store refresh from the key-gated API sources (TE/MoSPI).
     No-op until the owner sets the keys on Railway; the RBI DBIE seed carries
@@ -594,7 +695,7 @@ def run_macro_refresh():
         record_job_error(e)
 
 # Macro sources — Mondays 05:00 IST (Sun 23:30 UTC), before the week opens
-schedule.every().sunday.at("23:30").do(run_macro_refresh)
+schedule.every().sunday.at("23:30").do(_tracked(run_macro_refresh))
 
 
 def run_regulatory_refresh():
@@ -615,7 +716,7 @@ def run_regulatory_refresh():
         record_job_error(e)
 
 # Regulatory + free macro feeds — daily 07:30 IST (02:00 UTC), before market open
-schedule.every().day.at("02:00").do(run_regulatory_refresh)
+schedule.every().day.at("02:00").do(_tracked(run_regulatory_refresh))
 
 
 def run_nse_flows():
@@ -641,7 +742,7 @@ def run_nse_flows():
         record_job_error(e)
 
 # NSE flows — daily 08:00 IST (02:30 UTC)
-schedule.every().day.at("02:30").do(run_nse_flows)
+schedule.every().day.at("02:30").do(_tracked(run_nse_flows))
 
 
 def run_transcript_ingest():
@@ -662,10 +763,10 @@ def run_transcript_ingest():
         record_job_error(e)
 
 # Transcript ingestion — daily 06:30 IST (01:00 UTC), off-peak
-schedule.every().day.at("01:00").do(run_transcript_ingest)
+schedule.every().day.at("01:00").do(_tracked(run_transcript_ingest))
 
 # Weekly full refresh — 6:00am IST Sunday = 00:30 UTC
-schedule.every().sunday.at("00:30").do(run_full)
+schedule.every().sunday.at("00:30").do(_tracked(run_full))
 
 
 def run_data_integrity():
@@ -686,7 +787,7 @@ def run_data_integrity():
 
 
 # Integrity sweep — Sunday 03:00 UTC (8:30am IST), after the 00:30 full refresh.
-schedule.every().sunday.at("03:00").do(run_data_integrity)
+schedule.every().sunday.at("03:00").do(_tracked(run_data_integrity))
 
 
 def run_usage_prune():
@@ -710,7 +811,7 @@ def run_usage_prune():
 
 # Usage-telemetry retention prune — daily 03:15 UTC (8:45am IST), between the
 # NSE-flows job (02:30) and the encrypted backup (04:00).
-schedule.every().day.at("03:15").do(run_usage_prune)
+schedule.every().day.at("03:15").do(_tracked(run_usage_prune))
 
 
 # ── Coverage self-heal: automatic stub backfill + targeted re-ingests ────────
@@ -762,7 +863,7 @@ def run_coverage_backfill():
 
 # Daily 20:30 UTC (2:00am IST — quiet hours). ~4 days clears the 145 stubs at
 # the default batch of 40; self-terminates into a no-op once coverage is full.
-schedule.every().day.at("20:30").do(run_coverage_backfill)
+schedule.every().day.at("20:30").do(_tracked(run_coverage_backfill))
 
 
 def run_encrypted_backup():
@@ -794,10 +895,10 @@ def run_encrypted_backup():
 # DAILY 04:00 UTC (9:30am IST), after the integrity sweep. RPO ≤ 1 day (was
 # weekly → up to 7 days of lost point-in-time snapshots). Retention widened to
 # 30 in app/backup.py so daily cadence keeps ~a month of history.
-schedule.every().day.at("04:00").do(run_encrypted_backup)
+schedule.every().day.at("04:00").do(_tracked(run_encrypted_backup))
 
 # Results calendar (board-meeting dates) — Saturday 04:00 IST = Fri 22:30 UTC
-schedule.every().friday.at("22:30").do(run_results_calendar)
+schedule.every().friday.at("22:30").do(_tracked(run_results_calendar))
 
 # Universe refresh (IPO graduates + index-rebalance entrants) — monthly, on
 # the first Saturday 03:00 IST (= Fri 21:30 UTC).
@@ -805,7 +906,7 @@ def _monthly_universe_refresh():
     import datetime as _dt
     if _dt.date.today().day <= 7:
         run_universe_refresh()
-schedule.every().friday.at("21:30").do(_monthly_universe_refresh)
+schedule.every().friday.at("21:30").do(_tracked(_monthly_universe_refresh))
 
 # Intraday spot prices — every 90 min; the job self-gates to NSE market hours.
 # IndianAPI (~50 calls/run) since Yahoo blocks datacenter IPs: ~4 runs/market-day
@@ -1102,6 +1203,13 @@ else:
     # (14 Aug 2026). It skips its own recompute when the boot recompute below is
     # going to run anyway, and does it itself when COMPUTE_ON_BOOT is off.
     run_eod_selfheal(recompute=not _compute_on_boot)
+    # One catch-up pass at boot, before the loop: a deploy is the single most
+    # common cause of a missed slot, so the moment right after one is exactly
+    # when a job is most likely overdue.
+    try:
+        run_missed_job_catchup()
+    except Exception as _e:
+        log.error(f"boot catch-up pass failed: {_e}")
 
     # ── Auto-recompute on every deploy ───────────────────────────────────────
     # The valuations cache is a pure local computation from data already in the
