@@ -1678,12 +1678,10 @@ VISIBLE_UNIVERSE = _TIERS[UNIVERSE_TIER] - EXCLUDED_TICKERS
 # documents why it stopped being usable — Yahoo blocks datacenter IPs, so it
 # could not work from the EC2 box regardless. Prices come from IndianAPI /stock.
 #
-# NOTE: this does NOT free the yfinance pin in requirements.txt. One other file
-# still imports it — app/ingest/fix_roe_sweep.py, a one-off from the 2026-06
-# migration that re-derived ROE assumptions stuck at 0.155. Its work is long
-# done and it is referenced only by audit documents, but deleting a script is a
-# judgement call rather than a cleanup, so the dependency stays until that call
-# is made.
+# The yfinance pin this note used to defend is gone too: fix_roe_sweep.py was
+# its only importer and was removed with the other dead one-offs. Kept as a
+# marker because the Yahoo path itself is not coming back — Yahoo blocks
+# datacenter IPs, so it could not work from EC2 even if someone re-added it.
 
 def run_intraday(debug=False):
     """Refresh Nifty 50 spot prices via IndianAPI (one /stock call per name).
