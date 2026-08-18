@@ -149,7 +149,18 @@ def session_coverage(db, now: dt.datetime | None = None) -> dict:
     # extra rows because a long weekend can stack more than one.
     try:
         st = db.query(models.KVStore).filter_by(key=KEY).first()
-        skip = set((st.value or {}).get("no_session") or []) if st else set()
+        _sv = (st.value or {}) if st else {}
+        skip = set(_sv.get("no_session") or [])
+        # ALSO infer it from the live state, not only from the remembered list.
+        # record_result() appends to no_session when it runs, but a date that
+        # exhausted its attempts BEFORE that code existed never gets another
+        # call — pending_session() skips it as exhausted — so the list would
+        # stay empty for exactly the date already blocking the grader. Reading
+        # the same evidence directly makes the fix work on the state that
+        # exists, rather than on a write that has already gone by.
+        if (_sv.get("target") and int(_sv.get("attempts") or 0) >= MAX_ATTEMPTS
+                and int(_sv.get("last_rows_added") or 0) == 0):
+            skip.add(str(_sv["target"])[:10])
     except Exception:
         skip = set()
     rows = [r for r in (q.group_by(models.HistoricalPrice.date)
