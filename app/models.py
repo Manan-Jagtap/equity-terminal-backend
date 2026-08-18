@@ -92,7 +92,11 @@ class HistoricalFinancial(Base):
                     "total_assets", "equity", "borrowings",
                     "operating_cf", "capex", "fcf"
     value:          ₹ crore
-    source:         "yfinance" | "xbrl" | "manual" | "screener"
+    source:         who wrote the row. In practice always "indianapi": the sole
+                    writer (ingest/indianapi_ingester._upsert_hist) passes it
+                    explicitly, and all 280,782 production rows carry it. The
+                    docstring used to advertise "yfinance | xbrl | manual |
+                    screener" — four sources, none of which anything writes.
     """
     __tablename__ = "historical_financials"
     id             = Column(Integer, primary_key=True)
@@ -101,7 +105,14 @@ class HistoricalFinancial(Base):
     statement_type = Column(String, nullable=False)    # PL | BS | CF
     line_item      = Column(String, nullable=False)    # canonical name
     value          = Column(Float, nullable=True)      # ₹ cr; None = not available
-    source         = Column(String, default="yfinance")
+    # No default. It was `default="yfinance"`, a Python-side default that could
+    # never fire — the only writer always passes source explicitly — attributing
+    # rows to a data source this codebase stopped using in the 2026-06 migration
+    # and which, as of the dead-one-off removal, is not a dependency at all.
+    # A row that somehow arrives without a source is now honestly NULL ("we do
+    # not know") rather than confidently mislabelled. Nothing branches on the
+    # value, and it was never a server_default, so no migration is involved.
+    source         = Column(String)
     # INTG-04: when this statement row was last written/refreshed, so fundamentals
     # staleness is measurable at rest. Client-side default → pre-migration rows
     # stay NULL ("last refresh unknown") rather than falsely reading "fresh".
