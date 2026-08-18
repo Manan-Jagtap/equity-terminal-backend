@@ -6,7 +6,11 @@ app/macro_routes.py — public India macro endpoints for the Economy dashboard.
   GET /api/macro/catalog         → every available series (slug + coverage)
 
 All read-only, no user data, all from primary official sources (RBI DBIE,
-MoSPI, GSTN, NPCI, Grid India). Never a third-party proprietary monitor.
+MoSPI, OECD). Never a third-party proprietary monitor. GSTN, NPCI and Grid
+India were listed here too, but they publish only the seven activity indicators
+no feed fetches: those rows come back `awaiting` with status "no_feed" and a
+null value — unwired, distinct from the "awaiting_release" a wired source gets
+between prints — so the page can name them rather than leave a blank.
 Cached in-process 30 min — the underlying data moves daily at most.
 """
 import time

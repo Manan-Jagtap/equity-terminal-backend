@@ -49,7 +49,8 @@ GDP_REAL = "gdp_at_market_prices_constant"
 # DBIE export does NOT carry — the value we don't already have. Each is keyed to
 # its PRIMARY public source (never a third-party aggregator's proprietary
 # monitor). They populate from macro_sources activity fetchers / admin uploads;
-# until then they read as "awaiting source", never fabricated.
+# until then /api/macro returns them with status "no_feed" — unwired, not late —
+# and never fabricates a number.
 GST_COLLECTIONS = "gst_gross_collections_cr"          # GSTN portal monthly stats — MANUAL entry (no PIB feed; see ACTIVITY_META)
 EWAY_BILLS = "eway_bills_generated_mn"                 # GSTN e-way bill portal
 PMI_MFG = "pmi_manufacturing"                          # S&P Global (licensed headline)
@@ -77,6 +78,30 @@ ACTIVITY_META = {
     AUTO_SALES:      ("Auto total sales (units)", "SIAM", "public"),
     UPI_TXN:         ("UPI transactions (mn)", "NPCI", "public"),
 }
+
+# slug → the ACTIVITY_<X>_URL env-var suffix the owner sets to wire a feed.
+# Canonical here alongside the slugs themselves: macro_sources.fetch_activity
+# polls it, and dashboard() reads it to tell two different silences apart —
+# "a source is wired and this period has not printed" vs "no source exists".
+# One map, so the admin status view and the public page can never disagree about
+# which indicators are actually fetchable.
+ACTIVITY_ENV = {
+    GST_COLLECTIONS: "GST",
+    EWAY_BILLS:      "EWAY",
+    PMI_MFG:         "PMI_MFG",
+    PMI_SVC:         "PMI_SVC",
+    POWER_DEMAND:    "POWER",
+    AUTO_SALES:      "AUTO",
+    UPI_TXN:         "UPI",
+}
+
+
+def activity_feed_wired(slug: str) -> bool:
+    """True when an automated feed is configured for this activity slug. Read
+    live from the env (never cached) so wiring a source flips the dashboard's
+    status on the next cache expiry rather than on the next deploy."""
+    env = ACTIVITY_ENV.get(slug)
+    return bool(env and os.getenv(f"ACTIVITY_{env}_URL", "").strip())
 
 
 def _load_seed() -> dict:
@@ -452,9 +477,11 @@ def yoy_series(pts) -> list[tuple[str, float]]:
 
 def dashboard(db) -> dict:
     """The Economy page payload: curated sections, each series with its latest
-    value (or YoY), previous, as-of date, a short sparkline, and — for the
-    high-frequency activity indicators we don't yet source — an honest
-    'awaiting source' marker with the source named. Never fabricates."""
+    value (or YoY), previous, as-of date, a short sparkline, and — where there is
+    no value — a `status` saying WHICH silence this is: "awaiting_release" (a
+    source is wired, this period has not printed) or "no_feed" (nothing is wired,
+    and nothing appears until a source is chosen), publisher named either way.
+    Never fabricates."""
     seed = _load_seed()
     ov = _overlay(db)
     sections = []
@@ -473,9 +500,23 @@ def dashboard(db) -> dict:
             if slug in ACTIVITY_META:
                 nm, src, lic = ACTIVITY_META[slug]
             if not pts:
+                # Two different silences that used to arrive as one flag.
+                # `awaiting: True` meant both "a wired source has not printed this
+                # period" and "no source exists", so the seven activity slugs
+                # (GST, e-way bills, both PMIs, peak power, auto sales, UPI) —
+                # which have never carried a single point and will not until the
+                # owner picks a source — were indistinguishable from a release
+                # running late, and the page rendered them as merely missing.
+                wired = slug not in ACTIVITY_ENV or activity_feed_wired(slug)
                 rows.append({"slug": slug, "label": label, "unit": unit,
-                             "value": None, "as_of": None,
-                             "awaiting": True, "source": src})
+                             "value": None, "as_of": None, "awaiting": True,
+                             "status": "awaiting_release" if wired else "no_feed",
+                             "detail": ("Source wired — awaiting the next release."
+                                        if wired else
+                                        "No source is wired for this indicator: it is "
+                                        "missing rather than late, and stays blank "
+                                        "until one is chosen."),
+                             "source": src})
                 continue
             d, v = pts[-1]
             prev = pts[-2][1] if len(pts) > 1 else None
@@ -504,9 +545,14 @@ def dashboard(db) -> dict:
     return {"summary": macro_summary(db), "sections": sections,
             "activity": activity_read(db), "forecast": macro_forecast(db),
             "series_count": len(catalog(db)),
+            # GSTN, NPCI and Grid India were credited here while publishing only
+            # the seven indicators nothing fetches — the note named sources this
+            # payload has never carried a figure from. Credit the ones that do
+            # feed it, and say what an empty row means.
             "note": ("India macro from primary official sources — RBI DBIE, MoSPI, "
-                     "GSTN, NPCI, Grid India — never a third-party monitor. Each "
-                     "figure carries its own as-of date.")}
+                     "OECD — never a third-party monitor. Each figure carries its "
+                     "own as-of date; an indicator with no source wired comes back "
+                     "with status 'no_feed' and a null value, never a filler number.")}
 
 
 def write_overlay(db, updates: dict[str, dict]) -> int:

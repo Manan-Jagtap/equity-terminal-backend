@@ -356,18 +356,16 @@ def fetch_mospi(db) -> int:
 # We source them from the PRIMARY publishers, never a third-party monitor.
 # There is no single free keyless API for these, so each is env-configured:
 #   ACTIVITY_<SLUG>_URL returns JSON [{date, value}] (or {data:[...]}), with an
-#   optional ACTIVITY_<SLUG>_KEY sent as x-api-key. Absent → skipped, and the
-#   dashboard shows the indicator as "awaiting source" with the publisher named.
+#   optional ACTIVITY_<SLUG>_KEY sent as x-api-key. Absent → skipped, and
+#   /api/macro returns that indicator with status "no_feed" — NOT the
+#   "awaiting_release" it uses for a wired source between prints — so the Economy
+#   page can name it as unwired instead of leaving a hole that reads as a release
+#   running late. All seven are in that state today.
 # This keeps a launch honest: a number appears only when a real feed backs it.
-_ACTIVITY_ENV = {
-    macro_data.GST_COLLECTIONS: "GST",
-    macro_data.EWAY_BILLS:      "EWAY",
-    macro_data.PMI_MFG:         "PMI_MFG",
-    macro_data.PMI_SVC:         "PMI_SVC",
-    macro_data.POWER_DEMAND:    "POWER",
-    macro_data.AUTO_SALES:      "AUTO",
-    macro_data.UPI_TXN:         "UPI",
-}
+# The slug → env-suffix map is canonical in macro_data next to the slugs
+# themselves, because dashboard() needs it to answer "is a feed wired?" without
+# importing this module (which imports it).
+_ACTIVITY_ENV = macro_data.ACTIVITY_ENV
 
 
 def fetch_activity(db) -> int:
@@ -466,8 +464,11 @@ def refresh_all(db) -> dict:
     mo = fetch_mospi(db)               # legacy key-gated fallback
     act = fetch_activity(db)
     cli = fetch_oecd_cli(db)
+    # One definition of "wired", shared with the dashboard's no_feed marker, so
+    # this admin status and the public page cannot disagree about which
+    # indicators are fetchable at all.
     configured_act = [env.lower() for slug, env in _ACTIVITY_ENV.items()
-                      if os.getenv(f"ACTIVITY_{env}_URL", "").strip()]
+                      if macro_data.activity_feed_wired(slug)]
     return {"tradingeconomics_points": te, "mospi_mcp_points": mcp, "dbnomics_points": dbn, "mospi_points": mo,
             "activity_points": act, "oecd_cli_points": cli,
             "keys": {"mospi_mcp": os.getenv("MOSPI_MCP", "").strip() not in ("0", "false", "no"),
