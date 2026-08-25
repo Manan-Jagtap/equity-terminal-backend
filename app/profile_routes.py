@@ -19,7 +19,7 @@ from app import models
 
 router = APIRouter(prefix="/api/companies")
 
-BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
+BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 TTL = 6 * 3600  # profiles change slowly
 

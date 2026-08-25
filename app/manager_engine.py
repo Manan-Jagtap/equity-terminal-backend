@@ -298,7 +298,7 @@ def news_red_flags(ticker: str, budget_guard=None) -> list[str]:
         return []
     if budget_guard and not budget_guard(1):
         return []
-    base = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
+    base = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
     try:
         # tick() only — this call is deliberately NOT vendor_meter.record()ed.
         # news_routes established on 12 Jul 2026 that the production host has

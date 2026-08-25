@@ -27,7 +27,7 @@ from . import models
 # 10,000 budget and refused to start, over ~4,000 calls that are never made. 7
 # keeps headroom for _fetch_stock's stored-name retry and _pe_history's second
 # probe. Re-derive this if the off-plan flags are ever flipped back on.
-CALLS_PER_FULL_INGEST = 7
+CALLS_PER_FULL_INGEST = 10
 
 
 def cycle_day() -> int:

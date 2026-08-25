@@ -32,7 +32,7 @@ Base.metadata.create_all(bind=engine)
 # Developer plan (v2) base. The old "stock." base mis-resolves some tickers
 # (e.g. BAJAJ-AUTO → Bajaj Finance, LT/M&M → nothing); "dev." resolves them
 # correctly. Override with INDIANAPI_BASE if needed.
-BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
+BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 RATE_SLEEP = 1.1
 
@@ -337,8 +337,8 @@ def _price_from_stock(s, co, stock):
 # vendor_meter a guaranteed failure and /historical_stats three guaranteed
 # successes into every name's ~10 outcomes, diluting the 80%-of-20 failure floor
 # in both directions.
-_HISTORICAL_STATS_ON_PLAN = False
-_DOCUMENTS_ON_PLAN = False
+_HISTORICAL_STATS_ON_PLAN = True
+_DOCUMENTS_ON_PLAN = True
 
 # A body whose ONLY keys are these is the vendor reporting a failure, not data.
 # Deliberately WIDER than vendor_meter._ENVELOPE_KEYS, which excludes "info" on

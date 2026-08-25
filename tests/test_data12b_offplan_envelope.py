@@ -67,21 +67,35 @@ def db():
     s.close()
 
 
-def test_offplan_endpoints_spend_nothing(monkeypatch):
-    """The quota half: an endpoint that cannot answer must not be asked."""
-    from app import vendor_meter as vm
+def test_the_two_endpoints_are_called_again_now_that_they_are_on_plan(monkeypatch):
+    """SUPERSEDED PREMISE, kept as the record of a wrong diagnosis.
+
+    This asserted that /historical_stats and /documents are never called,
+    because they looked revoked: /historical_stats answered 200 with
+    {"info": "Not a valid script_code"} for every name and /documents 404'd,
+    and both had done so since 24 Jul 2026. We short-circuited them and filed it
+    as DATA-12 — the vendor withdrawing endpoints from our plan.
+
+    That was wrong. On 25 Aug 2026 the vendor told us the Developer plan has a
+    DEDICATED host, dev.indianapi.in, and we had been calling the shared
+    stock.indianapi.in the whole time. Against dev, /historical_stats returns a
+    real series and /documents returns 200. Nothing was ever revoked; we were
+    knocking on the wrong door and reading the answer as a refusal.
+
+    So the flags are back on and the calls resume. The envelope guard below
+    STAYS: it was written for the wrong reason and is right anyway — a body
+    whose only keys are error/info/message/detail is not data, wherever it
+    comes from, and a writer must never store it over a good value."""
+    from app.ingest import indianapi_ingester as ing
+    assert ing._HISTORICAL_STATS_ON_PLAN is True
+    assert ing._DOCUMENTS_ON_PLAN is True
+
     calls = []
-    monkeypatch.setattr(ing, "KEY", "realkey")
-    monkeypatch.setattr(ing.requests, "get", _vendor(calls))
-    before = vm.total()
-
-    assert ing._ratios("TCS") is None
-    assert ing._growth("TCS") is None
-    assert ing._results_snapshot("TCS") is None
-    assert ing._documents("TCS") is None
-
-    assert calls == [], f"an off-plan endpoint was still called: {calls}"
-    assert vm.total() == before, "a call that was never made must not burn quota"
+    monkeypatch.setattr(ing, "KEY", "k")
+    monkeypatch.setattr(ing.requests, "get",
+                        lambda url, **kw: (calls.append(url), _R(200, {"Debtor Days": {"Mar 2025": 70.0}}))[1])
+    assert ing._ratios("TCS") is not None, "an on-plan endpoint must be consulted again"
+    assert any("historical_stats" in c for c in calls)
 
 
 def test_error_shaped_body_is_no_data_even_when_the_endpoint_returns(monkeypatch):

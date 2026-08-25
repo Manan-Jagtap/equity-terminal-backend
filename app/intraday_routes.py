@@ -27,7 +27,7 @@ from app import models
 
 router = APIRouter(prefix="/api/companies", tags=["intraday"])
 
-ANALYST_BASE = os.getenv("INDIANAPI_ANALYST_BASE", "https://analyst.indianapi.in").rstrip("/")
+ANALYST_BASE = os.getenv("INDIANAPI_ANALYST_BASE", "https://dev.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 _TTL = 180
 _cache: dict = {}
