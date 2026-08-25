@@ -30,7 +30,13 @@ set -Eeuo pipefail
 REGION=ap-south-1
 INSTANCE=i-0f60f2dd6fc5fabd5
 LOCAL_ENV="${LOCAL_ENV:-$HOME/.equity-terminal/app.env}"
-PROBE='https://stock.indianapi.in/stock?name=RELIANCE'
+# The Developer plan's DEDICATED host. We spent nine days on stock.indianapi.in
+# (the shared one) getting 429s with no rate-limit headers while the console
+# showed 0 requests against a full quota — because the traffic never reached the
+# plan. The vendor confirmed dev.indianapi.in on 25 Aug 2026; it also serves the
+# analyst endpoints, which analyst.indianapi.in was answering 403 to.
+HOST="${INDIANAPI_HOST:-https://dev.indianapi.in}"
+PROBE="$HOST/stock?name=RELIANCE"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -96,10 +102,13 @@ case "$status" in
 esac
 
 # ── write + cutover, then prove it took ──────────────────────────────────────
-bold "4/4  Write and cut over"
+bold "4/4  Write key + base URLs, then cut over"
+echo "  host: $HOST"
+echo "  (written to INDIANAPI_BASE and INDIANAPI_ANALYST_BASE too — an env var"
+echo "   beats the code default, so the file must say it as well)"
 cid=$(aws ssm send-command --region "$REGION" --instance-ids "$INSTANCE" \
       --document-name AWS-RunShellScript \
-      --parameters "commands=[\"cp /opt/app.env /opt/app.env.bak.\$(date +%s)\",\"sed -i 's|^INDIANAPI_KEY=.*|INDIANAPI_KEY=$KEY|' /opt/app.env\",\"grep -c '^INDIANAPI_KEY=' /opt/app.env\",\"bash /opt/cutover.sh latest 2>&1 | tail -3\"]" \
+      --parameters "commands=[\"cp /opt/app.env /opt/app.env.bak.\$(date +%s)\",\"sed -i 's|^INDIANAPI_KEY=.*|INDIANAPI_KEY=$KEY|' /opt/app.env\",\"grep -q '^INDIANAPI_BASE=' /opt/app.env && sed -i 's|^INDIANAPI_BASE=.*|INDIANAPI_BASE=$HOST|' /opt/app.env || echo 'INDIANAPI_BASE=$HOST' >> /opt/app.env\",\"grep -q '^INDIANAPI_ANALYST_BASE=' /opt/app.env && sed -i 's|^INDIANAPI_ANALYST_BASE=.*|INDIANAPI_ANALYST_BASE=$HOST|' /opt/app.env || echo 'INDIANAPI_ANALYST_BASE=$HOST' >> /opt/app.env\",\"grep -c '^INDIANAPI_KEY=' /opt/app.env\",\"bash /opt/cutover.sh latest 2>&1 | tail -3\"]" \
       --query 'Command.CommandId' --output text) || die "SSM send failed"
 for _ in $(seq 1 40); do
   st=$(aws ssm get-command-invocation --region "$REGION" --command-id "$cid" \
