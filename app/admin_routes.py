@@ -141,7 +141,7 @@ def api_usage(_admin: models.User = Depends(require_admin)):
     from app import api_budget
     from app.database import SessionLocal
     key = os.getenv("INDIANAPI_KEY", "").strip()
-    base = os.getenv("INDIANAPI_ANALYST_BASE", "https://analyst.indianapi.in").rstrip("/")
+    base = os.getenv("INDIANAPI_ANALYST_BASE", "https://dev.indianapi.in").rstrip("/")
     vendor = None
     try:
         # The vendor's own usage endpoint is still a request against the plan,

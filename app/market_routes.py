@@ -18,7 +18,7 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/market")
 
-BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
+BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 TTL = 900  # seconds — market feeds change slowly; 15-min cache keeps loads fast
 
@@ -87,7 +87,7 @@ def _num(x):
 
 # A few IndianAPI endpoints (indices, commodities, mutual funds) live on the
 # ANALYST host rather than the stock host we use for company data.
-ANALYST_BASE = os.getenv("INDIANAPI_ANALYST_BASE", "https://analyst.indianapi.in").rstrip("/")
+ANALYST_BASE = os.getenv("INDIANAPI_ANALYST_BASE", "https://dev.indianapi.in").rstrip("/")
 
 
 def _get_analyst(path, params=None, ttl=TTL):

@@ -19,8 +19,8 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/api", tags=["ipo"])
 
-BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
-ANALYST_BASE = os.getenv("INDIANAPI_ANALYST_BASE", "https://analyst.indianapi.in").rstrip("/")
+BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
+ANALYST_BASE = os.getenv("INDIANAPI_ANALYST_BASE", "https://dev.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 _TTL = 3 * 3600
 _cache: dict = {"ts": 0.0, "data": None}

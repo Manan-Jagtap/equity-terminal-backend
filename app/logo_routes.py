@@ -17,7 +17,7 @@ from app import models
 
 router = APIRouter(prefix="/api", tags=["logo"])
 
-BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
+BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
 KEY = os.getenv("INDIANAPI_KEY", "").strip()
 import time as _time
 _CACHE: dict = {}   # ticker -> (bytes, content_type) | ("neg", retry_after_ts)

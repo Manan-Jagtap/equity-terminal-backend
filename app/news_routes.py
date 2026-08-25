@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/companies")
 
 _NEWS_CACHE: dict[str, tuple[float, dict]] = {}
 _CACHE_TTL  = 1800
-_INDIANAPI_BASE = os.getenv("INDIANAPI_BASE", "https://stock.indianapi.in").rstrip("/")
+_INDIANAPI_BASE = os.getenv("INDIANAPI_BASE", "https://dev.indianapi.in").rstrip("/")
 
 
 # ── Source 1 (primary): IndianAPI /company_news ──────────────────────────────
