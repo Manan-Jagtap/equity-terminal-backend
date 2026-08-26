@@ -1,0 +1,64 @@
+# BSE scrip-code CANDIDATES — UNVERIFIED. Not wired into anything.
+#
+# Salvaged 26 Aug 2026 from branch fix/bse-attachhis-and-scripcodes (commit
+# c413dec, 30 May 2026) before that branch was deleted. The branch itself was
+# NOT merged, and must not be: it re-added TATACAPITAL/TATACAP = 544350, a code
+# main had deleted on purpose as a guess, and mapped "BSE": "500469" — which is
+# already Federal Bank's scrip, so BSE Ltd's page would have served Federal
+# Bank's filings.
+#
+# A WRONG scrip code is worse than a missing one. get_scrip_code() feeds
+# documents_routes, so a wrong number attaches ANOTHER listed company's filings
+# to this ticker under a confident-looking UI — the DATA-10 contamination shape.
+# Absent beats wrong. Verify each against bseindia.com's own listing, then move
+# them into app/bse/scrip_codes.py one at a time.
+#
+# 34 candidates, 1 possible aliases, 5 rejected.
+
+# ── candidates: ticker not on main, code not on main ──────────────────────
+    "360ONE":        "542772",   # 360 ONE WAM (ex-IIFL Wealth)
+    "ABSLAMC":       "543374",   # Aditya Birla Sun Life AMC
+    "AIIL":          "539177",   # Authum Investment & Infrastructure
+    "BAJAJHFL":      "544252",   # Bajaj Housing Finance (verified)
+    "BAJAJHLDNG":    "500490",   # Bajaj Holdings & Investment
+    "CAMS":          "543232",   # Computer Age Management Services
+    "CDSL":          "543268",   # Central Depository Services
+    "CGCL":          "531595",   # Capri Global Capital
+    "CHOICEIN":      "531358",   # Choice International
+    "CHOLAHLDNG":    "504973",   # Cholamandalam Financial Holdings
+    "CRISIL":        "500092",   # CRISIL
+    "CUB":           "532210",   # City Union Bank
+    "GICRE":         "540755",   # GIC Re
+    "GODIGIT":       "544179",   # Go Digit General Insurance
+    "HUDCO":         "540530",   # Housing & Urban Development Corp
+    "IDBI":          "500116",   # IDBI Bank
+    "IEX":           "540750",   # Indian Energy Exchange
+    "IFCI":          "500106",   # IFCI
+    "IREDA":         "544026",   # Indian Renewable Energy Dev Agency
+    "J&KBANK":       "532209",   # Jammu & Kashmir Bank
+    "JMFINANCIL":    "523405",   # JM Financial
+    "KARURVYSYA":    "590003",   # Karur Vysya Bank
+    "KFINTECH":      "543720",   # KFin Technologies
+    "MAHABANK":      "532525",   # Bank of Maharashtra
+    "MCX":           "534091",   # Multi Commodity Exchange
+    "MFSL":          "500271",   # Max Financial Services
+    "NIACL":         "540769",   # New India Assurance
+    "NUVAMA":        "543988",   # Nuvama Wealth
+    "PAYTM":         "543396",   # One97 Communications
+    "PIRAMALFIN":    "500302",   # Piramal Enterprises / Finance
+    "POLICYBZR":     "543390",   # PB Fintech
+    "SAMMAANCAP":    "535789",   # Sammaan Capital (ex-Indiabulls Hsg)
+    "SBICARD":       "543066",   # SBI Cards
+    "STARHEALTH":    "543412",   # Star Health
+
+# ── possible ALIASES: code already on main under another ticker. Main already
+#    does this deliberately (IIFL/IIFLFIN, L&TFH/LTFH), so these are probably
+#    fine — but confirm each is the SAME company before adding.
+    "M&MFIN":        "532720",   # alias of main's MMFIN? # Mahindra & Mahindra Financial
+
+# ── REJECTED — do not add without independent proof ───────────────────────
+#   BSE            500469   deliberately removed from main / collides with another company
+#   HDBFS          544603   author marked unverified # HDB Financial Services (⚠ verify)
+#   NIVABUPA       544291   author marked unverified # Niva Bupa Health (⚠ verify)
+#   TATACAP        544350   deliberately removed from main / collides with another company
+#   TATACAPITAL    544350   deliberately removed from main / collides with another company
