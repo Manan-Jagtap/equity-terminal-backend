@@ -159,12 +159,14 @@ def payload_ok(data, *, empty_ok: bool = False) -> bool:
                                      ship it (list-wrapped, HTTP code last)
       anything else        → True
 
-    "info" is deliberately NOT an envelope key. Since 24 Jul 2026 (DATA-12) the
-    vendor answers /historical_stats for every name with 200 {"info": "Not a
-    valid script_code"} — an off-plan endpoint, not a dead vendor — and the
-    Financials tabs still call it on every visit. Counting that as a failure
-    would report the vendor as failing whenever anyone browsed. Pure; never
-    raises on JSON-shaped input."""
+    "info" is deliberately NOT an envelope key. From 24 Jul to 25 Aug 2026 the
+    vendor answered /historical_stats for every name with 200 {"info": "Not a
+    valid script_code"} (DATA-12 — read then as an off-plan endpoint, corrected
+    since to our calling the wrong host), while the Financials tabs called it on
+    every visit. Counting that as a failure would have reported the vendor as
+    failing whenever anyone browsed. The rule survives its wrong premise: a body
+    the vendor CHOSE to send is upstream answering, not upstream down. Pure;
+    never raises on JSON-shaped input."""
     if data is None:
         return False
     if not data:                                    # {}, [], "", 0, False

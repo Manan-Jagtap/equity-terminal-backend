@@ -11,7 +11,8 @@ These tests drive each REAL call site with the transport faked — a helper-leve
 test would pass with the wiring missing (the lesson recorded in
 test_health_surfaces_vendor_failure). They also pin vendor_meter.payload_ok,
 the shared judgement: None / envelope → failure; empty → the call site's
-`empty_ok`; {"info": ...} → success (an off-plan endpoint, not a dead vendor).
+`empty_ok`; {"info": ...} → success (an error body from a live vendor is
+upstream ANSWERING, not upstream down).
 """
 import importlib
 
@@ -327,11 +328,11 @@ def test_ingester_get_safe_records(monkeypatch):
     vm = _fresh()
     from app.ingest import indianapi_ingester as ing
     monkeypatch.setattr(ing, "KEY", "realkey")
-    # /historical_stats and /documents are short-circuited off-plan (DATA-12), so
-    # they make no call and record no outcome. This test's subject is the
-    # METERING of a call that IS made — force them on so those transport paths
-    # stay covered. The short-circuit itself is tested in
-    # test_data12b_offplan_envelope.py.
+    # Both endpoints are ON-PLAN again since 25 Aug 2026 (the DATA-12
+    # withdrawal was a wrong-host misdiagnosis), so these two lines are PINS,
+    # not overrides: a short-circuited call makes no request and records no
+    # outcome, and this test's subject is the METERING of a call that IS made.
+    # The short-circuit itself is tested in test_data12b_offplan_envelope.py.
     monkeypatch.setattr(ing, "_HISTORICAL_STATS_ON_PLAN", True)
     monkeypatch.setattr(ing, "_DOCUMENTS_ON_PLAN", True)
 
@@ -343,7 +344,7 @@ def test_ingester_get_safe_records(monkeypatch):
     assert ing._get_safe("/stock_forecasts", {}) is None
     assert vm.outcomes()["fail"] == 1
 
-    monkeypatch.setattr(ing.requests, "get", lambda *a, **k: _R(404, None))     # /documents since 24 Jul
+    monkeypatch.setattr(ing.requests, "get", lambda *a, **k: _R(404, None))     # a 404 from any endpoint
     assert ing._get_safe("/documents", {"stock_name": "TCS"}) is None
     assert vm.outcomes()["fail"] == 2
 
@@ -351,7 +352,7 @@ def test_ingester_get_safe_records(monkeypatch):
     # The health verdict and the caller's verdict diverge ON PURPOSE here.
     assert ing._get_safe("/historical_stats", {"stock_name": "TCS", "stats": "ratios"}) is None, \
         "an error envelope is NO DATA to the caller — returning it overwrote stored ratios (DATA-12)"
-    assert vm.outcomes()["ok"] == 2, "an off-plan 200 is upstream answering"
+    assert vm.outcomes()["ok"] == 2, "a 200 carrying an error body is still upstream answering"
 
     monkeypatch.setattr(ing.requests, "get", lambda *a, **k: _R(200, []))
     ing._get_safe("/stock_forecasts", {})

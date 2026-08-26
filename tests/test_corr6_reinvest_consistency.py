@@ -68,7 +68,7 @@ def test_engine_js_mirrors_the_floor():
 
     This used to look for the frontend as a SIBLING of the backend checkout and
     skip when it was absent. It was absent everywhere: the repos actually live at
-    ~/Downloads/backend and ~/equity-terminal, so the guessed path resolved to
+    ~/backend and ~/equity-terminal, so the guessed path resolved to
     ~/Downloads/equity-terminal, and CI never checks the frontend out at all.
     The test therefore skipped on every run since it was written — a green
     parity contract that had never once been evaluated.

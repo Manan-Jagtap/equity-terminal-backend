@@ -19,14 +19,21 @@ from . import models
 # Rough per-name cost of a full ingest; projects a bulk run's spend for the
 # pre-flight in indianapi_ingester.run() — which is a GATE, not just a log line.
 #
-# Was 10 (1 /stock + ~9 best-effort insight calls). Four of those nine went to
-# endpoints the vendor took off-plan on 24 Jul 2026 and that we no longer issue
-# (DATA-12): three /historical_stats (ratios, profit_loss_stats,
-# quarter_results) and one /documents. Leaving the estimate at 10 is not
-# "safely conservative" — a ~1,000-name refresh projected 10,010 against a
-# 10,000 budget and refused to start, over ~4,000 calls that are never made. 7
-# keeps headroom for _fetch_stock's stored-name retry and _pe_history's second
-# probe. Re-derive this if the off-plan flags are ever flipped back on.
+# 10 = 1 /stock + ~9 best-effort insight calls, and all ~9 are issued again.
+#
+# It was cut to 7 on 24 Jul 2026 on the DATA-12 reasoning: four of those nine
+# (three /historical_stats — ratios, profit_loss_stats, quarter_results — and
+# one /documents) looked like endpoints the vendor had taken off-plan, so
+# projecting them looked like refusing ~1,000-name runs over ~4,000 calls that
+# were never made.
+#
+# CORRECTED 25 Aug 2026: nothing was ever taken off-plan. We were calling the
+# SHARED host (stock.indianapi.in) with a Developer-plan key instead of the
+# plan's DEDICATED host (dev.indianapi.in), and read the wrong host's answers
+# as a withdrawal. On dev both endpoints answer, the _ON_PLAN flags in
+# indianapi_ingester are back on, and all ~10 calls per name are spent again —
+# so the estimate is 10. Re-derive it only if those flags are ever switched off
+# for a reason a manual probe confirmed.
 CALLS_PER_FULL_INGEST = 10
 
 

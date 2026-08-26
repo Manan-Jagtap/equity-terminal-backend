@@ -1,28 +1,27 @@
 # EQUITY TERMINAL — HANDOFF DOCUMENT
 
-> ⚠️ **INFRA SUPERSEDED (19 Jul 2026):** the "Railway" backend/scheduler/Postgres
-> described below was **retired**. Production now runs on **AWS Mumbai (ap-south-1)**:
-> EC2 + Docker (web + scheduler containers) behind Caddy at `api.equityverdict.com`,
-> RDS Postgres, ECR image, S3 config. **Authoritative as-built topology + the deploy
-> runbook: `ARCHITECTURE.md` and `deploy/aws/MIGRATION_AWS.md`.** Deploys = build the
-> amd64 image (`docker buildx build --platform linux/amd64 …`) → push ECR → SSM
-> re-pull. Ignore every "Railway"/"up.railway.app" reference in this file and in
-> `DEPLOY_NOTES.md` — they point at dead infrastructure.
+*Last updated 26 August 2026. Read this first, then `ARCHITECTURE.md` (as-built
+topology + the valuation pipeline), then `deploy/aws/` (how anything reaches
+production). Change history: CHANGES_2026-07.md. Compliance: COMPLIANCE.md.*
 
-*Last updated 16 July 2026 (pre-migration). Detailed change history: CHANGES_2026-07.md. Compliance: COMPLIANCE.md.*
+> **Infrastructure.** Production is **AWS Mumbai (ap-south-1)**: one EC2 box
+> (`i-0f60f2dd6fc5fabd5`) running Docker containers `caddy` → `web` and
+> `scheduler`, RDS Postgres 16, ECR for the image, S3 for `/opt/app.env`,
+> Cloudflare R2 for documents and encrypted backups. Frontend on Vercel at
+> equityverdict.com; API at `https://api.equityverdict.com`. **Railway was
+> retired 18 Jul 2026** — ignore every `up.railway.app` URL below and treat
+> "Railway variables" as "`/opt/app.env` on the box". `DEPLOY_NOTES.md` is the
+> dead Railway runbook, kept for history.
 
-> **Recent (16 Jul 2026):** Sentiment scoring, Baskets (`/api/baskets`), Strategy
-> backtester (`/api/strategy/*`), Options strategy builder, Portfolio NIFTY
-> benchmark. Engine parity restored **60/60** (re-run `tests/gen_parity_cases.py`
-> → `node tests/engineParity.mjs` after ANY `engines.py`/`sector_params.py`
-> change). SOTP now covers L&T/ITC/Grasim/Vedanta/Bajaj Holdings/Godrej Inds.
->
-> **⚠ Top pending (data):** ~170 names sit in MANUFACTURING as un-ingested stubs
-> (vendor sector "Unknown", 0 statements). The classification RULES are sound —
-> these need the fundamentals backfill to onboard them from IndianAPI. Run
-> `POST /api/admin/run-backfill` (admin auth; budget-guarded, may take 2–3 passes)
-> from the **prod terminal** browser console — targets the backend URL, not the
-> Vercel origin. See CHANGES_2026-07.md §16 Jul.
+> **⚠ The most recent thing to go wrong: the VENDOR HOST.** IndianAPI's
+> Developer plan is served from its own dedicated host,
+> **`https://dev.indianapi.in`**. The shared `stock.indianapi.in` does not reach
+> this plan — it answers 429 forever while the vendor console shows **0**
+> requests used against a full 10,000. We spent nine days in Aug 2026 reading
+> that as an exhausted quota, and a month earlier read a 404 from the same wrong
+> host as the vendor revoking `/documents` (that was "DATA-12" — a
+> misdiagnosis; §3). Both `/documents` and `/historical_stats` are on-plan and
+> answering. **If vendor data looks dead, check the HOST before the quota.**
 
 ---
 
@@ -43,17 +42,22 @@ admin mananjagtap27@gmail.com; Railway CLI mananjagtap2703@gmail.com).
 
 | Piece | Where | Notes |
 |---|---|---|
-| Frontend (React/Vite) | https://equity-terminal-one.vercel.app | Vercel, auto-deploys on push to `main` |
-| Backend API (FastAPI) | https://equity-terminal-backend-production.up.railway.app | Railway `equity-terminal-backend` |
-| Scheduler (worker) | Railway `equity-terminal-scheduler` | same repo, `python scheduler.py` |
-| Database | Railway Postgres (shared) | additive column migrations run in `app/main.py` |
-| Repos | github.com/Manan-Jagtap/{equity-terminal, equity-terminal-backend} | local: ~/equity-terminal, ~/Downloads/backend |
+| Frontend (React/Vite) | https://equityverdict.com | Vercel, auto-deploys on push to `main`; a merge webhook is occasionally MISSED — retrigger with an empty commit |
+| TLS edge | `caddy` container on EC2 | `/opt/Caddyfile`, auto Let's Encrypt, proxies `web:8080` on the `edge` docker network |
+| Backend API (FastAPI) | https://api.equityverdict.com | `web` container, same box, 1× uvicorn |
+| Scheduler (worker) | `scheduler` container, same box | same image, command `python scheduler.py` |
+| Database | AWS RDS Postgres 16 `equity-terminal-db` | **Alembic owns the schema**; `app/migrations_boot.py` stamps-or-upgrades at boot, entrypoint runs `alembic upgrade head` fail-closed |
+| Image | ECR `593334122677.dkr.ecr.ap-south-1.amazonaws.com/equity-terminal` | built from `deploy/aws/Dockerfile` (repo-root context) |
+| Env | `/opt/app.env` on the box (pulled at boot from the private S3 config bucket) | passed with `docker run --env-file` — **bound at container CREATE** |
+| Documents + backups | Cloudflare R2 | quarterly PDFs; weekly Fernet-encrypted DB dumps (`BACKUP_KEY`) |
+| Repos | github.com/Manan-Jagtap/{equity-terminal, equity-terminal-backend} | local: ~/equity-terminal, ~/backend |
 
 **Local dev:** backend tests need `./venv313/bin/python` (3.13 venv,
-untracked; system 3.9 cannot import the codebase) with a fresh
+untracked; the system python cannot import the codebase) with a fresh
 `DATABASE_URL=sqlite:////tmp/…`. Frontend: `npm run build`; eslint kept at
-exact baselines. `.python-version` pin = Railway build requirement.
-NEVER `git add -A` in the backend repo.
+exact baselines. NEVER `git add -A` in the backend repo — stage explicit paths.
+The owner merges PRs on GitHub, so **local `main` lags**: branch off
+`origin/main`, and run `git diff origin/main --stat` before committing.
 
 ## 3. DATA VENDORS (two, complementary, cross-checked)
 
@@ -72,13 +76,33 @@ endpoints only; trading APIs are never called. Owner diagnostic:
 authenticator.
 
 **IndianAPI — everything fundamentals-shaped:** statements, profiles,
-ownership, docs, company news (`recentNews` inside `/stock`; the production
-host has no `/company_news` and `/news` ignores `stock_name`). Growth plan,
-`INDIANAPI_MONTHLY_BUDGET=40000`, budget pre-flight in `app/api_budget.py`.
-Base `https://stock.indianapi.in` (the dev host rejects the key). Profiles
-are **snapshot-first**: last good payload persists 7 days in
-CompanyInsight, refresh is budget-gated, vendor failure degrades to
-last-known-good; `RUN_PROFILE_SNAPSHOTS` re-arms a full backfill.
+ownership, documents, ratios/growth/quarter history (`/historical_stats`),
+company news (`recentNews` inside `/stock`; there is no `/company_news`, and
+`/news` ignores `stock_name`). **Base `https://dev.indianapi.in`** — the
+Developer plan's dedicated host, which also serves the analyst endpoints
+(`analyst.indianapi.in` answers us 403). It is both the code default and a line
+in `/opt/app.env`, and **the env var wins, so both must say it**;
+`deploy/aws/set-vendor-key.sh` writes the key and both base URLs together after
+probing the host it is about to write. Budget pre-flight in `app/api_budget.py`
+against `INDIANAPI_MONTHLY_BUDGET` (`CALLS_PER_FULL_INGEST = 10`). Profiles are
+**snapshot-first**: last good payload persists 7 days in CompanyInsight,
+refresh is budget-gated, vendor failure degrades to last-known-good;
+`RUN_PROFILE_SNAPSHOTS` re-arms a full backfill.
+
+**The DATA-12 correction — read this before trusting any "the vendor removed
+X" note in this repo.** From 24 Jul to 25 Aug 2026 code, docs and one test all
+recorded that the vendor had taken `/historical_stats` and `/documents` off our
+plan: `{"info": "Not a valid script_code"}` for every name, and a 404 on
+`/documents`. It never happened — those were the SHARED host's answers to a
+Developer-plan key. On `dev.indianapi.in`, `/historical_stats` returns a real
+12-year series and `/documents` returns 200; both `_ON_PLAN` flags in
+`app/ingest/indianapi_ingester.py` are back on. Three things from that episode
+are real and stay: **BSE's own anti-bot block** on `api.bseindia.com` (unrelated
+to IndianAPI), the **error-envelope guard** (a body whose only keys are
+error/info/message/detail is not data and must never be written over a stored
+value, whatever produced it), and **~633 stored insight rows whose
+ratios/growth still hold an `{"info": ...}` body** — real damage, repaired
+separately.
 
 **Failover:** health-based (not presence-based) in the scheduler — zero
 Dhan rows ⇒ IndianAPI price fallback; wider-tier EOD escalation; the daily
@@ -107,11 +131,21 @@ app/beta.py, cached per recompute; sector beta is the fallback) (not full-CRP;
 documented in sector_params.py). Net worth = reported, else capital +
 reserves — never bare share capital.
 
-**⚠️ PARITY CONTRACT** after ANY engine/sector change:
+**⚠️ PARITY CONTRACTS — three of them, all CI-gated.** Re-run after ANY change
+to `engines.py`, `derive.py`, `sector_params.py`, or the recommend gates:
 ```
-cd ~/Downloads/backend && python3 tests/gen_parity_cases.py ~/equity-terminal/tests/parityCases.json
-cd ~/equity-terminal && node tests/engineParity.mjs   # must print 60/60
+cd ~/backend
+venv313/bin/python tests/gen_parity_cases.py  ~/equity-terminal/tests/parityCases.json
+venv313/bin/python tests/gen_derive_cases.py  ~/equity-terminal/tests/deriveCases.json
+venv313/bin/python tests/gen_verdict_cases.py ~/equity-terminal/tests/verdictCases.json
+cd ~/equity-terminal
+node tests/engineParity.mjs    # must print  60/60   engine.js ↔ engines.py
+node tests/deriveParity.mjs    # must print  48/48   derive.js ↔ derive.py
+node tests/verdictParity.mjs   # must print 113/113  the verdict ladder
 ```
+A pre-push hook (`scripts/hooks/pre-push`; reinstall after a fresh clone)
+regenerates and verifies these, and CI re-checks the committed fixtures
+(ARC-05) — so a stale fixture blocks the push rather than reaching production.
 
 ## 5. ACCURACY GATES (the platform's spine)
 
@@ -156,21 +190,118 @@ support, never advice.
 
 ## 8. SCHEDULER (cadences + one-shot flags)
 
-Mon–Fri 15:45 IST: EOD prices → Dhan 30-day top-up (self-heals gaps) →
-recompute → verdict/signal snapshots. Sun 06:00 IST: full refresh + rolling
-weekly fundamentals cohort (ISO-week slice of VISIBLE_UNIVERSE−UNIVERSE).
-Every 90 min: intraday (market-hours gated). One-shot Railway flags
-(set → deploy → REMOVE): RUN_DHAN_REPAIR, RUN_DHAN_BACKFILL,
-RUN_FUNDAMENTALS_BACKFILL, RUN_PROFILE_SNAPSHOTS, RUN_BOOTSTRAP_NOW.
-Pushing the backend repo redeploys BOTH services (kills in-flight ingest;
-boot recompute reruns).
+Mon–Fri 15:45 IST (10:15 UTC): EOD prices → Dhan 30-day top-up (self-heals
+gaps) → recompute → verdict/signal snapshots. Sun 06:00 IST: full refresh +
+rolling weekly fundamentals cohort. Every 90 min: intraday (market-hours
+gated). Daily 20:30 UTC coverage self-heal; Sun 03:00 integrity sweep; Sun
+04:00 encrypted backup. The full table is in `ARCHITECTURE.md` §5 — keep it
+there, not here.
 
-## 9. KNOWN REMAINDERS
+One-shot flags (set in `/opt/app.env` → **cut over** → REMOVE): RUN_DHAN_REPAIR,
+RUN_DHAN_BACKFILL, RUN_FUNDAMENTALS_BACKFILL, RUN_PROFILE_SNAPSHOTS,
+RUN_BOOTSTRAP_NOW. A cutover recreates BOTH containers — it kills in-flight
+ingest and the boot recompute reruns.
 
-- YESBANK vendor statement gap (coverage 499/500); TVSMOTOR/JSL override
-  queue documented.
-- 5-yr journey chart fallback (Business tab, curated names only) — cosmetic.
+**Missed runs are now caught, because they used to be invisible.** `schedule`
+recomputes each job's next_run from PROCESS START, so recreating a container
+after a job's slot silently drops that day's run. Two mechanisms:
+- `app/eod_coverage.py` — asks the DATA whether the last settled session is in
+  `historical_prices`, claims and self-heals it, and grades per-session name
+  COUNTS (`eod_names` / `eod_names_prior` on `/api/health`). `max(date)` alone
+  cannot see a partial session; that is how the 14 Aug 2026 miss hid for three
+  days behind 21 newly listed names.
+- `app/job_runs.py` — records each of the 15 scheduled jobs, publishes
+  `jobs_overdue` / `jobs_overdue_stuck`, and replays only the jobs whose replay
+  recovers something (`catch_up`); `run_full` and `run_results_calendar` are
+  recorded but never replayed, on cost.
+
+**Never `import scheduler` to inspect production** — importing that module runs
+its whole boot sequence. That is precisely why the two modules above live
+outside it.
+
+## 9. DEPLOY (the only supported path)
+
+```bash
+cd ~/backend
+./deploy/aws/deploy.sh --check      # what is live right now; changes nothing
+./deploy/aws/deploy.sh              # pull → build amd64 → inspect image → push ECR → cut over → smoke
+```
+`deploy.sh` exists because **four deploys were done by hand in Aug 2026 and
+three of them shipped nothing** — the build failed or never ran, the cutover
+pulled an unchanged `:latest`, and `/api/health` came back green because the OLD
+code is perfectly healthy. Every gate in it marks a real failure: Docker daemon
+down, missing `-f deploy/aws/Dockerfile`, a stale local checkout, zsh eating
+`$ECR:latest`, running the cutover locally instead of over SSM — and the gate
+that was missing entirely, LOOKING INSIDE THE IMAGE BEFORE PUSHING.
+
+Vendor key or host change: `./deploy/aws/set-vendor-key.sh` (`--check` /
+`--prompt`). It never takes the key on argv, validates it against the live
+vendor BEFORE touching `/opt/app.env`, and writes `INDIANAPI_KEY`,
+`INDIANAPI_BASE` and `INDIANAPI_ANALYST_BASE` together. `ROLLBACK.md` rolls back
+to a previous `git-<sha>` tag; `DR_DRILL.md` rebuilds the box from scratch.
+
+## 10. GATES THAT EXIST NOW
+
+- **CI (`.github/workflows/ci.yml`)** — ruff bug-class lint; pytest on SQLite
+  AND on Postgres; committed parity fixtures must match (ARC-05); the valuation
+  **calibration gate** against `tests/calib_baseline.json`; boot migrations must
+  succeed on Postgres; an alembic **round-trip** (upgrade → downgrade base →
+  upgrade); and an **image-boot job** that builds the production image and
+  requires `/api/health` → 200.
+- **Uptime cron (`uptime.yml`)** — probes prod every 30 min and fails on
+  `errors_1h` > 25, `error_hours_24h` ≥ 12, `scheduler_beat_min` > 120,
+  `price_age_days` > 3, red/stale `integrity`, plus a real CONTENT path
+  (`/api/companies`) because a 200 shell is not data.
+- **Pre-push hook** — regenerates and verifies the three parity harnesses.
+- **Accuracy gates in the app** (§5) — metrics bands, statement identities,
+  ratio cells, price V-spikes. A wrong number is never preferred to no number.
+- **Vendor honesty** — `app/vendor_meter.py` publishes `vendor_ok`,
+  `vendor_fail`, `vendor_last_ok_min` on `/api/health`, because on 14 Aug 2026
+  every vendor call failed for 5+ hours while health read `ok, errors_1h: 0`
+  (caches served, no exception raised).
+
+## 11. KNOWN OPEN
+
+- **~633 insight rows hold an `{"info": ...}` body in ratios/growth** — the real
+  damage from the DATA-12 window, repaired separately. The envelope guard stops
+  new ones.
+- **`INDIANAPI_MONTHLY_BUDGET` in `/opt/app.env` may still read 40000**, a
+  Growth-plan number, while the live plan is Developer (~10k). Confirm it before
+  any full-universe refresh; the pre-flight only protects against the number it
+  is given.
+- ~160 names land in MANUFACTURING from a null vendor sector — a data backfill
+  need, not a rules bug. `POST /api/admin/run-backfill` (admin auth,
+  budget-guarded, 2–3 passes) from the prod terminal's console.
+- YESBANK vendor statement gap; TVSMOTOR/JSL override queue.
 - Div-yield strip absent where the vendor publishes none (honest gap).
 - Options full 208-name sweep pending a market session on the auto-token.
-- Block deals / FII-DII named holders: IndianAPI does NOT carry them —
-  needs NSE/BSE official archives + licensing review first.
+- Block deals / FII-DII named holders: IndianAPI does NOT carry them — needs
+  NSE/BSE official archives + a licensing review first.
+- Not safe to charge users yet (COMPLIANCE.md: SEBI RA registration +
+  data-redistribution licensing).
+
+## 12. TRAPS THAT HAVE ACTUALLY BITTEN
+
+1. **A deploy after 15:45 IST silently skips that day's EOD run.** `schedule`
+   recomputes next_run from process start. Cost: the 14 Aug 2026 session, unseen
+   for three days. Mitigated by `eod_coverage.py` + `job_runs.py`, not removed —
+   prefer deploying outside the scheduled slots, and check `jobs_overdue`.
+2. **Env is bound at container CREATE.** Editing `/opt/app.env` and running
+   `docker restart` ships NOTHING. Only a recreate (`cutover.sh`, which
+   `deploy.sh` and `set-vendor-key.sh` both call) picks up a changed env.
+3. **A build can fail while the deploy reports success.** `/api/health` is green
+   on old code. Compare the ECR `:latest` digest with the running container's —
+   `deploy.sh --check` does exactly this.
+4. **Placeholders substitute cleanly.** `PASTE_THE_KEY_THAT_RETURNED_200` and
+   `NEW_KEY_HERE` were both written into production as if they were keys; the
+   file wrote, the container recreated, health stayed 200, and only the vendor
+   knew. Anything that writes a secret must ASK THE VENDOR FIRST.
+5. **An error body is evidence about the request, not proof about the plan.**
+   DATA-12: a 404 and an `{"info": ...}` body from the wrong host were read as
+   the vendor withdrawing endpoints, and the code stopped calling them for a
+   month. Check the host, the key and the plan before concluding a vendor
+   changed its mind.
+6. **Never `import scheduler` to check production** — it runs the boot sequence.
+7. **Local `main` lags** (the owner merges on GitHub) and **Vercel occasionally
+   misses a merge webhook** — branch off `origin/main`; retrigger Vercel with an
+   empty commit.

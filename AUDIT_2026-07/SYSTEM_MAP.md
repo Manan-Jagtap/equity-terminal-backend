@@ -38,6 +38,7 @@ users, auth_events, companies, financial_facts, historical_financials, price_poi
 ## Data vendors
 - **Dhan**: live LTP batch (500 eq + 11 indices, 12s cache, app/live_prices.py), 5y OHLCV, options, TOTP self-mint (app/dhan/auth.py). Personal-use licence (see CMP-02).
 - **IndianAPI**: statements/profiles/ownership/docs/news; Growth plan, budget-guarded (app/api_budget.py, ~50k/mo, snapshot-first 7-day TTL). Base https://stock.indianapi.in.
+  - *Correction appended 25 Aug 2026 — the line above records the July state and is left as found.* The plan is now **Developer**, and its base is that plan's DEDICATED host **https://dev.indianapi.in**. `stock.indianapi.in` is the SHARED host and was never right for this key: traffic to it never reaches the plan, which produced nine days of 429s in Aug 2026 while the vendor console showed 0 requests against a full 10,000.
 - Live budget snapshot (2026-07-19): IndianAPI internal counter 11,582/50,000 after today's backfill (healthy).
 
 ## Auth model
