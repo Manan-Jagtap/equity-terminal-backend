@@ -252,6 +252,14 @@ to a previous `git-<sha>` tag; `DR_DRILL.md` rebuilds the box from scratch.
   `errors_1h` > 25, `error_hours_24h` ≥ 12, `scheduler_beat_min` > 120,
   `price_age_days` > 3, red/stale `integrity`, plus a real CONTENT path
   (`/api/companies`) because a 200 shell is not data.
+- **Branch protection on `main`** (added 26 Aug 2026) — `backend-tests`,
+  `backend-tests-postgres` and `backend-image-boots` must pass before a PR
+  merges. `enforce_admins` is OFF deliberately: during the GitHub Actions
+  outage of 26 Aug 2026 required checks would otherwise have blocked every
+  merge with no way out, so the owner keeps an explicit override. `strict` is
+  also OFF — a PR need not be rebased every time `main` moves, which for a
+  single-maintainer repo costs more than it buys. Frontend `main` is NOT
+  protected.
 - **Pre-push hook** — regenerates and verifies the three parity harnesses.
 - **Accuracy gates in the app** (§5) — metrics bands, statement identities,
   ratio cells, price V-spikes. A wrong number is never preferred to no number.
@@ -301,7 +309,17 @@ to a previous `git-<sha>` tag; `DR_DRILL.md` rebuilds the box from scratch.
    the vendor withdrawing endpoints, and the code stopped calling them for a
    month. Check the host, the key and the plan before concluding a vendor
    changed its mind.
-6. **Never `import scheduler` to check production** — it runs the boot sequence.
-7. **Local `main` lags** (the owner merges on GitHub) and **Vercel occasionally
+6. **Absent CI runs look exactly like a broken workflow.** On 26 Aug 2026 a
+   GitHub Actions incident (15:11 UTC) queued runs ~20 min and dropped others;
+   it read as a misconfigured repo for a while, and the frontend/backend
+   difference was pure queue luck. **Check githubstatus.com before diagnosing
+   the config.** `gh workflow run CI --ref main` now answers "is main green?"
+   directly — that trigger was added because during the outage there was no way
+   to ask.
+7. **A PR can be merged faster than CI can start.** #159 was opened and merged
+   28 seconds apart, so nothing had run. Branch protection (§10) is now the
+   backstop; before it, only discipline was.
+8. **Never `import scheduler` to check production** — it runs the boot sequence.
+9. **Local `main` lags** (the owner merges on GitHub) and **Vercel occasionally
    misses a merge webhook** — branch off `origin/main`; retrigger Vercel with an
    empty commit.
