@@ -48,9 +48,11 @@ def _get(path, params, ttl=TTL, empty_ok=True):
     # `empty_ok` defaults True: the document lists this helper serves
     # (/concalls, /annual_reports, /credit_ratings, /recent_announcements) are
     # legitimately empty for a small name with nothing filed, and
-    # /historical_stats has answered every name with 200 {"info": ...} since
-    # the vendor took it off-plan (DATA-12) — the Financials tabs still call it
-    # per visit, so it must read as "upstream answered", which payload_ok does.
+    # /historical_stats answered every name with 200 {"info": ...} from 24 Jul
+    # to 25 Aug 2026 — diagnosed as the vendor taking it off-plan (DATA-12),
+    # corrected to our calling the wrong host; on dev.indianapi.in it returns a
+    # real series. The Financials tabs call it per visit either way, and an
+    # {"info": ...} body must still read as "upstream answered" (payload_ok).
     # /stock is the exception: it never legitimately answers a ticker we track
     # with an empty body, and its call sites say so. An error envelope with a
     # 200 is a failure and is no longer cached over last-good (#140's fix).

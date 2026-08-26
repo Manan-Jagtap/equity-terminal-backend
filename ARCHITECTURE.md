@@ -35,7 +35,7 @@ EC2 Elastic IP `3.6.183.42`).
 |---|---|---|---|
 | Frontend SPA | `~/equity-terminal` (React 18 + Vite) | Vercel (`equityverdict.com`) | `git push main` → auto |
 | TLS edge (`caddy`) | container on EC2 `i-0f60f2dd6fc5fabd5` | AWS EC2 t3.micro | `/opt/Caddyfile`: auto Let's Encrypt, HSTS, `encode zstd gzip`, proxy → `web:8080` |
-| Backend API (`web`) | `~/Downloads/backend` (FastAPI, 1× uvicorn) | container on same EC2 | build `deploy/aws/Dockerfile` → push ECR `equity-terminal:latest` → recreate container; smoke `/api/health` after |
+| Backend API (`web`) | `~/backend` (FastAPI, 1× uvicorn) | container on same EC2 | build `deploy/aws/Dockerfile` → push ECR `equity-terminal:latest` → recreate container; smoke `/api/health` after |
 | Scheduler | same backend repo, `scheduler.py` | container on same EC2 | same image, command `python scheduler.py`, `--restart always` |
 | Database | **AWS RDS Postgres 16** `equity-terminal-db` (encrypted) / SQLite locally | AWS RDS | app connects via pg8000+TLS (auto for `*.rds.amazonaws.com`) |
 | Documents + backups | Cloudflare R2 (quarterly PDFs; weekly Fernet-encrypted DB dumps) | Cloudflare | — |
@@ -249,6 +249,7 @@ encrypted backup + `restore_backup.py` are the data-cutover vehicle.
 | `ADMIN_EMAILS` | web | comma-separated admin allowlist (gate fails closed) |
 | `DATABASE_URL` | both | Postgres in prod; SQLite default locally |
 | `INDIANAPI_KEY` | both | sole fundamentals/news vendor (quota-budgeted) |
+| `INDIANAPI_BASE`, `INDIANAPI_ANALYST_BASE` | both | **the plan's host** — Developer plan = its dedicated `https://dev.indianapi.in` (code default since 25 Aug 2026; it serves the analyst endpoints too, which `analyst.indianapi.in` answers 403 to). The shared `stock.indianapi.in` never reaches this plan and 429s forever against a console showing 0 used. An env var beats the code default, so `/opt/app.env` must also say it — `deploy/aws/set-vendor-key.sh` writes key + both bases together |
 | `DHAN_*` + TOTP vars | both | live prices, EOD, holdings; token self-renews via KV |
 | `TRUSTED_PROXY_HOPS` | web | 1 (Caddy edge on the same box); tune if real users hit 429s |
 | `RATE_LIMIT_GENERAL` / `RATE_LIMIT_AUTH` | web | defaults 240 / 10 per minute |
@@ -261,7 +262,7 @@ encrypted backup + `restore_backup.py` are the data-cutover vehicle.
 ## 10. Verification runbook
 
 ```bash
-# backend (~/Downloads/backend; system python3 lacks deps — use venv313)
+# backend (~/backend; system python3 lacks deps — use venv313)
 venv313/bin/python -m pytest tests/ -q                       # must: 191+ pass
 venv313/bin/python tests/gen_parity_cases.py <fe>/tests/parityCases.json
 venv313/bin/python tests/gen_derive_cases.py <fe>/tests/deriveCases.json

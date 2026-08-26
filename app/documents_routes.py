@@ -5,17 +5,22 @@ credit ratings, announcements) from the stored insight blob.
   GET /api/companies/{ticker}/documents → the insight's normalised "documents"
                                           dict, or {} — NEVER a 500.
 
-Provenance, stated honestly (as of 16 Aug 2026): the blob WAS populated by the
-ingester's _documents() call to IndianAPI /documents until the vendor revoked
-that endpoint on 24 Jul 2026 (404 "Endpoint not allowed" — DATA-12). The rows
-served today are last-good values restored from the 22–23 Jul R2 backups and
-kept alive by the DATA-12 merge-not-replace: the ingester still asks, gets
-None, and keeps the stored copy. BSE's own announcements API has been anti-bot
-blocked since mid-Jul 2026 (see _LIVE_BSE_OVERLAY below). So there is currently
-NO live refresh path for this route — it serves stored filings that only get
-older — and neither source may be described as live without re-checking it
-first. If real-time filings become a requirement, the path is a licensed feed:
-not scraping BSE, and no longer the vendor endpoint.
+Provenance, stated honestly (corrected 25 Aug 2026): the blob is populated by
+the ingester's _documents() call to IndianAPI /documents, which answers again.
+
+From 24 Jul to 25 Aug 2026 that call returned 404 "Endpoint not allowed" and
+this docstring said the vendor had revoked the endpoint (DATA-12); the route
+served only last-good values restored from the 22–23 Jul R2 backups, kept alive
+by the DATA-12 merge-not-replace. That diagnosis was wrong. The Developer plan
+has a dedicated host, dev.indianapi.in, and we were calling the shared
+stock.indianapi.in; against dev, /documents returns 200. The endpoint is back
+on-plan and this route has a live refresh path again.
+
+BSE's own announcements API HAS been anti-bot blocked since mid-Jul 2026 and
+still is (see _LIVE_BSE_OVERLAY below) — that block is unrelated to IndianAPI
+and was never part of the misdiagnosis. Neither source may be described as live
+without re-checking it; the lesson of DATA-12 is that an error body is evidence
+about the request, not proof about the plan.
 """
 import re
 import time

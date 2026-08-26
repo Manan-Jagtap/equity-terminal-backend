@@ -22,9 +22,11 @@ which is a different question per job:
                       twice is harmless.
   never_catch_up      the miss is recorded and surfaced, but NOT replayed —
                       either because the replay cannot recover what was lost, or
-                      because it would spend vendor quota chasing data the
-                      vendor will not return (IndianAPI is at 429 today, and
-                      api_budget already refuses).
+                      because it would spend vendor quota chasing data the next
+                      scheduled run fetches anyway. (Written 17 Aug 2026, when
+                      every IndianAPI call was 429ing — corrected 25 Aug 2026:
+                      that was the wrong vendor host, not a spent quota. The
+                      policy stands on cost; api_budget is the real gate.)
   already_self_healing  the next ordinary run subsumes the missed one, so
                       catching up would be pure duplicate work.
 
@@ -103,13 +105,17 @@ JOBS: dict[str, tuple[str, str, str, str]] = {
 
     "run_full": ("00:30", SUN, "never_catch_up",
         "The weekly full ingest is the single largest quota consumer. "
-        "Replaying it on boot during a 429 would spend budget the owner does "
-        "not have, for data the vendor will not return. The miss is recorded "
-        "and surfaced; the next Sunday's run is the recovery."),
+        "Replaying it on boot would spend a large slice of the month's budget "
+        "re-fetching what next Sunday fetches anyway. (This reason originally "
+        "read 'during a 429'; that Aug-2026 429 was the wrong host, corrected "
+        "25 Aug 2026 — the cost argument is what carries the policy.) The miss "
+        "is recorded and surfaced; the next Sunday's run is the recovery."),
     "run_results_calendar": ("22:30", FRI, "never_catch_up",
-        "~500 /corporate_actions calls behind an api_budget pre-flight that "
-        "self-refuses at the current 429 — a replay would either no-op or burn "
-        "quota. Recorded, not replayed."),
+        "~500 /corporate_actions calls behind an api_budget pre-flight — a "
+        "replay either no-ops on the pre-flight or burns a day's quota for a "
+        "calendar the next Friday rebuilds. (Originally justified by 'the "
+        "current 429'; that was the wrong host, corrected 25 Aug 2026.) "
+        "Recorded, not replayed."),
 }
 
 

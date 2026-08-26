@@ -35,7 +35,13 @@
 #
 set -Eeuo pipefail
 
-REPO_DIR="${REPO_DIR:-$HOME/Downloads/backend}"
+# REPO_DIR resolves from THIS script's own location (…/deploy/aws/deploy.sh
+# → repo root), so moving the checkout can never point a deploy at a stale
+# copy — failure mode #3 above, arrived at from a different direction. It was
+# hardcoded to ~/Downloads/backend until 26 Aug 2026, when the repo moved out
+# of ~/Downloads (macOS restricts that folder) and this default went dead.
+_SELF_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_DIR="${REPO_DIR:-$_SELF_REPO}"
 REGION="ap-south-1"
 ACCOUNT="593334122677"
 ECR="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/equity-terminal"

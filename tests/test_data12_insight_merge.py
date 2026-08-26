@@ -1,8 +1,11 @@
 """DATA-12: the CompanyInsight blob must MERGE, never blind-replace.
 
-Live incident 24 Jul 2026: the vendor started answering /documents with 404
-"Endpoint not allowed" (plan change) and /historical_stats with "Not a valid
-script_code". Those parsers returned None, `_insights` dropped the empty keys,
+Live incident 24 Jul 2026: /documents started answering 404 "Endpoint not
+allowed" and /historical_stats "Not a valid script_code" — read at the time as
+a plan change, corrected 25 Aug 2026 to our calling the wrong vendor host (the
+Developer plan's own is dev.indianapi.in). The cause is irrelevant to this
+test: whatever silences an endpoint, the blob must merge. Those parsers
+returned None, `_insights` dropped the empty keys,
 and the old `row.data = data` full replace DELETED the last-good stored values —
 documents for ~378 names and quarterly results for ~736. Same purge-before-
 validate class as DATA-02 (statements), which _swap_statements already guards.

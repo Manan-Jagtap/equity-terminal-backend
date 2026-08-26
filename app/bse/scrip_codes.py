@@ -7,10 +7,13 @@ not in the table, get_scrip_code() falls back to BSE's quote-search endpoint.
 What that fallback actually does today (checked 16 Aug 2026): BSE answers
 getQouteSearchW.aspx with a 302 to error_Bse.html, r.json() raises on the
 HTML, and the lookup returns None after one WARNING — it resolves nothing for
-any ticker outside the table. Its downstream is closed too: the BSE
-announcements API has been anti-bot blocked since mid-Jul 2026 and the vendor
-revoked IndianAPI /documents on 24 Jul 2026, so a scrip code currently buys no
-live filings from anywhere. The fallback is kept (not deleted) for the offline
+any ticker outside the table. Its downstream is BSE-shaped only: the BSE
+announcements API has been anti-bot blocked since mid-Jul 2026 and still is, so
+a scrip code buys no live BSE filings. (This paragraph also said IndianAPI had
+revoked /documents on 24 Jul 2026 — corrected 25 Aug 2026: that was the wrong
+host answering; /documents is on-plan on dev.indianapi.in and company documents
+reach us through the ingester, needing no scrip code.) The fallback is kept
+(not deleted) for the offline
 tooling — scripts/backfill_nbfc_docs.py, scripts/test_bse_fetch.py,
 app/bse/fetcher.py — and for the day BSE answers again; the request-time
 caller, documents_routes._merge_live_bse, no longer reaches it (short-circuited
@@ -124,9 +127,11 @@ BSE_SCRIP_CODES: dict[str, str] = {
     #
     # A wrong scrip code is not a blank: get_scrip_code() feeds documents_routes,
     # so it would attach another listed company's filings to Tata Capital under a
-    # confident-looking UI. That is the DATA-10 contamination shape, and the two
-    # sources that could have verified it are both closed (BSE blocks us, and the
-    # vendor revoked /documents on 24 Jul 2026).
+    # confident-looking UI. That is the DATA-10 contamination shape. When this
+    # was written both verification routes looked closed; corrected 25 Aug 2026,
+    # IndianAPI /documents was never revoked (wrong host). It does not help here
+    # anyway: only BSE's own listing can confirm a scrip CODE, and BSE still
+    # blocks us.
     #
     # Absent beats wrong: with no entry, get_scrip_code returns None and the
     # caller degrades to "no filings" honestly. Restore it with a code read off

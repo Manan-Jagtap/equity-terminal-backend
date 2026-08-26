@@ -1,8 +1,10 @@
 """
 indianapi_ingester.py — accurate Indian fundamentals from indianapi.in.
 
-Pulls EVERYTHING from the single reliable /stock endpoint (the /historical_stats
-endpoint is flaky/504s, so we don't use it). Per company, one call gives:
+Pulls EVERYTHING structural from the single reliable /stock endpoint;
+/historical_stats supplements it (ratios, growth, quarter results). An older
+version of this line called /historical_stats unusable — it is not; see the
+_ON_PLAN flags below and the 25 Aug 2026 correction there. Per /stock call:
   - 7 annual years of Income Statement / Balance Sheet / Cash Flow  → HistoricalFinancial
   - latest-year facts (revenue, PAT, net worth, net debt)           → FinancialFact
   - corrected shares outstanding (PAT / EPS)                        → Company.shares_outstanding
@@ -318,25 +320,29 @@ def _price_from_stock(s, co, stock):
 # Everything here is best-effort: a failure never breaks the core statements.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Endpoints the vendor took OFF-PLAN on 24 Jul 2026 (DATA-12) ──────────────
-# /documents answers 404 "Endpoint not allowed"; /historical_stats answers HTTP
-# 200 with the body {"info": "Not a valid script_code"} for every name. Neither
-# can return data, yet every refresh kept asking: 3 /historical_stats calls per
-# name (_ratios, _growth, _results_snapshot), a 4th for lenders
-# (_financial_pl_supplement), plus 1 /documents call — ~4 of the ~10 vendor
-# calls we spend per name bought nothing. Over a ~1,000-name refresh that is
-# ~4,000 of a 10,000-call monthly budget, enough for api_budget's pre-flight to
-# refuse a run over spend that could never have returned anything.
+# ── The DATA-12 "off-plan" flags, and the misdiagnosis behind them ───────────
+# 24 Jul 2026: /documents began answering 404 "Endpoint not allowed" and
+# /historical_stats began answering HTTP 200 {"info": "Not a valid script_code"}
+# for every name. Read as the vendor withdrawing two endpoints from our plan,
+# both were switched off here (flags False) to stop paying for calls that could
+# not answer: 3 /historical_stats per name (_ratios, _growth,
+# _results_snapshot), a 4th for lenders (_financial_pl_supplement) and 1
+# /documents — ~4 of the ~10 vendor calls per name, ~4,000 over a ~1,000-name
+# refresh, enough for api_budget's pre-flight to refuse a run.
 #
-# These flags gate the REQUEST only. Every parser, call site and merge below is
-# untouched, so re-enabling is a one-line flip once a manual probe (one curl,
-# not a full-universe run) shows the endpoint answering again. Same shape as
-# documents_routes._LIVE_BSE_OVERLAY, which parked the dead BSE overlay.
+# CORRECTED 25 Aug 2026: nothing was withdrawn. The Developer plan has a
+# DEDICATED host, dev.indianapi.in, and we had been calling the shared
+# stock.indianapi.in. Against dev, /historical_stats returns a real 12-year
+# series and /documents returns 200. The 404 and the {"info": ...} body were the
+# WRONG HOST answering and we read a refusal into them. Both flags are back ON
+# and api_budget.CALLS_PER_FULL_INGEST is back to 10.
 #
-# Not asking also makes health MORE truthful, not less: /documents was feeding
-# vendor_meter a guaranteed failure and /historical_stats three guaranteed
-# successes into every name's ~10 outcomes, diluting the 80%-of-20 failure floor
-# in both directions.
+# The flags are KEPT, not deleted. They gate the REQUEST only — every parser,
+# call site and merge below is untouched — so a one-line flip is still the right
+# tool if an endpoint ever genuinely goes away. Flip it on a manual probe (one
+# curl, not a full-universe run) against the host the plan is provisioned on,
+# never on an inference from an error body. Same shape as
+# documents_routes._LIVE_BSE_OVERLAY, which parks the BSE overlay that IS dead.
 _HISTORICAL_STATS_ON_PLAN = True
 _DOCUMENTS_ON_PLAN = True
 
@@ -368,12 +374,14 @@ def _get_safe(path, params):
     empty (a name with no forecasts, no peers), so empty is not a failure; a
     non-200, a transport error or an error envelope is.
 
-    An endpoint the vendor has taken off-plan is short-circuited BEFORE the tick
-    (see _endpoint_on_plan), so a call that cannot answer costs neither quota nor
-    an outcome. For one that IS made, the health verdict and the caller's verdict
-    are deliberately different: a 200 {"info": ...} is recorded as upstream
-    ANSWERING (payload_ok's rule — off-plan is not a dead vendor) but returned to
-    the caller as None, because it is not data and callers STORE what they get."""
+    An endpoint switched off at _endpoint_on_plan is short-circuited BEFORE the
+    tick, so a call that cannot answer costs neither quota nor an outcome. Both
+    flags are ON since 25 Aug 2026 (the DATA-12 withdrawal was a wrong-host
+    misdiagnosis), so nothing is short-circuited today. For any call that IS
+    made, the health verdict and the caller's verdict are deliberately
+    different: a 200 {"info": ...} is recorded as upstream ANSWERING
+    (payload_ok's rule — an error body is not a dead vendor) but returned to the
+    caller as None, because it is not data and callers STORE what they get."""
     if not _endpoint_on_plan(path):
         return None
     if not KEY:
@@ -392,9 +400,12 @@ def _get_safe(path, params):
         vendor_meter.record(False)
         return None
     vendor_meter.record(vendor_meter.payload_ok(data, empty_ok=True))
-    # DATA-12, second half: an ERROR-SHAPED dict is not data. Since 24 Jul 2026
-    # /historical_stats answers 200 {"info": "Not a valid script_code"} for every
-    # name — a NON-EMPTY dict, so _ratios/_growth returned it as a RESULT,
+    # DATA-12, second half: an ERROR-SHAPED dict is not data. This guard was
+    # written for the wrong reason and is right anyway — see the 25 Aug 2026
+    # correction above. From 24 Jul to 25 Aug 2026 /historical_stats answered
+    # 200 {"info": "Not a valid script_code"} for every name (the wrong host, as
+    # it turned out) — a NON-EMPTY dict, so _ratios/_growth returned it as a
+    # RESULT,
     # _build_insight's `if v` filter kept it, and the DATA-12 merge (which only
     # protects keys ABSENT from the fresh blob) wrote it OVER the stored
     # last-good ratios/growth on every single refresh. /api/operations then
@@ -906,9 +917,10 @@ def _build_insight(s, co, stock, debug=False):
         # `data` above drops any field that came back empty, so a vendor endpoint
         # that goes away silently produced a blob MISSING that key, and the old
         # `row.data = data` then DELETED the last-good value. Observed live on
-        # 24 Jul 2026: the vendor began answering /documents with 404 "Endpoint
-        # not allowed" (plan change) and /historical_stats with "Not a valid
-        # script_code", so a full-universe refresh wiped stored documents for
+        # 24 Jul 2026: /documents began answering 404 "Endpoint not allowed" and
+        # /historical_stats "Not a valid script_code" — diagnosed then as a plan
+        # change, corrected 25 Aug 2026 to our calling the wrong vendor host —
+        # so a full-universe refresh wiped stored documents for
         # ~378 names and quarterly results for ~736 — the same purge-before-
         # validate class as DATA-02 (statements), which _swap_statements already
         # guards. Fresh keys win; keys absent this run keep their last-good value

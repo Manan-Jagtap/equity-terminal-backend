@@ -52,11 +52,12 @@ app.include_router(history_router)
 from app.news_routes import router as news_router
 app.include_router(news_router)
 # ARCH-05: /api/bse/* removed — zero frontend callers and the BSE AnnGetData
-# vendor path is anti-bot blocked. (An earlier version of this note said docs
-# freshness still came from IndianAPI /documents — no longer true: the vendor
-# revoked that endpoint on 24 Jul 2026 (DATA-12), so the documents route now
-# serves last-good stored filings with no live refresh path at all; see
-# app/documents_routes.py.) The app/bse/ package + scripts/test_bse_fetch.py
+# vendor path is anti-bot blocked (that block is real and still stands). A later
+# revision of this note claimed docs freshness had ALSO gone, the vendor having
+# revoked /documents on 24 Jul 2026 (DATA-12); corrected 25 Aug 2026 — that was
+# the wrong host answering, /documents is on-plan on dev.indianapi.in and the
+# ingester refreshes filings again (see app/documents_routes.py).
+# The app/bse/ package + scripts/test_bse_fetch.py
 # remain for offline use; only the dead API surface is gone.
 from app.market_routes import router as market_router
 app.include_router(market_router)
@@ -497,7 +498,9 @@ def health(db: Session = Depends(get_db)):
     # overdue. Published rather than merely logged so uptime.yml can alert, and
     # the STUCK ones named separately: a job the catch-up will replay is a
     # transient, whereas run_full and the results calendar are never replayed
-    # (both quota-heavy, both refused during the current vendor 429) and need a
+    # (both quota-heavy; they were also refused during the Aug-2026 vendor 429,
+    # which turned out to be the wrong host rather than a spent quota — the
+    # never-replay policy rests on cost, not on that episode) and need a
     # human decision. Naming replayable jobs here would train the reader to
     # ignore the field.
     jobs_overdue = None

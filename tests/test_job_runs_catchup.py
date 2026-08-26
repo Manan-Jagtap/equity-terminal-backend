@@ -72,8 +72,10 @@ def test_a_run_recorded_after_the_slot_clears_it(db):
 
 def test_never_catch_up_jobs_are_never_replayed():
     """run_full and the results calendar are the quota-heavy pair. Replaying
-    them during the current vendor 429 would spend budget the owner does not
-    have, on data the vendor will not return — they are reported, not run."""
+    them would spend a large slice of the month's budget re-fetching what the
+    next scheduled run fetches anyway — they are reported, not run. (This said
+    "during the current vendor 429"; that Aug-2026 429 was the wrong vendor
+    host, corrected 25 Aug 2026.)"""
     for job in ("run_full", "run_results_calendar"):
         rec = {"job": job, "policy": jr.JOBS[job][2], "due_at": _at(2026, 8, 16, 0, 30).isoformat()}
         assert rec["policy"] == "never_catch_up"

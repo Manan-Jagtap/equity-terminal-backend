@@ -632,8 +632,11 @@ def run_missed_job_catchup():
 
     never_catch_up jobs are NOT replayed here; they are still recorded, and
     /api/health publishes them as overdue so a miss stops being silent. That is
-    the whole point — replaying run_full during a vendor 429 would spend quota
-    the owner does not have on data the vendor will not return."""
+    the whole point — replaying run_full would spend a large slice of the
+    month's vendor budget re-fetching what the next scheduled run fetches
+    anyway. (This read "during a vendor 429" when written; the Aug-2026 429 was
+    the wrong vendor host, corrected 25 Aug 2026 — the cost argument stands
+    alone.)"""
     from app.database import SessionLocal
     from app import job_runs
     s_ = SessionLocal()

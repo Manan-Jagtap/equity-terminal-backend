@@ -11,8 +11,10 @@ ledger makes prices silently WRONG rather than visibly missing.
 
 This is the DATA-12 shape exactly: on 24 Jul 2026 a vendor endpoint began
 returning 404 and a blind replace wiped ~378 of ~736 names before anyone noticed.
-That incident was fixed by merging instead of replacing; this call site kept the
-old pattern.
+(That 404 was traced on 25 Aug 2026 to our calling the wrong vendor host, not to
+a withdrawn endpoint — irrelevant here: purging on an absent payload is wrong
+whatever silenced the payload.) That incident was fixed by merging instead of
+replacing; this call site kept the old pattern.
 
 Run: ./venv313/bin/python -m pytest tests/test_corporate_action_no_blind_purge.py -q
 """
@@ -55,7 +57,7 @@ def _count(session, co):
 
 
 def test_vendor_omits_the_block_entirely(session, company):
-    """The 404 / revoked-endpoint case — the one that caused DATA-12."""
+    """The 404 / silent-endpoint case — the one that caused DATA-12."""
     assert _count(session, company) == 2
     _save_corporate_actions(session, company, {})          # no corporate-action key
     assert _count(session, company) == 2, "an absent payload wiped stored history"
