@@ -2,6 +2,7 @@
 Turn DB rows into flat dicts the engines consume.
 All fields have safe defaults so None values never crash the engines.
 """
+import datetime as _dt
 from sqlalchemy.orm import Session
 from . import models, concepts as K
 from . import templates as T
@@ -40,6 +41,17 @@ def assumptions_dict(asm: models.Assumptions) -> dict:
         "fade_years":   safe(asm.fade_years, 8),
         "terminal_growth": safe(asm.terminal_growth, 0.05),
     }
+
+
+def _ce_delisted(ticker: str) -> bool:
+    """True when the corporate-events registry marks this ticker as no longer
+    listed. Import is local and defensive: a registry problem must degrade to
+    "assume still listed" (today's behaviour) rather than break every page."""
+    try:
+        from app.corporate_events import for_ticker as _ft
+        return bool((_ft(ticker) or {}).get("delisted"))
+    except Exception:
+        return False
 
 
 def build_company(db: Session, co: models.Company) -> dict:
@@ -85,6 +97,21 @@ def build_company(db: Session, co: models.Company) -> dict:
     eff_type = "financial" if valuation_sector in SP.FINANCIAL_VSECTORS else co.type
     is_fin = T.is_financial(template_code) or eff_type == "financial"
 
+    # How OLD is that price, and does the security still exist? Both were
+    # missing from the payload entirely, so nothing downstream — trust layer,
+    # API consumer or UI — could tell a live quote from a dead one. JBCHEPHARM
+    # was served at 28 days old with confidence 1.0 because there was simply no
+    # field in which to say otherwise. `price` stays exactly as it was; these
+    # are additive.
+    price_as_of = co.market.as_of if (co.market and real_price is not None) else None
+    price_stale_days = None
+    if price_as_of is not None:
+        try:
+            price_stale_days = (_dt.date.today() - price_as_of.date()).days
+        except Exception:          # never let a clock/type edge break the page
+            price_stale_days = None
+    delisted = bool(_ce_delisted(co.ticker))
+
     out = {
         "id": co.id, "ticker": co.ticker, "name": co.name,
         "type": eff_type, "sector": co.sector,
@@ -92,6 +119,9 @@ def build_company(db: Session, co: models.Company) -> dict:
         "price": price, "equity": equity, "net_profit": net_profit,
         "series": series, "synthetic_series": synthetic_series,
         "synthetic_price": real_price is None,
+        "price_as_of": price_as_of.isoformat() if price_as_of is not None else None,
+        "price_stale_days": price_stale_days,
+        "delisted": delisted,
         "template_code": template_code,
         "is_financial_template": is_fin,
         "valuation_sector": valuation_sector,

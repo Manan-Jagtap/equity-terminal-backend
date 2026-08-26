@@ -3,13 +3,17 @@ app/data_integrity.py — the continuous data-integrity sweep.
 
 The one-off enterprise audit (17 Jul 2026) proved these checks find real issues;
 this module makes them a STANDING control instead of an event. It validates the
-stored universe directly against the DB (no HTTP, no rate limits):
+stored universe directly against the DB. One check (delisted_still_publishing)
+consults the broker instrument master, which app/dhan/instruments.py already
+caches for the daily EOD job — so it is normally a warm-cache read, and it
+fails safe to flagging nothing when the master is unavailable:
 
   · duplicate display names (post-demerger collisions)
   · price / shares / P-E / P-B / ROE / MoS sanity bands
   · verdict ↔ MoS coherence (a BUY must not carry negative MoS, etc.)
   · BUY/ACCUMULATE on LOW confidence (the gates must have caught these)
   · stale market snapshots (price older than STALE_PRICE_DAYS)
+  · tickers absent from the instrument master (delisted but still publishing)
   · statement identities on a bounded sample (net worth ≤ total assets, …)
 
 Runs weekly from the scheduler (Sun 03:00 UTC, after the full refresh) and on
@@ -29,6 +33,73 @@ def _flag(findings, ticker, check, severity, detail):
     if len(findings) < MAX_FINDINGS:
         findings.append({"ticker": ticker, "check": check,
                          "severity": severity, "detail": str(detail)[:200]})
+
+
+# The master is only evidence about OUR universe if it recognises most of it.
+# Real delistings are a handful in ~1,000 names (4 of 1,017 on 26 Aug 2026, and
+# 3 of those were already handled); anything above this fraction means the
+# master did not load, or is not describing this universe at all.
+_LISTING_MAX_ABSENT_PCT = 2.0
+
+
+def _listing_findings(findings, companies, snap_by):
+    """Flag published tickers that no longer exist in the broker instrument
+    master — the LEADING indicator of a delisting.
+
+    Absence there precedes `price_stale` by weeks: JBCHEPHARM was amalgamated
+    into Torrent Pharma on 8 Jul 2026, left the master immediately, and only
+    tripped price_stale five days later — by which point the page had been
+    serving a dead quote at confidence 1.0 the whole time.
+
+    Fail-SAFE, in the only direction that matters: if the master cannot place
+    more than _LISTING_MAX_ABSENT_PCT of the universe, we return having flagged
+    NOTHING. The failure to avoid is a network hiccup — or a synthetic test
+    universe — condemning all ~1,000 names at once, burying a real finding under
+    noise and training the reader to ignore the sweep. The decision is made on
+    the whole universe before any finding is emitted.
+
+    A delisting already acknowledged in corporate_events is NOT flagged: the
+    question this check asks is "is anything publishing as live that no longer
+    exists and we have not handled?", and a registered entry is the handling.
+    """
+    if not companies:
+        return
+    try:
+        from app.dhan.instruments import security_id
+        from app.corporate_events import for_ticker as _ce
+    except Exception:
+        return
+
+    absent = []
+    for co in companies:
+        try:
+            if security_id(co.ticker):
+                continue
+        except Exception:
+            return          # the master itself is failing — no absence is evidence
+        absent.append(co)
+
+    # THE guard. Decided on the whole universe before a single finding is
+    # emitted: a master that cannot place 98% of our names is not describing our
+    # universe (it failed to load, or this is a synthetic/test universe), and
+    # every "absence" it reports is an artefact. Flagging them would bury a real
+    # delisting under ~1,000 false ones and teach the reader to ignore the sweep.
+    if len(absent) * 100.0 / len(companies) > _LISTING_MAX_ABSENT_PCT:
+        return
+
+    for co in absent:
+        tk = co.ticker
+        if (_ce(tk) or {}).get("delisted"):
+            continue                                 # known and handled honestly
+        snap = snap_by.get(co.id)
+        price = getattr(snap, "price", None) if snap else None
+        if price and price > 0:
+            # Publishing a price for a security that no longer trades.
+            _flag(findings, tk, "delisted_still_publishing", "P1",
+                  f"absent from instrument master; still serving price {price}")
+        else:
+            _flag(findings, tk, "absent_from_instrument_master", "P2",
+                  "absent from instrument master (publishes no price)")
 
 
 def run_integrity_sweep(db) -> dict:
@@ -145,6 +216,8 @@ def run_integrity_sweep(db) -> dict:
             ta, nw = bs.get("total_assets"), bs.get("net_worth")
             if ta and nw is not None and nw > ta * 1.02:
                 _flag(findings, co.ticker, "networth_gt_assets", "P1", f"{yr}: nw {nw} ta {ta}")
+
+    _listing_findings(findings, companies, snap_by)
 
     by_check: dict[str, int] = {}
     by_sev: dict[str, int] = {}

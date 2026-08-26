@@ -12,6 +12,10 @@ fabricates an "undervalued" signal (the Bajaj Finance P/E 3.4x / P/B 0.73x case)
 """
 from __future__ import annotations
 
+# Same threshold data_integrity.py uses for its price_stale finding, so the
+# trust layer and the integrity sweep agree on what "stale" means.
+STALE_PRICE_DAYS = 5
+
 
 def data_quality(co: dict) -> dict:
     flags: list[str] = []
@@ -37,6 +41,22 @@ def data_quality(co: dict) -> dict:
     # A missing live price makes margin-of-safety meaningless — drop confidence
     # below the reliability threshold so the verdict reads LOW CONF, never a BUY.
     if co.get("synthetic_price"):          penal(0.60, "Live price unavailable — margin of safety vs price is not meaningful")
+
+    # A price that stopped updating is not a live price either, and the extreme
+    # case is a security that no longer exists. JBCHEPHARM (amalgamated into
+    # Torrent Pharma 8 Jul 2026, gone from both vendors) was still scoring a
+    # clean 1.0 "high" on a 28-day-old quote, because nothing here looked at the
+    # age of the price — only at whether one was present. Margin of safety
+    # against a dead quote is arithmetic, not information.
+    #
+    # Mirrors src/lib/dataQuality.js. Both fields are additive and absent from
+    # the parity fixtures, so existing verdict cases are unaffected by design.
+    if co.get("delisted"):
+        penal(0.60, "No longer listed — figures are historical, not current market data")
+    else:
+        _age = co.get("price_stale_days")
+        if isinstance(_age, (int, float)) and _age > STALE_PRICE_DAYS:
+            penal(0.30, f"Price is {int(_age)} days old — margin of safety vs price may be out of date")
 
     pb = pe = roe = None
     if equity and equity > 0 and shares and shares > 0 and price:
