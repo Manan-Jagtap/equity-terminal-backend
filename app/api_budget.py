@@ -104,3 +104,54 @@ def remaining(db, month: str | None = None) -> int:
 def would_exceed(db, projected: int, month: str | None = None) -> bool:
     """True if spending `projected` more calls this month would breach budget."""
     return (month_usage(db, month) + max(0, projected)) > budget()
+
+
+# ── Per-CALL ceiling ─────────────────────────────────────────────────────────
+#
+# would_exceed() above is a PRE-FLIGHT: a batch entry point projects a whole run
+# and refuses before starting (full ingest, backfill, profile refresh, MF). It
+# governs nothing once a run is under way, and nothing at all for code that
+# reaches the vendor helpers directly.
+#
+# On 26 Aug 2026 a one-off repair did exactly that — ~1,600 _get_safe calls with
+# no pre-flight — and sailed past the ceiling to 9,567 of 9,500. Nothing stopped
+# it because nothing was asking. FIX-07 had made those calls COUNTED; it never
+# made them GATED.
+#
+# The guard has to be cheap enough to sit in front of every single call, so it
+# caches the verdict for _CEILING_TTL_S and opens its own short-lived session
+# (the vendor helpers are module-level and hold no db). Worst case overshoot is
+# one TTL of traffic, which is bounded and tiny next to a whole month.
+#
+# It fails OPEN on any error: a metering hiccup must not halt ingest. That is
+# not the hole that caused the overrun — the hole was having no guard at all.
+_CEILING_TTL_S = 60.0
+_ceiling_at = 0.0
+_ceiling_over = False
+
+
+def over_budget(force: bool = False) -> bool:
+    """True when this month's usage has reached the budget. Cheap (cached
+    _CEILING_TTL_S), thread-safe enough for the purpose, never raises."""
+    global _ceiling_at, _ceiling_over
+    import time as _t
+    now = _t.time()
+    if not force and (now - _ceiling_at) < _CEILING_TTL_S:
+        return _ceiling_over
+    try:
+        from app.database import SessionLocal
+        db = SessionLocal()
+        try:
+            over = remaining(db) <= 0
+        finally:
+            db.close()
+    except Exception:
+        return False                      # fail open — never halt on a metering fault
+    _ceiling_over, _ceiling_at = bool(over), now
+    return _ceiling_over
+
+
+def _reset_ceiling_cache() -> None:
+    """Test hook: drop the cached verdict so the next call re-reads."""
+    global _ceiling_at, _ceiling_over
+    _ceiling_at, _ceiling_over = 0.0, False

@@ -545,9 +545,17 @@ def test_unmeasured_and_vendor_reasons_compose(tmp_path):
 
 
 def test_health_key_set_is_unchanged_by_degrade_reasons(hermetic_app):
-    """The FE<->BE contract (tests/contract_keys.json) is key presence; the new
-    signals ride inside degraded_reason and add NO steady-state keys — a
-    frontend vitest importing the same file must not go red for this."""
+    """The FE<->BE contract (tests/contract_keys.json) is key presence, and this
+    pins the live response to it.
+
+    The vendor_failing / vendor_unreachable signals ride inside degraded_reason
+    and add no steady-state keys. `vendor_dead_endpoints` is the same — present
+    only when an endpoint is actually dead. `vendor_budget` / `vendor_budget_left`
+    ARE steady-state and were added to the contract file deliberately on 26 Aug
+    2026 (an exhausted budget and a broken vendor look identical from outside
+    once calls stop returning data, and the 9,567-of-9,500 overrun was invisible
+    here). Any further addition must be a conscious edit of that file, which is
+    the point of this test."""
     import json, os
     from fastapi.testclient import TestClient
     app, _ = hermetic_app

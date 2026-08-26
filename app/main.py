@@ -544,10 +544,36 @@ def health(db: Session = Depends(get_db)):
         # one outage.
         elif vendor_meter.failing():
             reasons.append("vendor_failing")
+        # ENDPOINT-LEVEL DEATH. Both rules above ask "is the VENDOR up", and
+        # both answered yes for the whole DATA-12 month while /historical_stats
+        # replied to every name with 200 {"info": "Not a valid script_code"} —
+        # a body the vendor chose to send, so payload_ok scores it a success on
+        # purpose (that is an uptime judgement and it is left alone). 633 insight
+        # rows were poisoned before anyone noticed, because no signal separated
+        # "answered" from "served data".
+        #
+        # Named per endpoint, and never as "vendor down": the vendor IS up. It
+        # is this endpoint that is serving nothing.
+        _dead = vendor_meter.envelope_endpoints()
+        if _dead:
+            vendor["vendor_dead_endpoints"] = _dead
+            reasons.append("vendor_endpoint_dead:" +
+                           ",".join(d["path"] for d in _dead[:3]))
     except Exception as exc:
         # The meter is in-process and cannot fail for DB reasons; if it does
         # raise, that is a bug worth seeing, not one worth paging over.
         log.warning("health: vendor meter unreadable — %s", exc)
+    try:
+        # Quota left this cycle. Surfaced because "out of budget" and "vendor
+        # broken" look identical from the outside once calls stop returning
+        # data — and on 26 Aug 2026 the overrun (9,567 of 9,500) was invisible
+        # here. Reported, NOT degraded: an exhausted budget is a planned state,
+        # and the cycle resets on INDIANAPI_CYCLE_DAY.
+        from app import api_budget as _B
+        vendor["vendor_budget_left"] = _B.remaining(db)
+        vendor["vendor_budget"] = _B.budget()
+    except Exception as exc:
+        log.warning("health: budget unreadable — %s", exc)
     if unmeasured:
         reasons.append("unmeasured:" + ",".join(unmeasured))
     degraded = ";".join(reasons) if reasons else None

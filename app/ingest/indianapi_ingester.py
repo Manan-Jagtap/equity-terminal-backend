@@ -60,9 +60,37 @@ def reset_call_count() -> None:
     _CALL_COUNT = 0
 
 
+class VendorBudgetExhausted(RuntimeError):
+    """Raised by _get when the monthly vendor budget is spent."""
+
+
+def _budget_blocked() -> bool:
+    """True when the month's vendor budget is gone and no override is set.
+
+    Shares the ONE override the full-ingest pre-flight already uses
+    (INDIANAPI_ALLOW_OVER), so there is a single documented way past the
+    ceiling rather than two that can disagree. Never raises: a metering fault
+    must not halt ingest, and api_budget.over_budget() already fails open.
+    """
+    if os.getenv("INDIANAPI_ALLOW_OVER", "").strip().lower() in ("1", "true", "yes"):
+        return False
+    try:
+        from app import api_budget
+        return api_budget.over_budget()
+    except Exception:
+        return False
+
+
 def _get(path, params, retries=4):
     if not KEY or KEY.lower().startswith(("paste", "your")):
         raise RuntimeError("INDIANAPI_KEY is not set to your real key.")
+    # A required call with no quota left must FAIL, not quietly return nothing —
+    # its callers store what they get, and a silent None here would be written
+    # over good data exactly like the DATA-12 envelope was.
+    if _budget_blocked():
+        raise VendorBudgetExhausted(
+            "INDIANAPI monthly budget exhausted — refusing %s. "
+            "Set INDIANAPI_ALLOW_OVER=1 to override." % path)
     global _CALL_COUNT, _CALL_MONTH
     m = _dt.date.today().strftime("%Y-%m")
     if m != _CALL_MONTH:                       # month rollover → fresh in-process tally
@@ -84,6 +112,7 @@ def _get(path, params, retries=4):
                 # /api/health — but this same code runs in the web process under
                 # /api/admin/run-backfill, where it does.
                 vendor_meter.record(vendor_meter.payload_ok(data))
+                vendor_meter.note_payload(path, data)   # per-endpoint: data or envelope?
                 return data
             vendor_meter.record(False)
             if r.status_code in (429, 500, 502, 503, 504):
@@ -386,6 +415,12 @@ def _get_safe(path, params):
         return None
     if not KEY:
         return None
+    # Out of quota → treat exactly like any other failure on an OPTIONAL
+    # section: return None so the key stays ABSENT and the DATA-12 merge
+    # preserves the stored value. Short-circuited BEFORE the tick, so a refused
+    # call costs neither quota nor an outcome — same shape as _endpoint_on_plan.
+    if _budget_blocked():
+        return None
     global _CALL_COUNT
     _CALL_COUNT += 1                            # FIX-07: insight calls count too
     from app import vendor_meter; vendor_meter.tick()
@@ -400,6 +435,10 @@ def _get_safe(path, params):
         vendor_meter.record(False)
         return None
     vendor_meter.record(vendor_meter.payload_ok(data, empty_ok=True))
+    # Beside the outcome, not mixed into it: is this ENDPOINT serving data, or
+    # answering everyone with an envelope? The DATA-12 month looked healthy
+    # precisely because nothing asked that question.
+    vendor_meter.note_payload(path, data)
     # DATA-12, second half: an ERROR-SHAPED dict is not data. This guard was
     # written for the wrong reason and is right anyway — see the 25 Aug 2026
     # correction above. From 24 Jul to 25 Aug 2026 /historical_stats answered
