@@ -181,10 +181,18 @@ def download_attachment(attachment_name: str, *, max_retries: int = 3) -> bytes:
 
 
 def parse_filing_date(dt_str: str) -> Optional[datetime]:
-    """BSE returns dates like '2026-05-15 18:30:00' or '2026-05-15T18:30:00'."""
+    """BSE returns dates like '2026-05-15 18:30:00' or '2026-05-15T18:30:00'.
+
+    Some responses carry fractional seconds ('...:00.000'). Those are tried
+    FIRST: strptime has no partial match, so a format without %f simply raises
+    on them and the date silently becomes None — which downstream reads as "no
+    filing date" rather than as a parse failure. Two extra formats, no other
+    behaviour change.
+    """
     if not dt_str:
         return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d %H:%M:%S.%f",
+                "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
         try:
             return datetime.strptime(dt_str, fmt)
         except ValueError:
