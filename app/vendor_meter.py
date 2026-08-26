@@ -243,3 +243,95 @@ def outcomes() -> dict:
             "last_ok_min": None if _last_ok is None else round((now - _last_ok) / 60),
             "last_fail_min": None if _last_fail is None else round((now - _last_fail) / 60),
         }
+
+
+# ── Envelope telemetry: answering is not the same as serving ────────────────
+#
+# payload_ok() deliberately calls a body the vendor CHOSE to send "upstream
+# answering" — and for {"info": ...} it returns True, so those never reach
+# _fail at all. That is the right call for UPTIME and it is left alone here.
+#
+# But it leaves a question nothing could answer: is an endpoint returning DATA,
+# or is it returning envelopes to everybody? From 24 Jul to 25 Aug 2026
+# /historical_stats answered every single name with 200 {"info": "Not a valid
+# script_code"}. Health read a clean "ok" for a month while 633 insight rows
+# were poisoned, because no counter anywhere separated "answered" from "served
+# data".
+#
+# So: a per-ENDPOINT ring, tracked beside the outcome ring and never mixed into
+# it. Uptime semantics are unchanged; this only adds the missing view. An
+# endpoint that is ~all envelopes over a real sample is dead, whatever the body
+# says — and that is a statement about one endpoint, not about the vendor.
+ENVELOPE_RING_N = 20
+ENVELOPE_MIN_CALLS = 8      # thinner than this and a quiet endpoint looks broken
+ENVELOPE_DEAD_PCT = 0.90    # >= 90% envelopes over the sample → endpoint is dead
+_env_rings: dict[str, deque] = {}
+
+# "info" belongs here even though payload_ok excludes it — that exclusion is
+# about not calling the VENDOR down, which is a different question from whether
+# an ENDPOINT is serving data. This is precisely the DATA-12 body.
+_ENVELOPE_ANY = frozenset({"error", "message", "detail", "info"})
+
+
+def _is_envelope(data) -> bool:
+    """True when a parsed body is an error/info envelope rather than data.
+    Pure; never raises on JSON-shaped input. None (transport failure) is NOT an
+    envelope — that is already a plain failure and counted as one."""
+    if data is None or not data:
+        return False
+    if isinstance(data, dict):
+        return set(data.keys()) <= _ENVELOPE_ANY
+    if isinstance(data, list):
+        head, tail = data[0], data[-1]
+        if isinstance(head, dict) and "error" in head:
+            return True
+        if isinstance(tail, int) and not isinstance(tail, bool) and tail >= 400:
+            return True
+    return False
+
+
+def note_payload(path: str, data) -> None:
+    """Record, per endpoint, whether this body carried data or an envelope.
+    Cheap, thread-safe, never raises. Transport failures (data is None) are not
+    recorded: absence of an answer says nothing about what the endpoint serves."""
+    if data is None:
+        return
+    try:
+        key = str(path or "?")[:64]
+        with _lock:
+            ring = _env_rings.get(key)
+            if ring is None:
+                ring = _env_rings[key] = deque(maxlen=ENVELOPE_RING_N)
+            ring.append(_is_envelope(data))
+    except Exception:
+        return
+
+
+def envelope_endpoints(min_calls: int = ENVELOPE_MIN_CALLS,
+                       min_pct: float = ENVELOPE_DEAD_PCT) -> list[dict]:
+    """Endpoints whose recent answers are overwhelmingly envelopes — i.e. up,
+    replying, and serving nothing. Sorted worst-first, thin samples excluded."""
+    out = []
+    with _lock:
+        items = [(k, list(v)) for k, v in _env_rings.items()]
+    for path, ring in items:
+        n = len(ring)
+        if n < min_calls:
+            continue
+        pct = sum(1 for e in ring if e) / n
+        if pct >= min_pct:
+            out.append({"path": path, "n": n, "envelope_pct": round(pct, 3)})
+    return sorted(out, key=lambda d: (-d["envelope_pct"], d["path"]))
+
+
+def envelope_summary() -> dict:
+    """{tracked, dead} — endpoints seen, and those serving only envelopes."""
+    with _lock:
+        tracked = len(_env_rings)
+    return {"tracked": tracked, "dead": envelope_endpoints()}
+
+
+def _reset_envelopes() -> None:
+    """Test hook — the rings are process-global, like every counter here."""
+    with _lock:
+        _env_rings.clear()
