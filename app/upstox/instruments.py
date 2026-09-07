@@ -37,8 +37,22 @@ def parse_master(rows: list) -> tuple[dict, dict, set]:
 
     Indices are keyed by BOTH `name` and `trading_symbol` because the two
     differ for the headline ones (name "Nifty Fin Service" vs symbol
-    "FINNIFTY"), and callers pass either spelling."""
+    "FINNIFTY"), and callers pass either spelling.
+
+    ⚠ A `trading_symbol` is not unique within NSE_EQ. A handful collide with a
+    warrant or a listed debenture that happens to share the equity's symbol —
+    found live: `ELECTCAST` also names "ELECTCAST WARRANTS" (type W1), and
+    `MOTHERSON` also names a Samvardhana Motherson debenture (type D1). Naive
+    first-wins landed on the warrant/bond for both: both illiquid, so LTP read
+    0.0 and historical candles came back empty — a REAL data gap, not a display
+    bug, that only surfaced once cross_check.py flagged them as stale. So this
+    is a preference among the segment's own rows, not a type FILTER (the
+    instrument_type trap `resolve_index`'s sibling already documents): plain
+    equity outranks everything else when both share a symbol; only 4 symbols in
+    the whole master collide, and 2 of them are real companies."""
+    _EQ_RANK = {"EQ": 0}          # everything else in NSE_EQ ranks after "EQ"
     eq, idx, fno = {}, {}, set()
+    _eq_rank: dict[str, int] = {}
     if not isinstance(rows, list):
         return eq, idx, fno
     for r in rows:
@@ -51,7 +65,11 @@ def parse_master(rows: list) -> tuple[dict, dict, set]:
             continue
         if seg == "NSE_EQ":
             if sym:
-                eq.setdefault(sym, key)
+                itype = (r.get("instrument_type") or "").strip().upper()
+                rank = _EQ_RANK.get(itype, 1)
+                if sym not in eq or rank < _eq_rank[sym]:
+                    eq[sym] = key
+                    _eq_rank[sym] = rank
         elif seg == "NSE_INDEX":
             name = (r.get("name") or "").strip().upper()
             if sym:

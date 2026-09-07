@@ -1567,13 +1567,16 @@ def manager_report(items: list[dict], analysis: dict, mom_by: dict | None = None
 @router.post("/sync-dhan")
 def sync_dhan_holdings(user: models.User = Depends(require_admin),
                        db: Session = Depends(get_db)):
-    """One-click import of the owner's ACTUAL holdings from their own Dhan
-    account (GET /v2/holdings — a read-only data endpoint on the same token
-    the price feed uses; no order/trading API is ever touched). Upserts
-    qty + avg cost; names outside coverage are reported, never dropped.
+    """One-click import of the owner's ACTUAL holdings from their own broker
+    account, via app.market_data.client.holdings() — a read-only endpoint on
+    the same token the price feed uses; no order/trading API is ever touched.
+    Upserts qty + avg cost; names outside coverage are reported, never dropped.
+    Route path/name kept as `sync-dhan` from when Dhan was the only vendor;
+    not renamed to avoid an unforced frontend/backend path-matching change —
+    the vendor itself is resolved dynamically (PROVIDER) below regardless.
 
     ADMIN ONLY. This reads the OWNER's brokerage positions using the server's
-    own Dhan token, so the caller's identity does not scope the data at all —
+    own feed token, so the caller's identity does not scope the data at all —
     every caller gets the same holdings. It was gated on `get_current_user`,
     which means any signed-up account could POST here and have the owner's real
     positions (ticker, quantity, average cost) written into its own portfolio
@@ -1623,6 +1626,6 @@ def sync_dhan_holdings(user: models.User = Depends(require_admin),
             holding.qty, holding.avg_cost = float(qty), float(avg)
         imported += 1
     db.commit()
-    return {"imported": imported, "uncovered": uncovered,
+    return {"imported": imported, "uncovered": uncovered, "feed_provider": PROVIDER,
             "note": "Buy dates aren't in the holdings API — set them per "
                     "position for exact LTCG terms (tradebook import can come later)."}
