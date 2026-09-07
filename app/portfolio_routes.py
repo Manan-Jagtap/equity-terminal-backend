@@ -252,7 +252,7 @@ def _nifty_series():
     out = None
     try:
         import datetime as _dt
-        from app.dhan import client, instruments
+        from app.market_data import client, instruments
         if client.configured():
             sid = instruments.index_security_id("NIFTY 50")
             if sid:
@@ -1584,30 +1584,30 @@ def sync_dhan_holdings(user: models.User = Depends(require_admin),
     legitimate caller. Found 2026-08-04 by an adversarial audit of the live
     codebase."""
     import httpx as _httpx
-    from app.dhan import client as _dhan
-    tok = _dhan.access_token()
-    if not tok:
-        raise HTTPException(503, "Dhan feed is not configured.")
+    from app.market_data import client as _md, PROVIDER
+    if not _md.configured():
+        raise HTTPException(503, f"{PROVIDER} feed is not configured.")
     try:
-        r = _httpx.get("https://api.dhan.co/v2/holdings",
-                       headers={"access-token": tok, "Accept": "application/json"},
-                       timeout=20)
-        r.raise_for_status()
-        rows = r.json()
+        rows = _md.holdings()
     except _httpx.HTTPStatusError as e:
-        raise HTTPException(502, f"Dhan holdings error: HTTP {e.response.status_code}")
+        # Upstox gates Portfolio on a static IP (UDAPI1221) — a configuration
+        # gap, not an outage, so say what to actually do about it.
+        if e.response.status_code == 401 and "UDAPI1221" in (e.response.text or ""):
+            raise HTTPException(
+                503, "Broker holdings need a static IP registered with the data "
+                     "provider (Upstox → My Apps → Static IPs).")
+        raise HTTPException(502, f"{PROVIDER} holdings error: HTTP {e.response.status_code}")
     except Exception as e:
-        raise HTTPException(502, f"Dhan holdings error: {type(e).__name__}")
-    if not isinstance(rows, list):
-        rows = (rows or {}).get("data") or []
+        raise HTTPException(502, f"{PROVIDER} holdings error: {type(e).__name__}")
+    if rows is None:
+        raise HTTPException(503, f"{PROVIDER} feed is not configured.")
 
     uk = f"u{user.id}"
     imported, uncovered = 0, []
     for h in rows:
-        sym = str(h.get("tradingSymbol") or "").upper().strip()
-        sym = sym.split("-")[0] if sym.endswith(("-EQ", "-BE")) else sym
-        qty = h.get("totalQty") or h.get("availableQty") or 0
-        avg = h.get("avgCostPrice") or 0
+        sym = h.get("symbol")
+        qty = h.get("qty") or 0
+        avg = h.get("avg_cost") or 0
         if not sym or not qty or not avg:
             continue
         co = db.query(models.Company).filter_by(ticker=sym).first()

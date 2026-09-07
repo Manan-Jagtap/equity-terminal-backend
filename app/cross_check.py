@@ -118,7 +118,7 @@ def _dhan_coverage_lookup():
     would mark EVERY name uncovered and turn one transient CSV failure into a
     universe-wide relabelling. Callers must fail open on None."""
     try:
-        from app.dhan import instruments
+        from app.market_data import instruments
         instruments._load()
         eq = instruments._cache.get("eq")
         return set(eq) if eq else None

@@ -17,11 +17,11 @@
 # a deploy is: Actions → Deploy → Run workflow (tick "cutover" to go live).
 set -euo pipefail
 
-ACCOUNT=593334122677
+ACCOUNT=983971845309
 REGION=ap-south-1
 ROLE=github-deploy-equityverdict
 REPO="Manan-Jagtap/equity-terminal-backend"
-INSTANCE=i-0f60f2dd6fc5fabd5
+INSTANCE=i-05403428c58621973
 export AWS_PAGER=""
 
 echo "· OIDC provider"

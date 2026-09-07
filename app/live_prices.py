@@ -15,7 +15,7 @@ import datetime as _dt
 import threading
 import time
 
-from .dhan import client, instruments
+from .market_data import client, instruments
 
 # Headline indices on the live ticker (display name → resolver input).
 INDEX_NAMES = ["NIFTY 50", "NIFTY Bank", "NIFTY FINANCIAL SERVICES",
@@ -68,7 +68,7 @@ def snapshot() -> dict:
             return _cache["data"]
     if not client.configured():
         return {"available": False, "live": False, "prices": {}, "indices": {},
-                "message": "Live prices need the Dhan feed."}
+                "message": "Live prices need the market-data feed."}
     try:
         eq, idx = _instrument_maps()
         # Dhan caps marketfeed/ltp at 1000 instruments per request — beyond the

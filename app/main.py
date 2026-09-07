@@ -574,6 +574,24 @@ def health(db: Session = Depends(get_db)):
         vendor["vendor_budget"] = _B.budget()
     except Exception as exc:
         log.warning("health: budget unreadable — %s", exc)
+    try:
+        # Market-data feed (live prices, option chains, index history). This is
+        # reported because its LAST failure was invisible: the Dhan subscription
+        # lapsed, the token mint began answering {"message":"Invalid TOTP"} as an
+        # HTTP *200*, auth.py's `except: pass` turned that into "not configured",
+        # and every Dhan-backed job then short-circuited on `configured()` and
+        # returned quietly. Health stayed green while the feed was dead.
+        #
+        # Degraded, not just reported: an unconfigured feed is never a planned
+        # state here — the terminal ships a live ticker and an Options tab.
+        from app import market_data as _md
+        vendor["feed_provider"] = _md.PROVIDER
+        feed_ok = _md.client.configured()
+        vendor["feed_ok"] = feed_ok
+        if not feed_ok:
+            reasons.append(f"feed_unconfigured:{_md.PROVIDER}")
+    except Exception as exc:
+        log.warning("health: market-data provider unreadable — %s", exc)
     if unmeasured:
         reasons.append("unmeasured:" + ",".join(unmeasured))
     degraded = ";".join(reasons) if reasons else None

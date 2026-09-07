@@ -148,7 +148,7 @@ def test_unknown_coverage_falls_back_to_old_behaviour():
 
 def test_coverage_lookup_returns_none_when_master_empty(monkeypatch):
     """An empty map must surface as None, never as 'nothing is covered'."""
-    from app.dhan import instruments
+    from app.market_data import instruments
     monkeypatch.setattr(instruments, "_load", lambda *a, **k: None)
     monkeypatch.setitem(instruments._cache, "eq", {})
     assert _dhan_coverage_lookup() is None

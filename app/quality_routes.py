@@ -34,7 +34,7 @@ def cross_check(db: Session = Depends(get_db)):
         import base64 as _b64
         import json as _json
         import datetime as _dt
-        from app.dhan import client as _dhan
+        from app.market_data import client as _dhan
         tok = _dhan.access_token()
         body = tok.split(".")[1]
         body += "=" * (-len(body) % 4)

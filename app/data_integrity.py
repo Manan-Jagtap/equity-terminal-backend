@@ -65,7 +65,8 @@ def _listing_findings(findings, companies, snap_by):
     if not companies:
         return
     try:
-        from app.dhan.instruments import security_id
+        from app.market_data import instruments as _mdi
+        security_id = _mdi.security_id
         from app.corporate_events import for_ticker as _ce
     except Exception:
         return

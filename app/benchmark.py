@@ -28,7 +28,7 @@ def nifty_series():
         return _CACHE["data"]
     out = None
     try:
-        from app.dhan import client, instruments
+        from app.market_data import client, instruments
         if client.configured():
             sid = instruments.index_security_id("NIFTY 50")
             if sid:

@@ -13,7 +13,7 @@
 # web:8080 and reconnects after the few-second recreate blip.
 set -euo pipefail
 
-ECR=593334122677.dkr.ecr.ap-south-1.amazonaws.com/equity-terminal
+ECR=983971845309.dkr.ecr.ap-south-1.amazonaws.com/equity-terminal
 REGION=ap-south-1
 TAG="${1:-latest}"
 IMG="${ECR}:${TAG}"

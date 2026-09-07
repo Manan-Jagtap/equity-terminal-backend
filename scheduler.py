@@ -149,7 +149,7 @@ def run_dhan_topup(days: int = 30):
     it fed). ~1 REST call/name, self-rate-limited, no WebSocket — recorder-safe.
     The 30-day window self-heals holiday/outage gaps. No-op when Dhan is unset."""
     try:
-        from app.dhan import client as _dhan
+        from app.market_data import client as _dhan
         from app.dhan.backfill import backfill_prices
         from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
         from app.database import SessionLocal
@@ -217,7 +217,7 @@ def run_intraday_prices():
     if not (3 * 60 + 45 <= mins <= 10 * 60 + 5):   # 03:45–10:05 UTC
         return
     try:
-        from app.dhan import client as _dhan
+        from app.market_data import client as _dhan
         n, src = 0, "none"
         if _dhan.configured():
             from app.live_prices import update_snapshots_from_live
@@ -512,7 +512,7 @@ def run_missing_history_backfill():
     future IPO graduate — no one-shot env flags. No-op when nothing is
     missing (one aggregate query) or when Dhan is unconfigured."""
     try:
-        from app.dhan import client as _dhan
+        from app.market_data import client as _dhan
         if not _dhan.configured():
             return
         from sqlalchemy import func as _f
@@ -568,7 +568,7 @@ def run_eod_selfheal(recompute: bool = True):
     app/eod_coverage.py holds the decision — the timing rules, the holiday brake
     and the cross-instance claim — with the reasoning for each."""
     try:
-        from app.dhan import client as _dhan
+        from app.market_data import client as _dhan
         from app.database import SessionLocal
         from app import eod_coverage
         if not _dhan.configured():
@@ -1012,7 +1012,7 @@ elif _flag("RUN_DHAN_BACKFILL"):
     log.info("RUN_DHAN_BACKFILL set — backfilling HistoricalPrice from Dhan (REST)…")
     try:
         from app.dhan.backfill import backfill_prices
-        from app.dhan import client as _dhan
+        from app.market_data import client as _dhan
         from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
         from app.database import SessionLocal
         if not _dhan.configured():
@@ -1123,7 +1123,7 @@ elif _flag("RUN_DHAN_REPAIR"):
     log.info("RUN_DHAN_REPAIR set — repairing UTC-shifted price histories…")
     try:
         from app.dhan.backfill import repair_shifted_histories, backfill_prices
-        from app.dhan import client as _dhan
+        from app.market_data import client as _dhan
         from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
         from app.database import SessionLocal
         if not _dhan.configured():

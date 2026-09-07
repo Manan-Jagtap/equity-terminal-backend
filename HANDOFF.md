@@ -4,14 +4,27 @@
 topology + the valuation pipeline), then `deploy/aws/` (how anything reaches
 production). Change history: CHANGES_2026-07.md. Compliance: COMPLIANCE.md.*
 
-> **Infrastructure.** Production is **AWS Mumbai (ap-south-1)**: one EC2 box
-> (`i-0f60f2dd6fc5fabd5`) running Docker containers `caddy` → `web` and
-> `scheduler`, RDS Postgres 16, ECR for the image, S3 for `/opt/app.env`,
-> Cloudflare R2 for documents and encrypted backups. Frontend on Vercel at
-> equityverdict.com; API at `https://api.equityverdict.com`. **Railway was
-> retired 18 Jul 2026** — ignore every `up.railway.app` URL below and treat
-> "Railway variables" as "`/opt/app.env` on the box". `DEPLOY_NOTES.md` is the
-> dead Railway runbook, kept for history.
+> **Infrastructure.** Production is **AWS Mumbai (ap-south-1)**, in account
+> **983971845309**: one EC2 box (`i-05403428c58621973`, Elastic IP
+> **15.206.224.75**) running Docker containers `caddy` → `web` and `scheduler`,
+> RDS Postgres 16 `equity-terminal-db` (NOT publicly accessible), ECR for the
+> image, and two S3 buckets — `equity-terminal-config-983971845309`
+> (`/opt/app.env`) and `equity-terminal-docs-983971845309` (documents +
+> encrypted backups). Frontend on Vercel at equityverdict.com; API at
+> `https://api.equityverdict.com`. **Railway was retired 18 Jul 2026** — ignore
+> every `up.railway.app` URL below and treat "Railway variables" as
+> "`/opt/app.env` on the box". `DEPLOY_NOTES.md` is the dead Railway runbook.
+>
+> **⚠ REBUILT 6–7 Sep 2026 in a NEW AWS ACCOUNT.** The original account
+> (593334122677) was CLOSED, taking its EC2, RDS and ECR with it — the API was
+> down ~10 days. Everything above was recreated from scratch and the data
+> restored from the 2026-08-29 encrypted backup (~1.64M rows; the ~7 days
+> between that backup and the cutover are simply gone). Two consequences worth
+> knowing: **Cloudflare R2 is no longer used** — storage moved to S3 and the old
+> R2 credentials were revoked, though the env vars are still named `R2_*` with
+> `R2_ENDPOINT` pointed at S3; and the account is on an AWS **Free plan**, which
+> forbids changing an instance type and caps RDS backup retention at **1 day**
+> (the nightly S3 dumps, not PITR, are the real safety net).
 
 > **⚠ The most recent thing to go wrong: the VENDOR HOST.** IndianAPI's
 > Developer plan is served from its own dedicated host,
@@ -47,9 +60,9 @@ admin mananjagtap27@gmail.com; Railway CLI mananjagtap2703@gmail.com).
 | Backend API (FastAPI) | https://api.equityverdict.com | `web` container, same box, 1× uvicorn |
 | Scheduler (worker) | `scheduler` container, same box | same image, command `python scheduler.py` |
 | Database | AWS RDS Postgres 16 `equity-terminal-db` | **Alembic owns the schema**; `app/migrations_boot.py` stamps-or-upgrades at boot, entrypoint runs `alembic upgrade head` fail-closed |
-| Image | ECR `593334122677.dkr.ecr.ap-south-1.amazonaws.com/equity-terminal` | built from `deploy/aws/Dockerfile` (repo-root context) |
+| Image | ECR `983971845309.dkr.ecr.ap-south-1.amazonaws.com/equity-terminal` | built from `deploy/aws/Dockerfile` (repo-root context) |
 | Env | `/opt/app.env` on the box (pulled at boot from the private S3 config bucket) | passed with `docker run --env-file` — **bound at container CREATE** |
-| Documents + backups | Cloudflare R2 | quarterly PDFs; weekly Fernet-encrypted DB dumps (`BACKUP_KEY`) |
+| Documents + backups | S3 `equity-terminal-docs-983971845309` | quarterly PDFs; daily Fernet-encrypted DB dumps (`BACKUP_KEY`). Still reached through the `R2_*` env vars — `R2_ENDPOINT=https://s3.ap-south-1.amazonaws.com` repoints the same S3-protocol client off Cloudflare (`app/r2/client.py`) |
 | Repos | github.com/Manan-Jagtap/{equity-terminal, equity-terminal-backend} | local: ~/equity-terminal, ~/backend |
 
 **Local dev:** backend tests need `./venv313/bin/python` (3.13 venv,
@@ -61,10 +74,13 @@ The owner merges PRs on GitHub, so **local `main` lags**: branch off
 
 ## 3. DATA VENDORS (two, complementary, cross-checked)
 
-**Dhan — everything price-shaped:** live LTP batch (500 equities + 11 NSE
-indices, 12s cache, `app/live_prices.py`), 5-yr OHLCV history (vendor
-split-adjusted — never re-apply the CorporateAction ledger to price series),
-option chains, index history. Tokens **self-mint via TOTP**
+**Upstox — everything price-shaped** (replaced Dhan on 7 Sep 2026; see §3a):
+live LTP batch (equities + 11 NSE indices, 12s cache, `app/live_prices.py`),
+OHLCV history (vendor split-adjusted — never re-apply the CorporateAction
+ledger to price series), option chains, index history. Reached ONLY through
+`app.market_data` — never import a vendor module directly. The legacy Dhan
+notes below still describe the contract accurately; only the vendor changed.
+Dhan tokens **self-mint via TOTP**
 (`app/dhan/auth.py`: official generateAccessToken, RFC-6238 stdlib TOTP,
 one token shared across services via `kv_store`, renewed 30 min before the
 24h expiry, 10-min backoff after failed mints, 401 self-heal in
@@ -74,6 +90,41 @@ one token shared across services via `kv_store`, renewed 30 min before the
 endpoints only; trading APIs are never called. Owner diagnostic:
 `/api/admin/dhan-totp` compares the server-derived code with the
 authenticator.
+
+### 3a. VENDOR SWAP — Dhan → Upstox (7 Sep 2026)
+
+The Dhan **Data API** subscription (₹499/mo) lapsed. Its token mint began
+answering `{"message":"Invalid TOTP"}` with HTTP **200**, so `raise_for_status()`
+never fired, `accessToken` was simply absent, and `except Exception: pass` in
+`_generate()` turned a dead subscription into "Dhan isn't configured" —
+indistinguishable from a deliberately unconfigured deployment. Every Dhan job
+then short-circuited on `configured()` and returned quietly. Live prices, option
+chains and index history were dark and **health stayed green**. That bare except
+now logs the vendor's own message, and `/api/health` carries `feed_provider` +
+`feed_ok` and goes **degraded** when the feed is unconfigured.
+
+Upstox replaces it at **zero cost** (a read-only "Analytics" token, valid 1 year
+— no TOTP mint cycle at all, which is why `app/upstox/` has no `auth.py`).
+
+- **Never import `app.dhan` or `app.upstox` directly.** Everything goes through
+  `app.market_data`, which dispatches on `MARKET_DATA_PROVIDER` (`upstox`
+  default, `dhan` still present as a rollback — set the env var and restart).
+- **Instrument keys are ISIN strings** (`NSE_EQ|INE002A01018`), not Dhan's
+  numeric securityIds. `companies` has no ISIN column, so the map is
+  ticker → `trading_symbol`.
+- **⚠ Filter the master on `segment == "NSE_EQ"`, NEVER `instrument_type == "EQ"`.**
+  REITs/InvITs are typed `RR`/`IV` and surveillance names `BE`/`BZ`; the type
+  filter silently drops 23 live names (EMBASSY, MINDSPACE, BIRET, CUBEINVIT,
+  BAGMANE, HEG, HFCL, RELINFRA, STLTECH…). Measured: segment = 1034/1035
+  tickers, type = 1011/1035.
+- **Batch is 500, not Dhan's 1000** — the LTP endpoint is a GET and 1000 keys
+  overflow the URL (HTTP 414). `ltp_quote()` chunks internally.
+- **Portfolio/holdings needs a STATIC IP** registered at Upstox → My Apps →
+  Static IPs (currently `15.206.224.75`). Without it: HTTP 401 `UDAPI1221`.
+  **If the Elastic IP ever changes, re-register it or holdings breaks.**
+- `JBCHEPHARM` is absent from Upstox's NSE master — falls back to IndianAPI EOD.
+- Licensing is UNCHANGED: Upstox, like Dhan, licenses data for personal/internal
+  use. Redistribution still needs an exchange vendor licence — see §11.
 
 **IndianAPI — everything fundamentals-shaped:** statements, profiles,
 ownership, documents, ratios/growth/quarter history (`/historical_stats`),

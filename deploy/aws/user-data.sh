@@ -17,8 +17,8 @@ if [ ! -f /swapfile ]; then
 fi
 
 REGION=ap-south-1
-BUCKET=s3://equity-terminal-config-593334122677
-ECR=593334122677.dkr.ecr.ap-south-1.amazonaws.com/equity-terminal
+BUCKET=s3://equity-terminal-config-983971845309
+ECR=983971845309.dkr.ecr.ap-south-1.amazonaws.com/equity-terminal
 
 # Config from S3 (instance role has GetObject on exactly these keys).
 aws s3 cp "${BUCKET}/ec2.env" /opt/app.env --region "$REGION"

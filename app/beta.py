@@ -103,7 +103,7 @@ def _nifty_index(lookback_days: int):
     """NIFTY 50 daily closes {date: close} from Dhan — the proper cap-weighted
     market. None when Dhan is unconfigured/down (caller falls back)."""
     try:
-        from app.dhan import client, instruments
+        from app.market_data import client, instruments
         if not client.configured():
             return None
         sid = instruments.index_security_id("NIFTY 50")

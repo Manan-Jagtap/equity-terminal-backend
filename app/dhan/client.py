@@ -253,3 +253,29 @@ def option_chain(underlying_security_id, expiry: str, seg: str = "NSE_EQ"):
     if data is None:
         return None
     return normalize_chain(data)
+
+
+# ── Holdings (owner's own positions) ─────────────────────────────────────────
+def holdings() -> list[dict] | None:
+    """The account's holdings as [{symbol, qty, avg_cost}], or None when
+    unconfigured. Normalized so the route is vendor-agnostic (mirrors
+    app/upstox/client.holdings)."""
+    tok = access_token()
+    if not tok:
+        return None
+    r = httpx.get("https://api.dhan.co/v2/holdings",
+                  headers={"access-token": tok, "Accept": "application/json"},
+                  timeout=20.0)
+    r.raise_for_status()
+    rows = r.json()
+    if not isinstance(rows, list):
+        rows = (rows or {}).get("data") or []
+    out = []
+    for h in rows:
+        sym = str((h or {}).get("tradingSymbol") or "").upper().strip()
+        sym = sym.split("-")[0] if sym.endswith(("-EQ", "-BE")) else sym
+        qty = (h or {}).get("totalQty") or (h or {}).get("availableQty") or 0
+        avg = (h or {}).get("avgCostPrice") or 0
+        if sym and qty and avg:
+            out.append({"symbol": sym, "qty": qty, "avg_cost": avg})
+    return out
