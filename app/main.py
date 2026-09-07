@@ -582,14 +582,16 @@ def health(db: Session = Depends(get_db)):
         # and every Dhan-backed job then short-circuited on `configured()` and
         # returned quietly. Health stayed green while the feed was dead.
         #
-        # Degraded, not just reported: an unconfigured feed is never a planned
-        # state here — the terminal ships a live ticker and an Options tab.
+        # REPORTED, not degraded — the same "unmeasured is not bad" discipline
+        # the other signals here use. A dev box, a test run and a CI container
+        # all legitimately have no feed token, and degrading on that trains the
+        # reader to ignore the field (it also broke every health test that
+        # asserts "ok"). Publishing `feed_ok` is what fixes the silent failure:
+        # the state is now VISIBLE, and the alerting threshold lives in
+        # uptime.yml, which knows it is probing production.
         from app import market_data as _md
         vendor["feed_provider"] = _md.PROVIDER
-        feed_ok = _md.client.configured()
-        vendor["feed_ok"] = feed_ok
-        if not feed_ok:
-            reasons.append(f"feed_unconfigured:{_md.PROVIDER}")
+        vendor["feed_ok"] = _md.client.configured()
     except Exception as exc:
         log.warning("health: market-data provider unreadable — %s", exc)
     if unmeasured:

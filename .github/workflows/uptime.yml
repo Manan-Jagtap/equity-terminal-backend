@@ -62,6 +62,23 @@ jobs:
                   exit 1
                 fi
               done
+              # MARKET-DATA FEED. The Dhan subscription lapsed on 7 Sep 2026 and
+              # the vendor answered {"message":"Invalid TOTP"} with HTTP *200*,
+              # which a bare `except: pass` turned into "not configured" — so
+              # live prices, option chains and index history were dark for days
+              # while every signal above stayed green. `feed_ok` is the outcome
+              # signal for that class, and this is where its threshold lives:
+              # /api/health only REPORTS it, because a dev box and a CI
+              # container legitimately have no token and must not degrade.
+              # Explicitly `= false` and never `!= true`: absent/null is the
+              # not-yet-deployed window this file's null gate note describes,
+              # and that window must not page.
+              feed_ok=$(echo "$body" | jq -r '.feed_ok' 2>/dev/null || echo null)
+              if [ "$feed_ok" = "false" ]; then
+                prov=$(echo "$body" | jq -r '.feed_provider // "unknown"' 2>/dev/null || echo unknown)
+                echo "::error::Health is 200/ok but feed_ok=false (provider=$prov) — the market-data feed is not configured: live prices, option chains and index history are dark. Check the vendor token/subscription."
+                exit 1
+              fi
               # Self-owned error telemetry: errors_1h is the trailing-hour count
               # of unhandled exceptions (app/error_log.py — data stays in OUR
               # DB; no third-party APM by DPDP posture). A storm alerts like
