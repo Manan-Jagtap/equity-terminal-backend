@@ -465,8 +465,12 @@ def test_db_outage_is_degraded_not_ok(tmp_path):
     reason = body["degraded_reason"]
     assert reason.startswith("unmeasured:"), reason
     fields = set(reason.split(":", 1)[1].split(","))
+    # backup_age_days belongs here for the same reason as the rest: it is read
+    # from KVStore, so a total DB outage cannot measure it either. Listing it
+    # is the point of this assertion — every DB-backed signal must report as
+    # UNMEASURED rather than quietly reading as a healthy value.
     assert fields == {"errors_1h", "error_hours_24h", "scheduler_beat_min",
-                      "price_age_days", "integrity"}, fields
+                      "price_age_days", "backup_age_days", "integrity"}, fields
     # errors_1h used to read 0 here (errors_last_hour swallowed the DB error) —
     # a false "no errors" during the outage. Under strict it is honestly null.
     # error_hours_24h reads the same ring under the same strict contract.

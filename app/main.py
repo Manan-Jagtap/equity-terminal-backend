@@ -424,6 +424,23 @@ def health(db: Session = Depends(get_db)):
             price_age_days = (_dt.date.today() - _dt.date.fromisoformat(eod)).days
     except Exception as exc:
         _unmeasured("price_age_days", exc)
+    # BACKUP FRESHNESS — the outcome signal for the one job whose silent failure
+    # is unrecoverable. The backup runs nightly, and a nightly failure is the
+    # class a RATE cannot see: one error in one bucket per day never reaches
+    # errors_1h>25 or error_hours_24h>=12. `skipped` (BACKUP_KEY unset) is not
+    # even an error, so backups could stop completely and every other signal
+    # here would stay green — which is exactly how close this platform came to
+    # having nothing to restore from in Sep 2026. The age is stamped by the
+    # scheduler ONLY on a successful run, so it stops advancing whether the
+    # backup failed, was skipped, or the scheduler itself is dead.
+    backup_age_days = None
+    try:
+        brow = db.query(models.KVStore).filter_by(key="last_backup").first()
+        bdate = ((brow.value or {}) if brow else {}).get("date")
+        if bdate:
+            backup_age_days = (_dt.date.today() - _dt.date.fromisoformat(bdate)).days
+    except Exception as exc:
+        _unmeasured("backup_age_days", exc)
     # SESSION COVERAGE. price_age_days is max(date), and max(date) cannot see a
     # PARTIAL session. On 14 Aug 2026 the Dhan EOD top-up never ran; the daily
     # history self-heal seeded 21 brand-new listings (AASTHA, TURTLEMINT,
@@ -601,6 +618,7 @@ def health(db: Session = Depends(get_db)):
             **({"degraded_reason": degraded} if degraded else {}),
             "errors_1h": errs, "error_hours_24h": ehrs,
             "scheduler_beat_min": beat_min, "price_age_days": price_age_days,
+            "backup_age_days": backup_age_days,
             "eod_names": eod_names, "eod_names_prior": eod_names_prior,
             "jobs_overdue": jobs_overdue, "jobs_overdue_stuck": jobs_overdue_stuck,
             "integrity": integrity, "integrity_age_days": integrity_age_days,

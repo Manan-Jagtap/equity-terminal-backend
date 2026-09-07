@@ -62,6 +62,22 @@ jobs:
                   exit 1
                 fi
               done
+              # BACKUP FRESHNESS — the highest-stakes signal on this list. In
+              # Sep 2026 the AWS account holding prod was closed and the ONLY
+              # thing that saved the platform was a working nightly backup; a
+              # backup that had been silently failing would have been terminal.
+              # The job runs daily, so >2 days means at least one run did not
+              # SUCCEED (failed, skipped for a missing BACKUP_KEY, or the
+              # scheduler is dead). Deliberately not `>=2`: the age is stamped
+              # from the backup's own date and a run that lands either side of
+              # midnight UTC can legitimately read 1.
+              # Null-safe by the same rule as feed_ok below: absent means a
+              # backend that predates this field, and that window must not page.
+              bage=$(echo "$body" | jq -r '.backup_age_days' 2>/dev/null || echo null)
+              if [ "$bage" != "null" ] && [ -n "$bage" ] && [ "$bage" -gt 2 ] 2>/dev/null; then
+                echo "::error::Health is 200/ok but backup_age_days=$bage — the last SUCCESSFUL encrypted backup is stale. Check BACKUP_KEY, the object store credentials and the scheduler. This is the signal that stands between an outage and data loss."
+                exit 1
+              fi
               # MARKET-DATA FEED. The Dhan subscription lapsed on 7 Sep 2026 and
               # the vendor answered {"message":"Invalid TOTP"} with HTTP *200*,
               # which a bare `except: pass` turned into "not configured" — so
