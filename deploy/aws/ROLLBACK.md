@@ -21,7 +21,7 @@ Pick the `git-<sha>` you want to return to (the one running *before* the bad dep
 
 ## Roll back (on the box, via SSM)
 ```bash
-aws ssm send-command --region ap-south-1 --instance-ids i-0f60f2dd6fc5fabd5 \
+aws ssm send-command --region ap-south-1 --instance-ids i-05403428c58621973 \
   --document-name AWS-RunShellScript \
   --parameters 'commands=["bash /opt/cutover.sh git-<previous-sha>"]' \
   --query Command.CommandId --output text
@@ -60,7 +60,7 @@ cuts over via SSM + smokes. It needs, as **owner infra**:
    push + `ssm:SendCommand` on the instance. Add its ARN as repo secret
    `AWS_DEPLOY_ROLE_ARN`, and the instance id as `EC2_INSTANCE_ID`.
 2. Upload `deploy/aws/cutover.sh` and `deploy/aws/Caddyfile` to
-   `s3://equity-terminal-config-593334122677/` so `user-data.sh` can fetch them.
+   `s3://equity-terminal-config-983971845309/` so `user-data.sh` can fetch them.
 
 Until that's set up, deploys stay manual with the same committed scripts:
 `bash deploy/aws/build_and_push.sh <gate-symbol>` on the build host, then

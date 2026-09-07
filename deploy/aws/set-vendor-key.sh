@@ -28,7 +28,7 @@
 set -Eeuo pipefail
 
 REGION=ap-south-1
-INSTANCE=i-0f60f2dd6fc5fabd5
+INSTANCE=i-05403428c58621973
 LOCAL_ENV="${LOCAL_ENV:-$HOME/.equity-terminal/app.env}"
 # The Developer plan's DEDICATED host. We spent nine days on stock.indianapi.in
 # (the shared one) getting 429s with no rate-limit headers while the console

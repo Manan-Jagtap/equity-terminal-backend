@@ -41,7 +41,7 @@ def dhan_status(_admin=Depends(require_admin)):
     worker threads on someone else's slow API and burn the owner's broker quota,
     with no account needed. It reveals nothing secret, but it spends real
     resources on behalf of an unauthenticated caller."""
-    from app.dhan import client, instruments
+    from app.market_data import client, instruments
     tok_cid = client._client_id_from_token()
     env_cid = __import__("os").getenv("DHAN_CLIENT_ID", "").strip()
     # Token expiry from the JWT's own exp claim — Dhan tokens rotate ~daily and
@@ -126,10 +126,10 @@ def index_history(name: str, years: int = 5):
     a BSE index) or when Dhan is unconfigured."""
     import datetime as _dt
     import time as _time
-    from app.dhan import client, instruments
+    from app.market_data import client, instruments
     if not client.configured():
         return {"index": name, "available": False,
-                "message": "Index history needs the Dhan feed (DHAN_ACCESS_TOKEN)."}
+                "message": "Index history needs the market-data feed."}
     sid = instruments.index_security_id(name)
     if not sid:
         return {"index": name, "available": False,
@@ -160,18 +160,18 @@ def fno_universe():
     cached ~daily). The frontend hides the Options tab for names not here.
     Empty list = master unavailable — callers should fail OPEN (show the tab)
     rather than hide options for everyone."""
-    from app.dhan import instruments
+    from app.market_data import instruments
     tks = sorted(instruments.fno_tickers())
     return {"count": len(tks), "tickers": tks}
 
 
 @router.get("/companies/{ticker}/options")
 def company_options(ticker: str, expiry: str | None = None, db: Session = Depends(get_db)):
-    from app.dhan import client, instruments
+    from app.market_data import client, instruments
     tk = ticker.upper()
     if not client.configured():
         return {"ticker": tk, "configured": False,
-                "message": "Options need Dhan — set DHAN_ACCESS_TOKEN on the backend."}
+                "message": "Options need the market-data feed."}
     sid = instruments.security_id(tk)
     if not sid:
         return {"ticker": tk, "configured": True, "available": False,

@@ -110,7 +110,7 @@ def _universe(missing, n=200):
 
 def test_sweep_flags_a_vanished_ticker_that_still_publishes(monkeypatch):
     from app import data_integrity as di
-    import app.dhan.instruments as ins
+    from app.market_data import instruments as ins
     monkeypatch.setattr(ins, "security_id",
                         lambda t, index=False: None if t == "GONE" else "123")
     cos, snaps = _universe(["GONE"])
@@ -126,7 +126,7 @@ def test_sweep_grades_a_vanished_ticker_that_publishes_nothing_lower(monkeypatch
     """DUMMYINXGN-style placeholder scrips: absent, but harmless — they serve no
     price, so nobody can act on them. Worth knowing, not worth going red."""
     from app import data_integrity as di
-    import app.dhan.instruments as ins
+    from app.market_data import instruments as ins
     monkeypatch.setattr(ins, "security_id",
                         lambda t, index=False: None if t == "QUIET" else "123")
     cos, snaps = _universe(["QUIET"])
@@ -141,7 +141,7 @@ def test_sweep_grades_a_vanished_ticker_that_publishes_nothing_lower(monkeypatch
 def test_sweep_stays_silent_on_an_acknowledged_delisting(monkeypatch):
     """JBCHEPHARM is handled; re-flagging it would hold integrity red forever."""
     from app import data_integrity as di
-    import app.dhan.instruments as ins
+    from app.market_data import instruments as ins
     monkeypatch.setattr(ins, "security_id",
                         lambda t, index=False: None if t == "JBCHEPHARM" else "123")
     cos, snaps = _universe(["JBCHEPHARM"])
@@ -154,7 +154,7 @@ def test_sweep_goes_quiet_when_too_much_of_the_universe_is_absent(monkeypatch):
     """The threshold itself: past it, the master is not describing our universe
     and no single absence within it can be trusted."""
     from app import data_integrity as di
-    import app.dhan.instruments as ins
+    from app.market_data import instruments as ins
     gone = {f"G{i}" for i in range(20)}          # 20 of 120 = 16.7%, well over 2%
     monkeypatch.setattr(ins, "security_id",
                         lambda t, index=False: None if t in gone else "123")
@@ -168,7 +168,7 @@ def test_sweep_flags_nothing_when_the_master_resolves_nothing(monkeypatch):
     """The failure that matters: a master that loaded empty must not condemn all
     ~1,000 names and bury a real finding under noise."""
     from app import data_integrity as di
-    import app.dhan.instruments as ins
+    from app.market_data import instruments as ins
     monkeypatch.setattr(ins, "security_id", lambda t, index=False: None)
     findings = []
     di._listing_findings(findings, [_Co(i, f"T{i}") for i in range(50)],
@@ -178,7 +178,7 @@ def test_sweep_flags_nothing_when_the_master_resolves_nothing(monkeypatch):
 
 def test_sweep_survives_a_raising_master(monkeypatch):
     from app import data_integrity as di
-    import app.dhan.instruments as ins
+    from app.market_data import instruments as ins
     def boom(t, index=False): raise RuntimeError("network down")
     monkeypatch.setattr(ins, "security_id", boom)
     findings = []

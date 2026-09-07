@@ -43,9 +43,9 @@ set -Eeuo pipefail
 _SELF_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REPO_DIR="${REPO_DIR:-$_SELF_REPO}"
 REGION="ap-south-1"
-ACCOUNT="593334122677"
+ACCOUNT="983971845309"
 ECR="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/equity-terminal"
-INSTANCE="i-0f60f2dd6fc5fabd5"
+INSTANCE="i-05403428c58621973"
 API="https://api.equityverdict.com"
 
 MODE="deploy"

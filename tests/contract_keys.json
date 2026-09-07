@@ -16,7 +16,9 @@
     "jobs_overdue",
     "jobs_overdue_stuck",
     "vendor_budget",
-    "vendor_budget_left"
+    "vendor_budget_left",
+    "feed_provider",
+    "feed_ok"
   ],
   "/api/factors/backtest": [
     "tracking_since",

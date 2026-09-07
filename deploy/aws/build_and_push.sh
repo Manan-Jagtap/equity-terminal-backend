@@ -12,7 +12,7 @@
 #   twice (see MIGRATION_AWS.md "Deploy gate").
 set -euo pipefail
 
-ECR=593334122677.dkr.ecr.ap-south-1.amazonaws.com/equity-terminal
+ECR=983971845309.dkr.ecr.ap-south-1.amazonaws.com/equity-terminal
 REGION=ap-south-1
 GATE_SYMBOL="${1:-}"
 

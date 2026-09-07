@@ -13,7 +13,7 @@ from __future__ import annotations
 import datetime as _dt
 from collections import Counter
 
-from . import client, instruments
+from ..market_data import client, instruments
 from .. import models
 
 # Post-close tolerance between IndianAPI's EOD snapshot and Dhan's close for the

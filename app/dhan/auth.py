@@ -22,12 +22,15 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import struct
 import threading
 import time
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 _GEN_URL = "https://auth.dhan.co/app/generateAccessToken"
 
@@ -115,6 +118,15 @@ def _write_store(token: str, exp: float) -> None:
 
 
 def _generate() -> tuple[str, float]:
+    """Mint a fresh token, or ("", 0.0) on failure — ALWAYS logging why.
+
+    This used to be `except Exception: pass`, which cost a week of dead feeds:
+    when the Data-API subscription lapsed, Dhan answered
+    {"message":"Invalid TOTP","status":"error"} with HTTP **200**, so
+    raise_for_status() never fired, `accessToken` was simply absent, and the
+    empty return read downstream as "Dhan isn't configured" — indistinguishable
+    from a deliberately unconfigured deployment. Nothing was logged, so nothing
+    was noticed. A credential/subscription failure must be loud."""
     cid, pin, sec = _creds()
     try:
         r = httpx.post(_GEN_URL,
@@ -122,12 +134,17 @@ def _generate() -> tuple[str, float]:
                                "totp": totp_now(sec)},
                        timeout=20)
         r.raise_for_status()
-        tok = str((r.json() or {}).get("accessToken") or "")
+        body = r.json() or {}
+        tok = str(body.get("accessToken") or "")
         if tok:
             exp = _jwt_exp(tok) or (time.time() + 23 * 3600)
             return tok, exp
-    except Exception:
-        pass
+        # HTTP 200 with no token: the vendor rejected us in the body.
+        log.error("dhan auth: mint returned no accessToken — status=%s message=%r "
+                  "(check the API subscription and TOTP enrolment on web.dhan.co)",
+                  body.get("status"), body.get("message"))
+    except Exception as exc:
+        log.error("dhan auth: mint failed — %s: %s", type(exc).__name__, exc)
     return "", 0.0
 
 

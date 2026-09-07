@@ -58,3 +58,4 @@ tests/_calib_replay.db
 # embedded-repo gitlinks — three landed on main in PR #103 that way. They are
 # scratch checkouts, never part of the source tree.
 .claude/worktrees/
+venv313/

@@ -574,6 +574,26 @@ def health(db: Session = Depends(get_db)):
         vendor["vendor_budget"] = _B.budget()
     except Exception as exc:
         log.warning("health: budget unreadable — %s", exc)
+    try:
+        # Market-data feed (live prices, option chains, index history). This is
+        # reported because its LAST failure was invisible: the Dhan subscription
+        # lapsed, the token mint began answering {"message":"Invalid TOTP"} as an
+        # HTTP *200*, auth.py's `except: pass` turned that into "not configured",
+        # and every Dhan-backed job then short-circuited on `configured()` and
+        # returned quietly. Health stayed green while the feed was dead.
+        #
+        # REPORTED, not degraded — the same "unmeasured is not bad" discipline
+        # the other signals here use. A dev box, a test run and a CI container
+        # all legitimately have no feed token, and degrading on that trains the
+        # reader to ignore the field (it also broke every health test that
+        # asserts "ok"). Publishing `feed_ok` is what fixes the silent failure:
+        # the state is now VISIBLE, and the alerting threshold lives in
+        # uptime.yml, which knows it is probing production.
+        from app import market_data as _md
+        vendor["feed_provider"] = _md.PROVIDER
+        vendor["feed_ok"] = _md.client.configured()
+    except Exception as exc:
+        log.warning("health: market-data provider unreadable — %s", exc)
     if unmeasured:
         reasons.append("unmeasured:" + ",".join(unmeasured))
     degraded = ";".join(reasons) if reasons else None
