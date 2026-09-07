@@ -2,7 +2,9 @@
 app/quality_routes.py — data-health endpoints (the accuracy spine, surfaced).
 
   GET /api/quality/cross-check → second-source price cross-check over the
-  visible universe (Dhan HistoricalPrice vs IndianAPI MarketSnapshot). Zero
+  visible universe (market-data feed's HistoricalPrice vs IndianAPI
+  MarketSnapshot — see app/cross_check.py; the response carries
+  `feed_provider` so callers never need to hardcode the vendor's name). Zero
   vendor calls — it reads what the ingest pipelines already stored. Cached
   briefly; the underlying data only moves on the daily jobs.
 """
@@ -27,15 +29,19 @@ def cross_check(db: Session = Depends(get_db)):
         return _CACHE["data"]
     from app.ingest.indianapi_ingester import VISIBLE_UNIVERSE
     data = cross_check_universe(db, VISIBLE_UNIVERSE)
-    # Feed status rides along: an expired Dhan token is the single most likely
-    # cause of mass staleness (it froze the pipeline for 8 days once, with the
-    # alarm firing but nothing naming the culprit). Name it, loudly.
+    # Token expiry rides along: an expired feed token is the single most likely
+    # cause of mass staleness (a Dhan subscription lapse froze the pipeline for
+    # 8 days once, with the alarm firing but nothing naming the culprit). Name
+    # it, loudly. Both Dhan's and Upstox's tokens are JWTs carrying `exp`, so
+    # this decodes either without caring which is active; a future vendor whose
+    # token isn't a JWT just fails the try below and this block goes quiet —
+    # feed_ok in /api/health is the provider-agnostic version of this signal.
     try:
         import base64 as _b64
         import json as _json
         import datetime as _dt
-        from app.market_data import client as _dhan
-        tok = _dhan.access_token()
+        from app.market_data import client as _feed_client
+        tok = _feed_client.access_token()
         body = tok.split(".")[1]
         body += "=" * (-len(body) % 4)
         exp = _json.loads(_b64.urlsafe_b64decode(body)).get("exp")

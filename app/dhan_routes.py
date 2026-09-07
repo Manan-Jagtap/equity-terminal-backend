@@ -41,11 +41,21 @@ def dhan_status(_admin=Depends(require_admin)):
     worker threads on someone else's slow API and burn the owner's broker quota,
     with no account needed. It reveals nothing secret, but it spends real
     resources on behalf of an unauthenticated caller."""
-    from app.market_data import client, instruments
-    tok_cid = client._client_id_from_token()
-    env_cid = __import__("os").getenv("DHAN_CLIENT_ID", "").strip()
-    # Token expiry from the JWT's own exp claim — Dhan tokens rotate ~daily and
-    # a stale one is the first suspect whenever 401/808s appear.
+    from app.market_data import client, instruments, PROVIDER
+    # PROVIDER-AWARE. This endpoint was written when Dhan was the only vendor and
+    # reached straight past the shared interface into Dhan-private internals
+    # (_client_id_from_token, _post, the client-id header matrix). After the
+    # 7 Sep 2026 swap those attributes do not exist on app/upstox/client.py, so
+    # the FIRST line 500'd — an admin diagnostic that failed exactly when you
+    # would reach for it, in a module whose own docstring promises "never a 500".
+    # Everything below now goes through the shared interface, and the
+    # Dhan-specific probes are gated on the active provider AND hasattr.
+    _is_dhan = PROVIDER == "dhan"
+    tok_cid = client._client_id_from_token() if hasattr(client, "_client_id_from_token") else None
+    env_cid = __import__("os").getenv("DHAN_CLIENT_ID", "").strip() if _is_dhan else ""
+    # Token expiry from the JWT's own exp claim. Dhan's rotates ~daily and a
+    # stale one is the first suspect on 401/808; Upstox's Analytics token is
+    # 1-year, so a near expiry there is a renewal reminder rather than a bug.
     tok_exp = None
     try:
         import base64 as _b64, json as _json, datetime as _dtt
@@ -56,12 +66,16 @@ def dhan_status(_admin=Depends(require_admin)):
             tok_exp = _dtt.datetime.fromtimestamp(int(exp), _dtt.timezone.utc).isoformat()
     except Exception:
         pass
-    out = {"configured": client.configured(),
+    out = {"provider": PROVIDER,
+           "configured": client.configured(),
            "token_expires_utc": tok_exp,
            "has_client_id": bool(client.client_id()),
            # Which id the client actually sends, and whether the env var agrees
-           # with the token's own claim (a mismatch here was the option-chain 401).
-           "client_id_source": "token" if tok_cid else ("env" if env_cid else "none"),
+           # with the token's own claim (a mismatch here was the option-chain
+           # 401). Dhan-only: Upstox carries identity inside the bearer token
+           # and sends no client-id header, so these read None rather than
+           # inventing a verdict about a header that is not used.
+           "client_id_source": ("token" if tok_cid else ("env" if env_cid else "none")) if _is_dhan else None,
            "env_client_id_matches_token": (env_cid == tok_cid) if (env_cid and tok_cid) else None,
            "instruments": instruments.coverage()}
     if client.configured():
@@ -83,24 +97,44 @@ def dhan_status(_admin=Depends(require_admin)):
                 out["option_chain_probe"] = {"ok": exp is not None, "expiries": len(exp or [])}
             except Exception as e:
                 out["option_chain_probe"] = {"ok": False, "error": _dhan_error(e)}
-            # Market-quote (batch LTP) auth matrix: the live-price feed 401'd
-            # while the chain authenticated — probe each client-id variant so
-            # Dhan tells us exactly which one this endpoint family wants.
-            import os as _os
-            variants = {"token_claim": client._client_id_from_token(),
-                        "env": _os.getenv("DHAN_CLIENT_ID", "").strip(),
-                        "none": None}
-            ltp = {}
-            for label, cid in variants.items():
-                try:
-                    r = client._post("/marketfeed/ltp", {"NSE_EQ": [int(sid)]},
-                                     client._quote_rl,
-                                     extra_headers=({"client-id": cid} if cid else None))
-                    got = ((r or {}).get("data") or {}).get("NSE_EQ") or {}
-                    ltp[label] = {"ok": bool(got)}
-                except Exception as e:
-                    ltp[label] = {"ok": False, "error": _dhan_error(e)[:120]}
-            out["ltp_probe"] = ltp
+            # Batch-LTP probe through the SHARED interface. This used to call
+            # client._post directly with int(sid) so it could vary the client-id
+            # header (the live feed once 401'd while the chain authenticated).
+            # Both of those are Dhan-shaped: Upstox has no _post, sends no
+            # client-id, and its ids are strings like "NSE_EQ|INE002A01018" that
+            # int() cannot parse. ltp_quote() answers the question that actually
+            # matters — "can this provider price a name right now?" — on either.
+            try:
+                q = client.ltp_quote({"NSE_EQ": [sid]})
+                got = (q or {}).get("NSE_EQ") or {}
+                px = got.get(str(sid))
+                out["ltp_probe"] = {"ok": px is not None, "price": px}
+            except Exception as e:
+                out["ltp_probe"] = {"ok": False, "error": _dhan_error(e)[:120]}
+            # Dhan's client-id header matrix, kept for when MARKET_DATA_PROVIDER
+            # is flipped back: which id (token claim / env / none) the quote
+            # endpoint family actually accepts. Meaningless under Upstox.
+            # Every private this block touches is hasattr-checked by name, not
+            # just _post — tests/test_market_data_provider_parity.py requires it,
+            # and a provider-string gate alone would not survive someone adding
+            # a third vendor that reports PROVIDER == "dhan"-ish by accident.
+            if (_is_dhan and hasattr(client, "_post")
+                    and hasattr(client, "_client_id_from_token")
+                    and hasattr(client, "_quote_rl")):
+                import os as _os
+                variants = {"token_claim": client._client_id_from_token(),
+                            "env": _os.getenv("DHAN_CLIENT_ID", "").strip(),
+                            "none": None}
+                matrix = {}
+                for label, cid in variants.items():
+                    try:
+                        r = client._post("/marketfeed/ltp", {"NSE_EQ": [int(sid)]},
+                                         client._quote_rl,
+                                         extra_headers=({"client-id": cid} if cid else None))
+                        matrix[label] = {"ok": bool(((r or {}).get("data") or {}).get("NSE_EQ") or {})}
+                    except Exception as e:
+                        matrix[label] = {"ok": False, "error": _dhan_error(e)[:120]}
+                out["client_id_matrix"] = matrix
     return out
 
 
@@ -167,29 +201,35 @@ def fno_universe():
 
 @router.get("/companies/{ticker}/options")
 def company_options(ticker: str, expiry: str | None = None, db: Session = Depends(get_db)):
-    from app.market_data import client, instruments
+    from app.market_data import client, instruments, PROVIDER
+    feed = PROVIDER.capitalize()
+    # `feed_provider` rides on EVERY branch — the frontend caption used to say
+    # "Live option chain via Dhan" as a hardcoded string and kept saying it for
+    # a day after the backend moved to Upstox (7 Sep 2026). Naming the vendor
+    # here once, on every response shape, is what lets OptionsTab.jsx stop
+    # hardcoding it — see the vendor-swap note in app/market_data.py.
     tk = ticker.upper()
     if not client.configured():
-        return {"ticker": tk, "configured": False,
+        return {"ticker": tk, "configured": False, "feed_provider": PROVIDER,
                 "message": "Options need the market-data feed."}
     sid = instruments.security_id(tk)
     if not sid:
-        return {"ticker": tk, "configured": True, "available": False,
-                "message": f"No Dhan security-id mapping for {tk} yet."}
+        return {"ticker": tk, "configured": True, "available": False, "feed_provider": PROVIDER,
+                "message": f"No {feed} security-id mapping for {tk} yet."}
     try:
         expiries = client.expiry_list(sid, seg="NSE_EQ") or []
     except Exception as e:
-        return {"ticker": tk, "configured": True, "available": False,
-                "message": f"Dhan expiry-list error: {_dhan_error(e)}"}
+        return {"ticker": tk, "configured": True, "available": False, "feed_provider": PROVIDER,
+                "message": f"{feed} expiry-list error: {_dhan_error(e)}"}
     if not expiries:
-        return {"ticker": tk, "configured": True, "available": False,
+        return {"ticker": tk, "configured": True, "available": False, "feed_provider": PROVIDER,
                 "message": "No option expiries for this name (may not be in F&O)."}
     chosen = expiry if (expiry and expiry in expiries) else expiries[0]
     try:
         chain = client.option_chain(sid, chosen, seg="NSE_EQ")
     except Exception as e:
         return {"ticker": tk, "configured": True, "available": False, "expiries": expiries,
-                "expiry": chosen, "message": f"Dhan option-chain error: {_dhan_error(e)}"}
+                "expiry": chosen, "feed_provider": PROVIDER, "message": f"{feed} option-chain error: {_dhan_error(e)}"}
     return {"ticker": tk, "configured": True,
             "available": bool(chain and chain.get("strikes")),
-            "expiries": expiries, "expiry": chosen, **(chain or {})}
+            "expiries": expiries, "expiry": chosen, "feed_provider": PROVIDER, **(chain or {})}

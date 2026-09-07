@@ -5,7 +5,7 @@ Run: python tests/test_cross_check.py
 import os, sys
 import datetime as dt
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app.cross_check import check_row, DIVERGE_WARN, _dhan_coverage_lookup
+from app.cross_check import check_row, DIVERGE_WARN, _feed_coverage_lookup
 
 TODAY = dt.date(2026, 7, 3)          # a Friday
 
@@ -116,9 +116,9 @@ def test_uncovered_name_reports_coverage_not_staleness():
     r = check_row({"ticker": "JBCHEPHARM", "snapshot_price": 2408.9,
                       "snapshot_date": dt.date(2026, 7, 29),
                       "hist_close": 2350.0, "hist_date": dt.date(2026, 7, 15),
-                      "dhan_covered": False}, today=dt.date(2026, 8, 1))
+                      "covered": False}, today=dt.date(2026, 8, 1))
     codes = {f["code"] for f in r["flags"]}
-    assert "NO_DHAN_COVERAGE" in codes
+    assert "NO_FEED_COVERAGE" in codes
     assert "STALE_HISTORY" not in codes, "an absent instrument must not read as a broken pipeline"
 
 
@@ -127,23 +127,23 @@ def test_covered_name_still_reports_stale_history():
     r = check_row({"ticker": "FOO", "snapshot_price": 100.0,
                       "snapshot_date": dt.date(2026, 8, 1),
                       "hist_close": 98.0, "hist_date": dt.date(2026, 7, 15),
-                      "dhan_covered": True}, today=dt.date(2026, 8, 1))
+                      "covered": True}, today=dt.date(2026, 8, 1))
     codes = {f["code"] for f in r["flags"]}
     assert "STALE_HISTORY" in codes
-    assert "NO_DHAN_COVERAGE" not in codes
+    assert "NO_FEED_COVERAGE" not in codes
 
 
 def test_unknown_coverage_falls_back_to_old_behaviour():
     """Scrip master unavailable -> must NOT relabel the universe as uncovered."""
     import datetime as dt
-    for missing in ({}, {"dhan_covered": None}):
+    for missing in ({}, {"covered": None}):
         row = {"ticker": "FOO", "snapshot_price": 100.0,
                "snapshot_date": dt.date(2026, 8, 1),
                "hist_close": 98.0, "hist_date": dt.date(2026, 7, 15), **missing}
         r = check_row(row, today=dt.date(2026, 8, 1))
         codes = {f["code"] for f in r["flags"]}
         assert "STALE_HISTORY" in codes
-        assert "NO_DHAN_COVERAGE" not in codes
+        assert "NO_FEED_COVERAGE" not in codes
 
 
 def test_coverage_lookup_returns_none_when_master_empty(monkeypatch):
@@ -151,4 +151,4 @@ def test_coverage_lookup_returns_none_when_master_empty(monkeypatch):
     from app.market_data import instruments
     monkeypatch.setattr(instruments, "_load", lambda *a, **k: None)
     monkeypatch.setitem(instruments._cache, "eq", {})
-    assert _dhan_coverage_lookup() is None
+    assert _feed_coverage_lookup() is None
