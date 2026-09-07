@@ -880,6 +880,36 @@ def run_encrypted_backup():
     out = run_backup()
     log.info(f"encrypted backup: {out}")
     status = (out or {}).get("status") if isinstance(out, dict) else None
+
+    # Stamp the last SUCCESSFUL backup so /api/health can publish its age.
+    # The error path below records into errors_1h, but a backup that fails once
+    # a NIGHT is exactly the class uptime.yml says a rate cannot catch ("that
+    # class needs an OUTCOME signal per job, not a rate") — one error in one
+    # bucket per day never nears errors_1h>25 or error_hours_24h>=12. Worse,
+    # status=="skipped" (BACKUP_KEY unset) is not an error at all, so backups
+    # could stop COMPLETELY in silence. An age that simply stops advancing
+    # covers every one of those: failed, skipped, or the scheduler not running.
+    if status == "ok":
+        try:
+            from app.database import SessionLocal
+            from app import models
+            s = SessionLocal()
+            try:
+                payload = {"date": out.get("date"),
+                           "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+                           "tables": out.get("tables"), "bytes_enc": out.get("bytes_enc")}
+                row = s.query(models.KVStore).filter_by(key="last_backup").first()
+                if row:
+                    row.value = payload
+                else:
+                    s.add(models.KVStore(key="last_backup", value=payload))
+                s.commit()
+            finally:
+                s.close()
+        except Exception as exc:
+            # Bookkeeping must never be the reason a good backup reads as bad.
+            log.warning(f"backup: could not stamp last_backup — {type(exc).__name__}: {exc}")
+
     if status not in ("ok", "skipped"):
         log.error(f"BACKUP FAILED: {out}")
         try:
@@ -891,8 +921,8 @@ def run_encrypted_backup():
                              RuntimeError(f"backup not ok: {out}"))
             finally:
                 s.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning(f"backup: could not record the failure — {type(exc).__name__}: {exc}")
 
 
 # DAILY 04:00 UTC (9:30am IST), after the integrity sweep. RPO ≤ 1 day (was
