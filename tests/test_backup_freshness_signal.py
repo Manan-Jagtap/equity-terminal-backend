@@ -106,3 +106,52 @@ def test_unparseable_date_is_unmeasured_not_a_crash(db):
     db.commit()
     out = health(db=db)
     assert out["backup_age_days"] is None
+
+
+# ── The WRITER ───────────────────────────────────────────────────────────────
+# Everything above drives the reader with a hand-inserted row, so all of it
+# passed while the thing that WRITES that row was broken. The first version of
+# the stamp was inline in scheduler.run_encrypted_backup() and used `_dt`
+# without importing it there: every nightly backup succeeded, the stamp raised
+# NameError into its own except, and backup_age_days would have stayed null
+# forever. Caught only by reading production logs. These pin the writer.
+
+def test_stamp_writes_the_row_health_reads(db):
+    """End-to-end in one test: stamp a successful run, then assert health sees
+    it. A reader-only test cannot fail when the writer is broken."""
+    from app.backup import stamp_last_backup
+    ok = stamp_last_backup(db, {"status": "ok", "date": dt.date.today().isoformat(),
+                                "tables": 26, "bytes_enc": 51342896})
+    assert ok is True
+    assert health(db=db)["backup_age_days"] == 0
+
+
+def test_stamp_updates_rather_than_duplicating(db):
+    """Second night must overwrite, not accumulate a second KVStore row."""
+    from app.backup import stamp_last_backup
+    stamp_last_backup(db, {"status": "ok", "date": "2026-09-01", "tables": 26})
+    stamp_last_backup(db, {"status": "ok", "date": dt.date.today().isoformat(), "tables": 26})
+    rows = db.query(models.KVStore).filter_by(key="last_backup").all()
+    assert len(rows) == 1
+    assert health(db=db)["backup_age_days"] == 0
+
+
+@pytest.mark.parametrize("status", ["error", "skipped", None])
+def test_a_run_that_did_not_succeed_is_never_stamped(db, status):
+    """The age must advance off the last SUCCESS only — stamping a failed or
+    skipped run would make a dead backup look fresh, which is worse than having
+    no signal at all."""
+    from app.backup import stamp_last_backup
+    assert stamp_last_backup(db, {"status": status, "date": dt.date.today().isoformat()}) is False
+    assert health(db=db)["backup_age_days"] is None
+
+
+def test_stamp_never_raises_even_on_a_broken_session(db):
+    """A good backup must not read as bad because bookkeeping failed. This is
+    also the guard that the NameError bug hid behind — so assert the contract
+    holds while ALSO asserting (above) that the happy path really writes."""
+    from app.backup import stamp_last_backup
+
+    class _Broken:
+        def query(self, *a, **k): raise RuntimeError("db gone")
+    assert stamp_last_backup(_Broken(), {"status": "ok", "date": "2026-09-08"}) is False

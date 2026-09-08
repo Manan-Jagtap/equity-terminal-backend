@@ -891,19 +891,11 @@ def run_encrypted_backup():
     # covers every one of those: failed, skipped, or the scheduler not running.
     if status == "ok":
         try:
+            from app.backup import stamp_last_backup
             from app.database import SessionLocal
-            from app import models
             s = SessionLocal()
             try:
-                payload = {"date": out.get("date"),
-                           "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
-                           "tables": out.get("tables"), "bytes_enc": out.get("bytes_enc")}
-                row = s.query(models.KVStore).filter_by(key="last_backup").first()
-                if row:
-                    row.value = payload
-                else:
-                    s.add(models.KVStore(key="last_backup", value=payload))
-                s.commit()
+                stamp_last_backup(s, out)
             finally:
                 s.close()
         except Exception as exc:

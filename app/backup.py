@@ -175,3 +175,37 @@ def run_backup() -> dict:
     except Exception as e:
         log.error(f"backup failed: {e}")
         return {"status": "error", "error": str(e)[:200]}
+
+
+def stamp_last_backup(db, out: dict) -> bool:
+    """Record a SUCCESSFUL run so /api/health can publish `backup_age_days`.
+    Returns True when a stamp was written. Never raises — bookkeeping must not
+    be the reason a good backup reads as bad.
+
+    Lives HERE, next to run_backup(), rather than in the scheduler job that
+    calls it, because scheduler.py runs its loop at module level and therefore
+    cannot be imported by a test. The first version of this code was inline in
+    that job and shipped a bare NameError (`_dt` was never imported there): the
+    backup itself succeeded every night, the stamp silently failed, and
+    `backup_age_days` would have stayed null forever — the exact silent-failure
+    shape the signal exists to expose, reproduced inside the signal itself.
+    It survived review and a green suite because the tests covered the READER
+    (health reading a hand-inserted row) and never this WRITER."""
+    if (out or {}).get("status") != "ok":
+        return False
+    try:
+        from app import models
+        payload = {"date": out.get("date"),
+                   "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+                   "tables": out.get("tables"), "bytes_enc": out.get("bytes_enc")}
+        row = db.query(models.KVStore).filter_by(key="last_backup").first()
+        if row:
+            row.value = payload
+        else:
+            db.add(models.KVStore(key="last_backup", value=payload))
+        db.commit()
+        return True
+    except Exception as exc:
+        log.warning("backup: could not stamp last_backup — %s: %s",
+                    type(exc).__name__, exc)
+        return False
